@@ -42,6 +42,12 @@ docker compose -f docker-compose.release.yml ps
 
 Windows 收银端安装程序不提交到 Git 仓库，应放在 GitHub Release 附件中。
 
+## GitHub 自动构建与部署
+
+仓库已配置 GitHub Actions：推送 `main` 会自动测试和构建；确认版本后推送 `v*` 标签，会自动生成 GitHub Release、Windows 收银端安装包并构建 Docker 发布镜像。配置服务器 Secrets 和 `DEPLOY_ENABLED=true` 后，同一标签会自动部署到服务器。
+
+详细配置见 [GitHub 工作流部署](docs/GitHub工作流部署.md)。
+
 演示账号：`admin/admin`（管理员）、`manager/admin`（店长）、`cashier/admin`（前台）、`sales/admin`（销售）。首次登录后建议立即修改密码。
 
 ## 文档
