@@ -1,0 +1,12 @@
+{
+  "appId": "com.xinchengjinjiang.mobile",
+  "appName": "打金店移动端",
+  "webDir": "dist/build/android",
+  "server": {
+    "hostname": "m.xinchengjinjiang.com",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": { "allowMixedContent": false, "adjustMarginsForEdgeToEdge": "auto" },
+  "plugins": { "Camera": { "presentationStyle": "fullscreen" } }
+}

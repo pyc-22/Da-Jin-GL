@@ -1,0 +1,128 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports: ["3306:3306"]
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./data/mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    command: >-
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"; else exec redis-server --appendonly yes; fi'
+    ports: ["6379:6379"]
+    volumes: [./data/redis:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:latest}
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [./data/minio:/data]
+    healthcheck:
+      # Check the serving API and storage readiness, rather than only whether the binary exists.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  minio-init:
+    image: ${MINIO_MC_IMAGE:-quay.io/minio/mc:latest}
+    restart: "no"
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_CORS_ORIGINS: ${MINIO_CORS_ORIGINS}
+    entrypoint: []
+    command: ["/bin/sh", "-c", "mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\" && mc mb --ignore-existing \"local/$${MINIO_BUCKET}\""]
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias list local >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        MAVEN_IMAGE: ${MAVEN_IMAGE:-m.daocloud.io/docker.io/library/maven:3.9-eclipse-temurin-17}
+        JRE_IMAGE: ${JRE_IMAGE:-m.daocloud.io/docker.io/library/eclipse-temurin:17-jre}
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_CORS_ORIGINS: ${MINIO_CORS_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
+      JWT_HOURS: ${JWT_EXPIRATION}
+      STORE_NAME: ${STORE_NAME}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-系统管理员}
+    ports: ["${BACKEND_PORT}:8080"]
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./backup:/app/backup
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q 'UP'"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+  admin-web:
+    build: { context: ./admin-web, dockerfile: Dockerfile }
+    restart: unless-stopped
+    ports: ["${ADMIN_WEB_PORT}:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  mobile-web:
+    build: { context: ./mobile, dockerfile: Dockerfile }
+    restart: unless-stopped
+    ports: ["${MOBILE_WEB_PORT:-81}:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10

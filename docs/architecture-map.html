@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>打金店管理系统 · 架构总览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #0f1420; color: #e6ebf5; padding: 28px 32px 40px;
+    width: 1440px;
+  }
+  h1 { font-size: 25px; letter-spacing: 1px; }
+  .sub { color: #7f8ba3; font-size: 13px; margin-top: 6px; margin-bottom: 24px; }
+  .band { margin-bottom: 14px; }
+  .band-title {
+    font-size: 12px; color: #8b97b0; letter-spacing: 3px;
+    border-left: 3px solid #4a90d9; padding-left: 9px; margin-bottom: 11px;
+  }
+  .row { display: flex; gap: 14px; align-items: stretch; }
+  .box {
+    background: #1a2130; border: 1px solid #2c3648; border-radius: 9px;
+    padding: 13px 15px; flex: 1;
+  }
+  .box h3 { font-size: 15px; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+  .box .meta { font-size: 11.5px; color: #7f8ba3; margin-bottom: 9px; }
+  .tag {
+    font-size: 10.5px; padding: 2px 7px; border-radius: 10px;
+    background: #24304a; color: #9dc0f0; font-weight: normal;
+  }
+  .tag.docker { background: #123a4a; color: #4fc3e8; }
+  .tag.local  { background: #3d2f14; color: #e8b95c; }
+  ul { list-style: none; font-size: 12px; line-height: 1.85; color: #c3ccdd; }
+  ul li::before { content: "· "; color: #4a5a78; }
+  .arrow { text-align: center; color: #4a5a78; font-size: 19px; margin: 5px 0 9px; }
+  .accent-b { border-top: 3px solid #4a90d9; }
+  .accent-g { border-top: 3px solid #3fa66a; }
+  .accent-o { border-top: 3px solid #d9944a; }
+  .accent-p { border-top: 3px solid #9a6fd9; }
+  .accent-r { border-top: 3px solid #d95c5c; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 5px;
+    background: #212a3c; border: 1px solid #2f3a50; color: #b9c4d8;
+    font-family: Consolas, monospace;
+  }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .grid6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .port { color: #4fc3e8; font-family: Consolas, monospace; font-size: 11.5px; }
+  .num { color: #e8b95c; font-family: Consolas, monospace; }
+  .foot { margin-top: 22px; font-size: 11.5px; color: #6b7689; border-top: 1px solid #232c3d; padding-top: 12px; }
+  .sec-label { font-size: 12.5px; color: #9dc0f0; margin-bottom: 6px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>打金店管理系统 · 架构总览</h1>
+<div class="sub">D:\xiangmu-wenjian\dajin-system &nbsp;|&nbsp; 4 端 + Docker 基础设施 &nbsp;|&nbsp; 32 张表 · 151 个接口 · 7604 行源码</div>
+
+<!-- ============ 客户端层 ============ -->
+<div class="band">
+  <div class="band-title">CLIENT 客户端层</div>
+  <div class="grid3">
+    <div class="box accent-b">
+      <h3>admin-web <span class="tag docker">Docker nginx</span></h3>
+      <div class="meta">Vue3 + Element Plus · 1601 行 · <span class="port">:80</span></div>
+      <ul>
+        <li>14 个 views：Dashboard / Sales / Processing</li>
+        <li>Stock / Member / GoldPrice / Commission</li>
+        <li>Approval / Finance / Goods / Staff / System</li>
+        <li>CategoryManagementDialog · DataTable</li>
+        <li>hash 路由 · stores: auth + app</li>
+      </ul>
+    </div>
+    <div class="box accent-o">
+      <h3>front-pc <span class="tag local">本地 Electron</span></h3>
+      <div class="meta">收银台 · 2019 行 · <span class="port">127.0.0.1:5173</span></div>
+      <ul>
+        <li>App.vue 单文件 1023 行（主界面）</li>
+        <li>逻辑层 cashier / catalog / offline / connectivity</li>
+        <li>escpos.js 小票指令</li>
+        <li>electron: main · preload · <b>db.cjs</b>(SQLite 离线队列) · <b>print.cjs</b></li>
+        <li>7 个测试文件（唯一有测试的前端）</li>
+      </ul>
+    </div>
+    <div class="box accent-p">
+      <h3>mobile <span class="tag local">本地 uni-app H5</span></h3>
+      <div class="meta">1109 行 · 店员/店长移动端</div>
+      <ul>
+        <li>9 个 views：RoleHome / Login / Shift</li>
+        <li>GoodsSearch / GoodsDetail / InventoryOverview</li>
+        <li>MemberDetail / VisitsPage / ActivityLibrary</li>
+        <li>9 个组件：CategoryPie · GoldTrend · Kpi …</li>
+        <li>config/roles.js 角色驱动首页</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">▼ &nbsp; HTTP /api/** &nbsp;+&nbsp; WebSocket(sync) &nbsp; ▼</div>
+
+<!-- ============ 后端层 ============ -->
+<div class="band">
+  <div class="band-title">BACKEND 服务层</div>
+  <div class="box accent-g">
+    <h3>backend <span class="tag docker">Docker 容器</span> <span class="tag">Spring Boot 2.7</span> <span class="port" style="margin-left:auto">:8080</span></h3>
+    <div class="meta">2875 行 Java · 扁平结构：Controller 直连 DbSupport(JdbcTemplate)，无 service/entity 分层</div>
+    <div class="grid4" style="margin-top:6px">
+      <div>
+        <div class="sec-label">基础设施 config/common</div>
+        <div class="chips">
+          <span class="chip">JwtService</span><span class="chip">AuthInterceptor</span>
+          <span class="chip">RequireRoles</span><span class="chip">DbSupport</span>
+          <span class="chip">ApiResponse</span><span class="chip">GlobalExceptionHandler</span>
+          <span class="chip">SyncWebSocketHandler</span>
+          <span class="chip" style="border-color:#d9944a">SchemaCompatibilityMigration<br>启动时自动补表/补列 201行</span>
+        </div>
+      </div>
+      <div>
+        <div class="sec-label">业务 Controller（20 个域）</div>
+        <div class="chips">
+          <span class="chip">processing 468</span><span class="chip">stock 328</span>
+          <span class="chip">admin 192</span><span class="chip">tradein 172</span>
+          <span class="chip">approval 170</span><span class="chip">order 135</span>
+          <span class="chip">gold 118</span><span class="chip">member 106</span>
+          <span class="chip">shift</span><span class="chip">recycle</span>
+          <span class="chip">pay</span><span class="chip">commission</span>
+          <span class="chip">report</span><span class="chip">goods</span>
+          <span class="chip">user</span><span class="chip">visit</span>
+          <span class="chip">notification</span><span class="chip">upload</span>
+          <span class="chip">system</span><span class="chip">auth</span>
+        </div>
+      </div>
+      <div>
+        <div class="sec-label">路由前缀（13 个）</div>
+        <div class="chips">
+          <span class="chip">/api/admin</span><span class="chip">/api/processing</span>
+          <span class="chip">/api/stock</span><span class="chip">/api/order</span>
+          <span class="chip">/api/trade-in</span><span class="chip">/api/approval</span>
+          <span class="chip">/api/gold-price</span><span class="chip">/api/commission</span>
+          <span class="chip">/api/recycle</span><span class="chip">/api/shift</span>
+          <span class="chip">/api/user</span><span class="chip">/api/upload</span>
+          <span class="chip">/api/notification</span>
+        </div>
+      </div>
+      <div>
+        <div class="sec-label">例外：有独立 Service</div>
+        <div class="chips">
+          <span class="chip">shift/ShiftService</span>
+          <span class="chip">stock/OldMaterialLedgerService</span>
+          <span class="chip">stock/OldMaterialAggregation</span>
+          <span class="chip">persistence/SysConfigMapper<br>(唯一 MyBatis-Plus)</span>
+        </div>
+        <div class="sec-label" style="margin-top:10px">测试覆盖</div>
+        <div class="chips">
+          <span class="chip" style="border-color:#d95c5c">仅 2 个：gold + OldMaterialLedger</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">▼</div>
+
+<!-- ============ 数据层 ============ -->
+<div class="band">
+  <div class="band-title">DATA 数据层（全部 Docker）</div>
+  <div class="grid4">
+    <div class="box accent-r">
+      <h3>MySQL 8.0 <span class="port">:3306</span></h3>
+      <div class="meta">db/schema.sql 首启自动导入 · utf8mb4</div>
+      <ul><li>32 张表（见下方分组）</li><li>卷 ./data/mysql</li></ul>
+    </div>
+    <div class="box accent-r">
+      <h3>Redis 6 <span class="port">:6379</span></h3>
+      <div class="meta">appendonly yes · 可选密码</div>
+      <ul><li>缓存 / 会话</li><li>卷 ./data/redis</li></ul>
+    </div>
+    <div class="box accent-r">
+      <h3>MinIO <span class="port">:9000 / :9001</span></h3>
+      <div class="meta">+ minio-init 自动建桶</div>
+      <ul><li>图片/附件对象存储</li><li>卷 ./data/minio</li></ul>
+    </div>
+    <div class="box accent-r">
+      <h3>本地文件 &amp; 备份</h3>
+      <div class="meta">./data/uploads → /app/uploads</div>
+      <ul><li>backup.ps1 / restore.ps1</li><li>register-backup-task.ps1 定时任务</li><li>backup/*.sql.gz</li></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 数据库表 ============ -->
+<div class="band">
+  <div class="band-title">SCHEMA 32 张表</div>
+  <div class="grid6">
+    <div class="box"><div class="sec-label">系统 7</div><div class="chips">
+      <span class="chip">sys_store</span><span class="chip">sys_role</span><span class="chip">sys_user</span>
+      <span class="chip">sys_config</span><span class="chip">operation_log</span>
+      <span class="chip">print_template</span><span class="chip">pay_channel</span></div></div>
+    <div class="box"><div class="sec-label">商品 3</div><div class="chips">
+      <span class="chip">goods_category</span><span class="chip">goods</span><span class="chip">process_item</span></div></div>
+    <div class="box"><div class="sec-label">加工 5</div><div class="chips">
+      <span class="chip">processing_category</span><span class="chip">processing_item</span>
+      <span class="chip">processing_order</span><span class="chip">processing_payment</span>
+      <span class="chip">processing_commission</span></div></div>
+    <div class="box"><div class="sec-label">库存 5</div><div class="chips">
+      <span class="chip">stock_in</span><span class="chip">stock_out</span><span class="chip">stock_check</span>
+      <span class="chip">old_material</span><span class="chip">old_material_type</span></div></div>
+    <div class="box"><div class="sec-label">交易 5</div><div class="chips">
+      <span class="chip">sales_order</span><span class="chip">sales_order_item</span>
+      <span class="chip">recycle_order</span><span class="chip">trade_in</span><span class="chip">gold_price</span></div></div>
+    <div class="box"><div class="sec-label">会员/财务 7</div><div class="chips">
+      <span class="chip">member</span><span class="chip">member_consume</span><span class="chip">visit_task</span>
+      <span class="chip">commission_rule</span><span class="chip">commission_record</span>
+      <span class="chip">finance_record</span><span class="chip">approval</span></div></div>
+  </div>
+</div>
+
+<!-- ============ 辅助资源 ============ -->
+<div class="band">
+  <div class="band-title">SUPPORT 文档与历史资料</div>
+  <div class="grid4">
+    <div class="box"><div class="sec-label">docs/ 7 篇 522 行</div><div class="chips">
+      <span class="chip">开发文档</span><span class="chip">接口文档</span><span class="chip">数据库文档</span>
+      <span class="chip">部署文档</span><span class="chip">操作手册</span><span class="chip">最终验收报告</span>
+      <span class="chip">手机端打包说明</span></div></div>
+    <div class="box"><div class="sec-label">_资料/ 原始需求</div><div class="chips">
+      <span class="chip">开发文档V1.0.docx</span><span class="chip">doc.txt</span>
+      <span class="chip">tables.txt</span><span class="chip">前端模块排版设计图.html</span></div></div>
+    <div class="box"><div class="sec-label">回滚/备份痕迹</div><div class="chips">
+      <span class="chip">rollback-orig/ (9-08 快照)</span><span class="chip">mobile-src-backup-0908.zip</span>
+      <span class="chip">mobile-src-rolledback-0909.bak</span></div></div>
+    <div class="box"><div class="sec-label">入口地址</div><div class="chips">
+      <span class="chip">后台 http://localhost/</span><span class="chip">收银台 :5173</span>
+      <span class="chip">MinIO 控制台 :9001</span><span class="chip">账号 admin/admin</span></div></div>
+  </div>
+</div>
+
+<div class="foot">
+  启动依赖链：mysql → redis → minio → minio-init → backend(healthcheck /actuator/health) → admin-web &nbsp;·&nbsp;
+  重启方式：backend/admin 用 <span class="num">docker restart dajin-system-backend-1</span>；front-pc 用 concurrently 起 vite + electron（非容器）
+</div>
+
+</body>
+</html>
