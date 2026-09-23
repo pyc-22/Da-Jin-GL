@@ -1,6 +1,6 @@
 {
   "name": "dajin-mobile",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "scripts": {
