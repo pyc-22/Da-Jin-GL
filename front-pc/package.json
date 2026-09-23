@@ -1,7 +1,7 @@
 {
   "name": "dajin-front-pc",
   "description": "打金店收银台",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.1",
   "author": "打金店系统",
   "private": true,
   "main": "electron/main.cjs",
