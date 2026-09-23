@@ -11,7 +11,7 @@
         <div><span>待取货</span><b>{{ readyCount }} 笔</b></div>
         <div><span>未收尾款</span><b class="due">{{ money(outstandingTotal) }}</b></div>
       </section>
-      <p v-if="!loading && !error && rows.length" class="muted small">未结加工单按状态排列，收款与状态确认都在卡片上直接处理。</p>
+      <p v-if="!loading && !error && rows.length" class="muted small">未结加工单按状态排列，款项由收银端处理。</p>
       <div v-if="loading" class="empty">加载中...</div>
       <div v-else-if="error" class="empty"><span>{{ error }}</span><button class="outline" @click="load">重试</button></div>
       <div v-else-if="!rows.length" class="empty">暂无待处理加工单</div>
@@ -25,7 +25,6 @@
         <p>应收 {{ money(row.due_amount) }} · 已收 {{ money(row.paid_amount) }} · <b class="due">未收 {{ money(outstanding(row)) }}</b></p>
         <p class="muted">师傅：{{ row.craftsman_name || '未指派' }} · 取货 {{ date(row.pickup_date) }}</p>
         <div class="todo-actions">
-          <button v-if="canPay && outstanding(row) > 0" class="outline" @click="openPay(row)">收款</button>
           <button v-if="row.customer_phone" class="outline" @click="call(row.customer_phone)">拨号</button>
           <button v-if="['PROCESSING', 'COMPLETED'].includes(row.status)" class="outline" @click="notify(row)">通知取货</button>
           <button v-if="canManage && String(row.status).toUpperCase() === 'COMPLETED'" class="outline" @click="openPickupPhotos(row)">取货拍照</button>
@@ -34,29 +33,6 @@
         <p v-if="String(row.status).toUpperCase() === 'PENDING' && Number(row.handover) === 1" class="muted small">已转交前台，等待收银端确认加工。</p>
       </article>
     </main>
-    <div v-if="paying" class="sheet-mask" @click.self="closePay">
-      <section class="sheet">
-        <header><strong>加工收款</strong><button class="icon-btn" @click="closePay">×</button></header>
-        <div class="sheet-body">
-          <div class="pay-head"><span>{{ paying.order_no }}</span><b class="due">未收 {{ money(outstanding(paying)) }}</b></div>
-          <div class="form-label">收款类型
-            <div class="filter-tabs">
-              <button v-for="t in payTypes" :key="t.value" :class="{ active: payForm.paymentType === t.value }" @click="payForm.paymentType = t.value; syncAmount()">{{ t.label }}</button>
-            </div>
-          </div>
-          <label class="form-label">收款金额 *<input v-model="payForm.amount" type="number" min="0" step="0.01" :disabled="payForm.paymentType === 'BALANCE'"/></label>
-          <p v-if="payForm.paymentType === 'BALANCE'" class="muted small">尾款金额必须等于未收金额。</p>
-          <label class="form-label">支付方式 *
-            <select v-model="payForm.payMethod">
-              <option v-for="m in payMethods" :key="m.value" :value="m.value">{{ m.label }}</option>
-            </select>
-          </label>
-          <label class="form-label">备注<textarea v-model.trim="payForm.remark" rows="2" placeholder="选填"/></label>
-          <p v-if="payError" class="error">{{ payError }}</p>
-          <button class="primary full" :disabled="paySaving" @click="submitPay">{{ paySaving ? '提交中...' : '确认收款' }}</button>
-        </div>
-      </section>
-    </div>
     <div v-if="photoOrder" class="sheet-mask" @click.self="closePickupPhotos">
       <section class="sheet">
         <header><strong>取货照片</strong><button class="icon-btn" @click="closePickupPhotos">×</button></header>
@@ -75,7 +51,7 @@
 </template>
 <script setup>
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
@@ -84,13 +60,8 @@ import { uploadImage } from '../api/upload.js'
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
 const canManage = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
-const canPay = computed(() => ['ADMIN', 'MANAGER', 'CASHIER'].includes(auth.role))
 const rows = ref([]), loading = ref(false), error = ref('')
-const paying = ref(null), paySaving = ref(false), payError = ref('')
 const photoOrder = ref(null), photoBusy = ref(false), photoError = ref('')
-const payForm = reactive({ paymentType: 'BALANCE', amount: '', payMethod: 'CASH', remark: '' })
-const payTypes = [{ value: 'DEPOSIT', label: '定金' }, { value: 'BALANCE', label: '尾款' }]
-const payMethods = [{ value: 'CASH', label: '现金' }, { value: 'WECHAT', label: '微信' }, { value: 'ALIPAY', label: '支付宝' }, { value: 'BANK', label: '银行卡' }]
 const STATUS_ORDER = { PENDING: 0, PROCESSING: 1, COMPLETED: 2 }
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const outstanding = row => Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
@@ -156,27 +127,6 @@ async function addPickupPhotos(event) {
   } catch (e) { photoError.value = e?.message || '照片上传失败' } finally { photoBusy.value = false }
 }
 function call(phone) { if (typeof uni !== 'undefined') uni.makePhoneCall({ phoneNumber: String(phone) }); else window.location.href = `tel:${phone}` }
-function openPay(row) {
-  paying.value = row; payError.value = ''; payForm.paymentType = 'BALANCE'; payForm.payMethod = 'CASH'; payForm.remark = ''
-  syncAmount()
-}
-function syncAmount() { payForm.amount = payForm.paymentType === 'BALANCE' ? outstanding(paying.value).toFixed(2) : '' }
-function closePay() { paying.value = null; paySaving.value = false }
-async function submitPay() {
-  payError.value = ''
-  const amount = Number(payForm.amount)
-  if (!(amount > 0)) { payError.value = '请填写大于 0 的收款金额'; return }
-  if (payForm.paymentType === 'BALANCE' && Math.abs(amount - outstanding(paying.value)) > 0.001) { payError.value = '尾款金额必须等于未收金额'; return }
-  paySaving.value = true
-  try {
-    await api.processingPay(paying.value.processing_order_id, {
-      paymentType: payForm.paymentType, amount, payMethod: payForm.payMethod,
-      clientRequestId: window.crypto?.randomUUID ? window.crypto.randomUUID() : `pay-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      ...(payForm.remark ? { remark: payForm.remark } : {})
-    })
-    closePay(); await load()
-  } catch (e) { payError.value = e?.message || '收款失败' } finally { paySaving.value = false }
-}
 onMounted(load)
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_HANDOVER'].includes(app.lastEventType))load()})
 </script>
@@ -203,10 +153,5 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .pickup-photo-list{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
 .pickup-photo-list img,.pickup-photo-list .add-photo{width:72px;height:72px;border-radius:8px;border:1px solid var(--line);object-fit:cover}
 .pickup-photo-list .add-photo{display:flex;align-items:center;justify-content:center;border-style:dashed;color:var(--gold-deep);font-size:24px;cursor:pointer}
-.pay-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;padding:10px 12px;background:var(--gold-soft);border-radius:8px;font-size:13px}
-.form-label{display:block;margin-bottom:10px;font-size:13px;color:var(--ink-2)}
-.form-label input,.form-label select,.form-label textarea{display:block;width:100%;margin-top:5px;min-height:42px;border:1px solid #dfe3e8;border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);background:#fff}
-.form-label input:disabled{background:#f5f6f8;color:var(--ink-3)}
-.filter-tabs{margin:5px 0 0}
 .error{margin:0 0 10px;color:#c0392b;font-size:12px}
 </style>

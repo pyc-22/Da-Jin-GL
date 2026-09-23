@@ -183,6 +183,93 @@ describe('cashier mounted checkout and processing flows', () => {
     expect(ElMessage.error).toHaveBeenCalledWith('Processing refresh failed')
   })
 
+  it('collects a partial deposit on a pending processing order', async () => {
+    handovers = [processing]
+    await start()
+    await openTodo()
+    await button('收定金', 'tbody button').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    await dialog.get('input[type="number"]').setValue('30')
+    await button('确认收款', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith('/api/processing/orders/7/payments', expect.objectContaining({
+      method: 'POST', body: expect.stringContaining('"paymentType":"DEPOSIT"')
+    }))
+    const call = request.mock.calls.find(([path]) => path === '/api/processing/orders/7/payments')
+    expect(JSON.parse(call[1].body)).toMatchObject({ amount: 30, payMethod: 'CASH' })
+    expect(request.mock.calls.filter(([path]) => path === '/api/processing/handovers').length).toBeGreaterThan(1)
+  })
+
+  it('rejects an excessive deposit before requesting payment', async () => {
+    handovers = [processing]
+    await start()
+    await openTodo()
+    await button('收定金', 'tbody button').trigger('click')
+    await wrapper.get('[role="dialog"] input[type="number"]').setValue('101')
+    await button('确认收款', '[role="dialog"] button').trigger('click')
+    expect(ElMessage.warning).toHaveBeenCalled()
+    expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/payments')).toHaveLength(0)
+  })
+
+  it('does not advance a processing order when its print job fails', async () => {
+    handovers = [processing]
+    window.dajin.print.system.mockResolvedValue({ success: false, reason: '打印机未响应' })
+    await start()
+    await openTodo()
+    await button('确认加工', 'tbody button').trigger('click')
+    await flushPromises()
+    await button('打印加工工单', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.warning).toHaveBeenCalledWith('打印机未响应')
+    expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')).toHaveLength(0)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('打印加工工单')
+  })
+
+  it('does not print or advance a processing order when its document fails to load', async () => {
+    handovers = [processing]
+    await start()
+    await openTodo()
+    fetch.mockResolvedValue({ ok: false, status: 401 })
+    await button('确认加工', 'tbody button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.error).toHaveBeenCalledWith('加工工单加载失败，请检查登录状态后重试')
+    expect(window.dajin.print.system).not.toHaveBeenCalled()
+    expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')).toHaveLength(0)
+  })
+
+  it('prints the processing warranty through Electron without opening a browser popup', async () => {
+    handovers = [{ ...processing, status: 'COMPLETED', paid_amount: 100 }]
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const base = requestHandler
+    requestHandler = (path, options) => path.includes('status=COMPLETED') ? handovers : base(path, options)
+    await start()
+    await openTodo()
+    await button('待取货', '.todo-tabs button').trigger('click')
+    await button('预览并打质保单', 'tbody button').trigger('click')
+    await flushPromises()
+    await button('确认打印', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(window.dajin.print.system).toHaveBeenCalledWith('<html>Processing print</html>', expect.objectContaining({ pageSize: 'A4' }))
+    expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
+  })
+
+  it('retains the processing warranty preview when the printer fails', async () => {
+    handovers = [{ ...processing, status: 'COMPLETED', paid_amount: 100 }]
+    window.dajin.print.system.mockResolvedValue({ success: false, reason: '打印机未响应' })
+    const base = requestHandler
+    requestHandler = (path, options) => path.includes('status=COMPLETED') ? handovers : base(path, options)
+    await start()
+    await openTodo()
+    await button('待取货', '.todo-tabs button').trigger('click')
+    await button('预览并打质保单', 'tbody button').trigger('click')
+    await flushPromises()
+    await button('确认打印', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.warning).toHaveBeenCalledWith('打印机未响应')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('加工质保单')
+  })
+
   it('ignores an older empty processing response that arrives after a newer list', async () => {
     processings = [{ ...processing, status: 'PROCESSING' }]
     await start()

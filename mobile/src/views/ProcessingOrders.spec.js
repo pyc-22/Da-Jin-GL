@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   processingCraftsmen: vi.fn(),
   oldMaterialTypes: vi.fn(),
   processingPhotos: vi.fn(),
+  processingCreate: vi.fn(),
+  processingPay: vi.fn(),
+  processingHandover: vi.fn(),
   httpGet: vi.fn()
 }))
 
@@ -20,7 +23,10 @@ vi.mock('../api/request.js', () => ({
     processingItems: mocks.processingItems,
     processingCraftsmen: mocks.processingCraftsmen,
     oldMaterialTypes: mocks.oldMaterialTypes
-    ,processingPhotos: mocks.processingPhotos
+    ,processingPhotos: mocks.processingPhotos,
+    processingCreate: mocks.processingCreate,
+    processingPay: mocks.processingPay,
+    processingHandover: mocks.processingHandover
   },
   http: { get: mocks.httpGet, defaults: { baseURL: 'http://localhost:8080' } }
 }))
@@ -38,6 +44,9 @@ describe('ProcessingOrders mobile actions', () => {
     mocks.processingCraftsmen.mockReset().mockResolvedValue([{ user_id: 21, real_name: '王师傅', role_code: 'CRAFTSMAN' }])
     mocks.oldMaterialTypes.mockReset().mockResolvedValue([])
     mocks.processingPhotos.mockReset().mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], pickup_photos: [], payments: [] })
+    mocks.processingCreate.mockReset().mockResolvedValue(order)
+    mocks.processingPay.mockReset().mockResolvedValue(order)
+    mocks.processingHandover.mockReset().mockResolvedValue({ ...order, handover: 1 })
     mocks.httpGet.mockReset()
     vi.spyOn(window, 'alert').mockImplementation(() => {})
   })
@@ -63,6 +72,41 @@ describe('ProcessingOrders mobile actions', () => {
     const craftsmanField = wrapper.findAll('label').find(label => label.text().includes('加工师傅'))
     expect(mocks.processingCraftsmen).toHaveBeenCalledOnce()
     expect(craftsmanField.get('select').text()).toContain('王师傅')
+  })
+
+  it('creates an order without collecting money and transfers it to the cashier', async () => {
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('开加工单')).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('收取定金')
+    expect(wrapper.text()).not.toContain('定金支付方式')
+    const field = label => wrapper.findAll('.sheet-body label').find(node => node.text().includes(label)).get('input')
+    await field('客户姓名').setValue('张三')
+    await field('客户电话').setValue('13800000000')
+    await wrapper.find('.sheet-body select').setValue('5')
+    await wrapper.find('.sheet-body button.primary.full').trigger('click')
+    await flushPromises()
+    expect(mocks.processingCreate).toHaveBeenCalledOnce()
+    expect(mocks.processingPay).not.toHaveBeenCalled()
+    expect(mocks.processingHandover).toHaveBeenCalledWith(12)
+  })
+
+  it('does not create a duplicate order when transfer fails', async () => {
+    mocks.processingHandover.mockRejectedValue(new Error('转交失败'))
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('开加工单')).trigger('click')
+    await flushPromises()
+    const field = label => wrapper.findAll('.sheet-body label').find(node => node.text().includes(label)).get('input')
+    await field('客户姓名').setValue('张三')
+    await field('客户电话').setValue('13800000000')
+    await wrapper.find('.sheet-body select').setValue('5')
+    await wrapper.find('.sheet-body button.primary.full').trigger('click')
+    await flushPromises()
+    expect(mocks.processingCreate).toHaveBeenCalledOnce()
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('已创建，但转交失败'))
+    expect(wrapper.find('.sheet-body button.primary.full').exists()).toBe(false)
   })
 
   it('shows a pickup photo section for completed orders', async () => {

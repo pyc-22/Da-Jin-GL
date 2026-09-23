@@ -155,18 +155,10 @@
             <div v-if="deductionPreview > 0"><span>旧料抵扣</span><b>-{{ money(deductionPreview) }}</b></div>
             <div class="total"><span>本单应收</span><b>{{ money(duePreview) }}</b></div>
           </div>
-          <div class="form-row">
-            <label class="form-label">收取定金<input v-model="form.deposit" type="number" min="0" step="0.01" placeholder="0 表示不收"/></label>
-            <label class="form-label">定金支付方式
-              <select v-model="form.depositMethod">
-                <option v-for="m in depositMethods" :key="m.value" :value="m.value">{{ m.label }}</option>
-              </select>
-            </label>
-          </div>
-          <p v-if="form.deposit !== '' && Number(form.deposit) > 0" class="muted small">尾款待收 {{ money(Math.max(0, duePreview - Number(form.deposit || 0))) }}，可在"待处理"或加工详情中收尾款。</p>
+          <p class="muted small">款项由收银端「前台待办 · 待确认加工」收取。</p>
           <label class="form-label">备注<textarea v-model.trim="form.remark" rows="2" placeholder="选填"/></label>
           <p v-if="createError" class="error">{{ createError }}</p>
-          <button class="primary full" :disabled="saving" @click="submit">{{ saving ? '提交中...' : '创建加工单并收定金' }}</button>
+          <button class="primary full" :disabled="saving" @click="submit">{{ saving ? '提交中...' : '创建加工单并转交前台' }}</button>
         </div>
       </section>
     </div>
@@ -196,9 +188,8 @@ const keyword = ref(''), status = ref(''), orders = ref([]), loading = ref(false
 const detail = ref(null), detailLoading = ref(false)
 const creating = ref(false), saving = ref(false), createError = ref('')
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
-const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金旧料', residualGoldWeight: '', residualGoldFineness: '', deposit: '', depositMethod: 'CASH', remark: '', memberId: null })
+const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金旧料', residualGoldWeight: '', residualGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
-const depositMethods = [{ value: 'CASH', label: '现金' }, { value: 'WECHAT', label: '微信' }, { value: 'ALIPAY', label: '支付宝' }, { value: 'BANK', label: '银行卡' }]
 const recyclePrice = computed(() => { const rows = Array.isArray(app.gold) ? app.gold : []; const hit = rows.find(x => String(x.price_type || x.priceType || x.name || '').includes('回收')); return Number(hit?.price || 0) })
 const deductionPreview = computed(() => { if (form.residualGoldHandling !== 'STORE_DEDUCT') return 0; const value = Number(form.residualGoldWeight || 0) * Number(form.residualGoldFineness || 0) * recyclePrice.value; return Math.min(value, laborFee.value) })
 const duePreview = computed(() => Math.max(0, laborFee.value - deductionPreview.value))
@@ -311,7 +302,7 @@ function handleItemChange() {
   form.pickupDate = base.toISOString().slice(0, 10)
 }
 function resetForm() {
-  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: materialTypes.value[0] || '足金旧料', residualGoldWeight: '', residualGoldFineness: '', deposit: '', depositMethod: 'CASH', remark: '', memberId: null })
+  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: materialTypes.value[0] || '足金旧料', residualGoldWeight: '', residualGoldFineness: '', remark: '', memberId: null })
   memberKeyword.value = ''; memberHits.value = []
 }
 async function submit() {
@@ -324,8 +315,6 @@ async function submit() {
   if (form.residualGoldHandling === 'STORE_DEDUCT' && (!form.residualMaterialType || !(Number(form.residualGoldWeight) > 0) || !(Number(form.residualGoldFineness) > 0))) {
     createError.value = '留店抵扣需填写旧料类型、克重和成色'; return
   }
-  const deposit = Number(form.deposit || 0)
-  if (deposit < 0 || deposit > duePreview.value) { createError.value = '定金应在 0 到本单应收之间'; return }
   const payload = {
     customerName: form.customerName, customerPhone: form.customerPhone, processingItemId: Number(form.itemId), quantity: Number(form.quantity),
     billingWeight: selectedItem.value?.pricing_unit === '按克' ? Number(form.billingWeight) : null,
@@ -345,15 +334,15 @@ async function submit() {
   saving.value = true
   try {
     const created = await api.processingCreate(payload)
-    let depositError = ''
-    if (deposit > 0 && created?.processing_order_id) {
+    closeCreate(); resetForm()
+    if (created?.processing_order_id) {
       try {
-        await api.processingPay(created.processing_order_id, { paymentType: 'DEPOSIT', amount: deposit, payMethod: form.depositMethod, clientRequestId: `mobile-deposit-${Date.now()}`, remark: '移动端开单定金' })
-      } catch (e) { depositError = e?.message || '定金登记失败' }
+        await api.processingHandover(created.processing_order_id)
+      } catch (e) {
+        window.alert(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '请在加工单详情中重试转交前台'}`)
+      }
     }
-    closeCreate(); resetForm(); await load()
-    if (created?.processing_order_id) await openDetail(created)
-    if (depositError) window.alert(`加工单已创建，但定金登记失败：${depositError}，请在待处理中补收`)
+    await load()
   } catch (e) { createError.value = e?.message || '开加工单失败' } finally { saving.value = false }
 }
 onMounted(load)
