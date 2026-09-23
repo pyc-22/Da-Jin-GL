@@ -185,7 +185,12 @@ jobs:
           git fetch --prune origin --tags
           git checkout --detach "$RELEASE_TAG"
           test -f .env
-          docker compose -f docker-compose.release.yml up -d --build
-          docker compose -f docker-compose.release.yml ps
+          compose_files=(-f docker-compose.release.yml)
+          if [ -f docker-compose.override.yml ]; then
+            compose_files+=(-f docker-compose.override.yml)
+          fi
+          docker compose "${compose_files[@]}" config -q
+          docker compose "${compose_files[@]}" up -d --build
+          docker compose "${compose_files[@]}" ps
           curl -fsS http://127.0.0.1:8080/actuator/health
           REMOTE

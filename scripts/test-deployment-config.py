@@ -9,6 +9,12 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class DeploymentTests(unittest.TestCase):
+    def test_release_deploy_keeps_server_override(self):
+        workflow = (ROOT/'.github/workflows/release.yml').read_text(encoding='utf-8')
+        self.assertIn('compose_files+=(-f docker-compose.override.yml)', workflow)
+        for command in ('config -q', 'up -d --build', 'ps'):
+            self.assertIn(f'docker compose "${{compose_files[@]}}" {command}', workflow)
+
     def test_both_backend_images_include_backup_client(self):
         for name in ('Dockerfile', 'Dockerfile.release'):
             with self.subTest(image=name):
