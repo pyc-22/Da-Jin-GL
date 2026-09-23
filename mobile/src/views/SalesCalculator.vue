@@ -1,0 +1,28 @@
+<template>
+  <div class="shell"><header class="topbar"><button class="back" @click="router.back()">‹</button><strong>换新报价计算器</strong><span></span></header><main class="content page">
+    <div class="price-strip"><div><small>今日足金零售价</small><b>{{ money(retail) }}/g</b></div><div><small>今日旧金回收价</small><b :class="{na:!recycleAvailable}">{{ recycleAvailable ? money(recycle)+'/g' : '未配置' }}</b></div></div>
+    <p v-if="!recycleAvailable && Number(oldWeight||0)>0" class="error tip">门店未配置回收金价，旧金折抵暂不可计算；请先在金价管理中维护「回收」类型价格。</p>
+    <section class="form-card"><h3>旧金折抵</h3><label class="form-label">旧金克重（g）<input v-model.number="oldWeight" type="number" min="0" step="0.001" placeholder="没有旧金可留空，直接报新品价"/></label><label class="form-label">成色<select v-model.number="purity"><option v-for="p in purities" :key="p.value" :value="p.value">{{ p.label }}</option></select></label></section>
+    <section class="form-card"><h3>新品信息</h3><label class="form-label">新品克重（g）<input v-model.number="newWeight" type="number" min="0" step="0.001" placeholder="请输入克重"/></label><label class="form-label">工费（元/克）<input v-model.number="labor" type="number" min="0" step="0.01"/></label></section>
+    <div class="result"><span>{{ hasOldGold ? '换新需补差价' : '新品应付合计' }}</span><b>{{ resultText }}</b><small v-if="hasOldGold && Number(newWeight||0)>0">旧金折抵 {{ money(deduction) }} · 新品合计 {{ money(newTotal) }}</small><small v-else-if="Number(newWeight||0)>0">零售 {{ money(retail) }}/g ＋ 工费 {{ money(labor) }}/g · 无旧金折抵</small></div>
+    <div class="calc-actions"><button class="outline" @click="copyQuote">复制报价文案</button><button class="primary" :disabled="!canDeal||tradeInBusy" @click="confirmTradeIn">{{ tradeInBusy ? '提交中...' : '选择商品开单' }}</button></div>
+  </main></div>
+</template>
+<script setup>
+import { computed, onMounted, ref } from 'vue'; import { useRouter } from 'vue-router'; import { useAppStore } from '../stores/app.js'; import { useAuthStore } from '../stores/auth.js'
+const router=useRouter(); const app=useAppStore(); const oldWeight=ref(0); const purity=ref(.999); const newWeight=ref(0); const labor=ref(0); const retail=ref(Number(app.primaryGold?.price||0)); const recycle=ref(0); const recycleAvailable=computed(()=>Number(recycle.value)>0); const purities=[{value:.999,label:'足金999（99.9%）'},{value:.99,label:'足金990（99.0%）'},{value:.916,label:'22K（91.6%）'},{value:.75,label:'18K（75.0%）'}]; const money=v=>`¥${Number(v||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}`; const hasOldGold=computed(()=>Number(oldWeight.value||0)>0); const deduction=computed(()=>Number(oldWeight.value||0)*Number(purity.value||0)*Number(recycle.value||0)); const newTotal=computed(()=>Number(newWeight.value||0)*(Number(retail.value||0)+Number(labor.value||0))); const diff=computed(()=>newTotal.value-deduction.value); const resultText=computed(()=>{ if(!Number(newWeight.value||0)) return '¥—'; if(!hasOldGold.value) return money(newTotal.value); return recycleAvailable.value?(diff.value>=0?money(diff.value):`应退 ${money(-diff.value)}`):'待配置回收价' });
+onMounted(async()=>{try{await app.loadGold();retail.value=Number(app.primaryGold?.price||0);const rows=Array.isArray(app.gold)?app.gold:[];const hit=rows.find(x=>String(x.price_type||x.priceType||x.name||'').includes('回收'));recycle.value=Number(hit?.price||0)}catch{recycle.value=retail.value=0}})
+async function copyQuote(){const text=hasOldGold.value?`换新报价：旧金${Number(oldWeight.value||0).toFixed(3)}g，成色${(Number(purity.value)*100).toFixed(1)}%，折抵${money(deduction.value)}；新品${Number(newWeight.value||0).toFixed(3)}g，含工费合计${money(newTotal.value)}；需补差${resultText.value}。`:`新品报价：${Number(newWeight.value||0).toFixed(3)}g，零售${money(retail.value)}/g＋工费${money(labor.value)}/g，应付合计${resultText.value}（无旧金折抵）。`;try{await navigator.clipboard.writeText(text);window.alert('报价文案已复制')}catch{window.alert(text)}}
+const tradeInBusy=ref(false); const canDeal=computed(()=>recycleAvailable.value&&Number(oldWeight.value)>0&&Number(newWeight.value)>0);
+async function confirmTradeIn() {
+  if (!canDeal.value || tradeInBusy.value) return
+  tradeInBusy.value = true
+  const auth = useAuthStore()
+  app.tradeInDraft = { owner: auth.user?.user_id, materials: [{ id: Date.now(), materialType: '旧金抵扣', weight: Number(oldWeight.value), purity: Number(purity.value), price: Number(recycle.value) }] }
+  try { await router.push(`/${auth.role.toLowerCase()}/order`) }
+  finally { tradeInBusy.value = false }
+}
+</script>
+<style scoped>
+.price-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.price-strip>div{background:var(--gold-soft);border:1px solid #efd9a9;border-radius:8px;padding:12px;text-align:center}.price-strip small{display:block;color:var(--ink-3);font-size:11px}.price-strip b{display:block;color:var(--gold-deep);font-size:16px;margin-top:4px}.form-card{margin-top:12px}.form-card h3{font-size:15px;margin:0 0 8px}.form-label{display:block;font-size:12px;color:var(--ink-2);margin:10px 0}.form-label input,.form-label select{display:block;width:100%;margin-top:4px;min-height:44px;border:1px solid #dfe3e8;border-radius:8px;padding:0 10px;background:#fff}.result{margin-top:12px;background:var(--gold-soft);border:1px solid #efd9a9;border-radius:8px;padding:16px;text-align:center}.result span,.result small{display:block;color:var(--ink-3);font-size:12px}.result b{display:block;color:var(--gold-deep);font-size:25px;margin:6px 0}.full{margin-top:12px}.price-strip b.na{color:var(--ink-3);font-weight:400}.error.tip{margin:8px 0 0;font-size:12px;color:#c0392b}.calc-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.calc-actions button{min-height:44px}
+</style>
