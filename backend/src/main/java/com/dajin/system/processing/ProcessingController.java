@@ -13,6 +13,7 @@ import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
 import io.jsonwebtoken.Claims;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -362,7 +363,7 @@ public class ProcessingController {
         adjustGoldMaterial(storeId, String.valueOf(order.get("order_no")), weight.subtract(oldWeight), operator);
         BigDecimal due = decimal(order.get("due_amount")).subtract(oldAmount).add(amount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         if (due.compareTo(decimal(order.get("paid_amount"))) < 0) throw new BusinessException(409716, "修正后的应收低于已收款，请先核对退款");
-        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,due_amount=:due,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,due_amount=:due,original_due_amount=case when original_due_amount is null then null else :due+promotion_discount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("w", weight).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("due", due)
                         .addValue("id", id).addValue("s", storeId));
         log(storeId, operator, "ORDER_STORE_GOLD", "加工单=" + order.get("order_no") + ",补金=" + weight + "g,金额=" + amount + ",应收=" + due);
@@ -691,11 +692,26 @@ public class ProcessingController {
         if ("PICKED_UP".equals(order.get("status"))) throw new BusinessException(409706, "已取货订单不能继续收款");
         String paymentType = text(body, "paymentType", "收款类型").toUpperCase(Locale.ROOT);
         if (!PAYMENT_TYPES.contains(paymentType)) throw new BusinessException(400716, "收款类型只能是定金或尾款");
-        String payMethod = PaymentChannelPolicy.requireActiveCollection(db, storeId, text(body, "payMethod", "支付方式"));
+        String payMethod = PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, text(body, "payMethod", "支付方式"));
         BigDecimal amount = positive(body.get("amount"), "收款金额");
         BigDecimal due = decimal(order.get("due_amount")); BigDecimal paid = decimal(order.get("paid_amount"));
+        boolean groupPayment = PaymentChannelPolicy.isGroupChannel(payMethod);
+        String voucherNo = null;
+        BigDecimal discount = BigDecimal.ZERO;
+        if (groupPayment) {
+            if (!"BALANCE".equals(paymentType) || !"COMPLETED".equals(order.get("status")) || order.get("promotion_channel") != null)
+                throw new BusinessException(400724, "团购核销仅用于已完成加工单的首次尾款收取");
+            voucherNo = text(body, "voucherNo", "团购核销单号");
+            if (voucherNo.length() > 100) throw new BusinessException(400725, "团购核销单号不能超过100字");
+            Integer used = db.jdbc().queryForObject("select count(*) from processing_order where store_id=:s and promotion_channel=:channel and voucher_no=:voucher",
+                    Map.of("s", storeId, "channel", payMethod, "voucher", voucherNo), Integer.class);
+            if (used != null && used > 0) throw new BusinessException(409717, "团购核销单号已用于其他加工单");
+            discount = due.subtract(paid).subtract(amount);
+        } else if (body.containsKey("voucherNo") && !trimToEmpty(body.get("voucherNo")).isEmpty()) {
+            throw new BusinessException(400724, "普通收款不能填写团购核销单号");
+        }
         if (paid.add(amount).compareTo(due) > 0) throw new BusinessException(409707, "收款金额超过加工单应收金额");
-        if ("BALANCE".equals(paymentType) && paid.add(amount).compareTo(due) != 0) throw new BusinessException(400717, "尾款金额应等于剩余应收金额");
+        if ("BALANCE".equals(paymentType) && !groupPayment && paid.add(amount).compareTo(due) != 0) throw new BusinessException(400717, "尾款金额应等于剩余应收金额");
         if ("BALANCE".equals(payMethod)) {
             if (order.get("member_id") == null) throw new BusinessException(400106, "储值支付必须关联会员");
             int debited = db.jdbc().update("update member set balance=balance-:amount,update_time=now() where member_id=:member and store_id=:s and balance>=:amount",
@@ -709,8 +725,17 @@ public class ProcessingController {
         db.jdbc().update("insert into processing_payment(store_id,processing_order_id,payment_type,amount,pay_method,client_request_id,operator_id,remark,create_time) values(:s,:order,:type,:amount,:method,:requestId,:operator,:remark,now())", p);
         db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'INCOME','PROCESSING_FEE',:amount,:method,:orderNo,:operator,:financeRemark,:shift,now())",
                 p.addValue("orderNo", order.get("order_no")).addValue("financeRemark", "DEPOSIT".equals(paymentType) ? "加工定金" : "加工尾款").addValue("shift", shiftNo));
-        db.jdbc().update("update processing_order set paid_amount=paid_amount+:amount,version=version+1,update_time=now() where processing_order_id=:order and store_id=:s", p);
-        log(storeId, operator, "ORDER_PAYMENT", "加工单=" + order.get("order_no") + "," + paymentType + "=" + amount);
+        if (groupPayment) {
+            p.addValue("discount", discount).addValue("voucher", voucherNo);
+            try {
+                db.jdbc().update("update processing_order set original_due_amount=due_amount,promotion_discount=:discount,promotion_channel=:method,voucher_no=:voucher,due_amount=due_amount-:discount,paid_amount=paid_amount+:amount,version=version+1,update_time=now() where processing_order_id=:order and store_id=:s", p);
+            } catch (DuplicateKeyException e) {
+                throw new BusinessException(409717, "团购核销单号已用于其他加工单");
+            }
+        } else {
+            db.jdbc().update("update processing_order set paid_amount=paid_amount+:amount,version=version+1,update_time=now() where processing_order_id=:order and store_id=:s", p);
+        }
+        log(storeId, operator, "ORDER_PAYMENT", "加工单=" + order.get("order_no") + "," + paymentType + "=" + amount + (groupPayment ? ",团购优惠=" + discount + ",核销号=" + voucherNo : ""));
         Map<String, Object> result = orderDetail(id, storeId); broadcast("PROCESSING_ORDER_UPDATED", processingOrderEvent(result, "PAYMENT"));
         Map<String,Object> financeEvent = Map.of("storeId", storeId, "processingOrderId", id, "action", "PAYMENT");
         broadcast("REPORT_UPDATED", financeEvent); broadcast("SHIFT_UPDATED", financeEvent);

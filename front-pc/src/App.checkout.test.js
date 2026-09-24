@@ -211,6 +211,51 @@ describe('cashier mounted checkout and processing flows', () => {
     expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/payments')).toHaveLength(0)
   })
 
+  it('collects a discounted group balance only on completed processing orders', async () => {
+    handovers = [{ ...processing, status: 'COMPLETED', due_amount: 200 }]
+    const base = requestHandler
+    requestHandler = (path, options) => {
+      if (path === '/api/pay/methods') return [
+        { channel_id: 1, channel_code: 'CASH', channel_name: '现金', status: 1 },
+        { channel_id: 2, channel_code: 'DOUYIN_GROUP', channel_name: '抖音团购', status: 1 }
+      ]
+      if (path.includes('status=COMPLETED')) return handovers
+      return base(path, options)
+    }
+    await start()
+    await openTodo()
+    await button('待取货', '.todo-tabs button').trigger('click')
+    await button('收尾款', 'tbody button').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).not.toContain('团购优惠')
+    await dialog.get('select').setValue('DOUYIN_GROUP')
+    await dialog.get('input[type="number"]').setValue('180')
+    await dialog.get('input[maxlength="100"]').setValue('DY-123')
+    expect(dialog.text()).toContain('20.00')
+    await button('确认收款', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    const call = request.mock.calls.find(([path]) => path === '/api/processing/orders/7/payments')
+    expect(JSON.parse(call[1].body)).toMatchObject({ paymentType: 'BALANCE', payMethod: 'DOUYIN_GROUP', amount: 180, voucherNo: 'DY-123' })
+  })
+
+  it('does not offer a second group redemption on a promoted processing order', async () => {
+    handovers = [{ ...processing, status: 'COMPLETED', due_amount: 230, paid_amount: 180, promotion_channel: 'DOUYIN_GROUP' }]
+    const base = requestHandler
+    requestHandler = (path, options) => {
+      if (path === '/api/pay/methods') return [
+        { channel_id: 1, channel_code: 'CASH', channel_name: '现金', status: 1 },
+        { channel_id: 2, channel_code: 'DOUYIN_GROUP', channel_name: '抖音团购', status: 1 }
+      ]
+      if (path.includes('status=COMPLETED')) return handovers
+      return base(path, options)
+    }
+    await start()
+    await openTodo()
+    await button('待取货', '.todo-tabs button').trigger('click')
+    await button('收尾款', 'tbody button').trigger('click')
+    expect(wrapper.get('[role="dialog"] select').text()).not.toContain('抖音团购')
+  })
+
   it('does not advance a processing order when its print job fails', async () => {
     handovers = [processing]
     window.dajin.print.system.mockResolvedValue({ success: false, reason: '打印机未响应' })

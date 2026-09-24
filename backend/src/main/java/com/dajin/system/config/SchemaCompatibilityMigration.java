@@ -61,6 +61,19 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addIndex("stock_check", "idx_stock_check_operator_time", "store_id,operator_id,create_time");
         addIndex("trade_in", "idx_tradein_operator_time", "store_id,operator_id,create_time");
         createProcessingTables();
+        addColumn("processing_order", "original_due_amount", "DECIMAL(12,2) NULL AFTER due_amount");
+        addColumn("processing_order", "promotion_discount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER original_due_amount");
+        addColumn("processing_order", "promotion_channel", "VARCHAR(50) NULL AFTER promotion_discount");
+        addColumn("processing_order", "voucher_no", "VARCHAR(100) NULL AFTER promotion_channel");
+        addIndex("processing_order", "uk_processing_voucher", "store_id,promotion_channel,voucher_no", true);
+        jdbc.update("insert ignore into pay_channel(store_id,channel_name,channel_code,sort,status) "
+                + "select s.store_id,'抖音团购','DOUYIN_GROUP',7,1 from sys_store s where not exists "
+                + "(select 1 from sys_config c where c.store_id=s.store_id and c.config_group='SYSTEM' and c.config_key='group_channels_seeded')");
+        jdbc.update("insert ignore into pay_channel(store_id,channel_name,channel_code,sort,status) "
+                + "select s.store_id,'美团团购','MEITUAN_GROUP',8,1 from sys_store s where not exists "
+                + "(select 1 from sys_config c where c.store_id=s.store_id and c.config_group='SYSTEM' and c.config_key='group_channels_seeded')");
+        jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description) "
+                + "select store_id,'SYSTEM','group_channels_seeded','1','团购渠道初始化标记' from sys_store");
         upgradeAuditColumns();
         createOldMaterialTypeTable();
         createStockInboundTables();

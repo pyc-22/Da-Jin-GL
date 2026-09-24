@@ -102,7 +102,7 @@ public class OrderController {
     private String validatePayoutMethod(String requested, BigDecimal excess, HttpServletRequest r) {
         if (excess.signum() <= 0) return null;
         String method = requested == null ? "" : requested.trim().toUpperCase(Locale.ROOT);
-        if (method.isBlank() || "BALANCE".equals(method) || "COMBINATION".equals(method))
+        if (method.isBlank() || "BALANCE".equals(method) || "COMBINATION".equals(method) || com.dajin.system.pay.PaymentChannelPolicy.isGroupChannel(method))
             throw new BusinessException(400107, "请选择现金、微信、支付宝或银行卡作为超额旧金返款方式");
         Integer count = db.jdbc().queryForObject("select count(*) from pay_channel where store_id=:s and channel_code=:code and status=1",
                 Map.of("s", db.store(r), "code", method), Integer.class);

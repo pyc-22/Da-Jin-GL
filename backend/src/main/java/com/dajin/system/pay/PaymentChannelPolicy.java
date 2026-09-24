@@ -5,16 +5,28 @@ import com.dajin.system.common.DbSupport;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class PaymentChannelPolicy {
+    private static final Set<String> GROUP_CHANNELS = Set.of("DOUYIN_GROUP", "MEITUAN_GROUP");
     private PaymentChannelPolicy() { }
 
+    public static boolean isGroupChannel(String code) { return GROUP_CHANNELS.contains(code); }
+
     public static String requireActiveCollection(DbSupport db, long storeId, Object rawCode) {
+        String code = requireActive(db, storeId, rawCode, true);
+        if (isGroupChannel(code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
+        return code;
+    }
+
+    public static String requireActiveProcessingCollection(DbSupport db, long storeId, Object rawCode) {
         return requireActive(db, storeId, rawCode, true);
     }
 
     public static String requireActiveExternal(DbSupport db, long storeId, Object rawCode) {
-        return requireActive(db, storeId, rawCode, false);
+        String code = requireActive(db, storeId, rawCode, false);
+        if (isGroupChannel(code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
+        return code;
     }
 
     private static String requireActive(DbSupport db, long storeId, Object rawCode, boolean allowBalance) {

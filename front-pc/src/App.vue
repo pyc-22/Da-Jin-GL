@@ -52,6 +52,8 @@ const paymentLabels = {
   ALIPAY: '支付宝',
   BANK: '银行卡',
   BALANCE: '储值',
+  DOUYIN_GROUP: '抖音团购',
+  MEITUAN_GROUP: '美团团购',
   COMBINATION: '组合支付'
 }
 
@@ -101,6 +103,7 @@ const approval = reactive({ required: false, status: '', id: null, message: '' }
 const oldMetals = ref([])
 const oldMetalForm = reactive({ weight: 0, purityChoice: '0.999', customPurity: '', materialType: '足金999', priceType: '回收金价', note: '' })
 const paymentMethods = ref(defaultMethods.map(x => ({ ...x, amount: 0, selected: false })))
+const groupPaymentMethods = ref([])
 const oldMaterialPayoutMethod = ref('CASH')
 const payoutMethods = computed(() => paymentMethods.value.filter(method => !['BALANCE', 'COMBINATION'].includes(method.code)))
 const paymentTotal = ref(0)
@@ -160,8 +163,13 @@ const procWarrantyHtml = ref('')
 const procPayMethod = ref('CASH')
 const procPayType = ref('BALANCE')
 const procPayAmount = ref(null)
+const procVoucherNo = ref('')
 const procPayBusy = ref(false)
 const procPayRequestId = ref('')
+const procPayMethods = computed(() => procPayType.value === 'BALANCE' && procManage.value?.status === 'COMPLETED' && !procManage.value?.promotion_channel
+  ? [...paymentMethods.value, ...groupPaymentMethods.value] : paymentMethods.value)
+const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includes(procPayMethod.value))
+const procGroupDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0 })
 const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '' })
 const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
@@ -208,18 +216,24 @@ function openProcPay(row, type = 'BALANCE') {
   procPayType.value = type
   procPayAmount.value = type === 'BALANCE' ? processingOutstanding(row) : null
   procPayMethod.value = paymentMethods.value[0]?.code || ''
+  procVoucherNo.value = ''
   procPayRequestId.value = uuid()
   activeDialog.value = 'procPay'
+}
+function changeProcPayMethod() {
+  procPayAmount.value = processingOutstanding(procManage.value)
+  procVoucherNo.value = ''
 }
 async function confirmProcPay() {
   const row = procManage.value; if (!row || procPayBusy.value) return
   if (!procPayMethod.value) return ElMessage.warning('当前没有可用的支付方式，请联系管理员启用')
   const remaining = Math.round((Number(row.due_amount || 0) - Number(row.paid_amount || 0)) * 100) / 100
-  const amount = procPayType.value === 'BALANCE' ? remaining : Number(procPayAmount.value)
+  const amount = procPayType.value === 'BALANCE' && !procGroupPayment.value ? remaining : Number(procPayAmount.value)
   if (!Number.isFinite(amount) || amount <= 0 || Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001 || amount > remaining) return ElMessage.warning('收款金额须大于0、最多两位小数且不超过未收金额')
+  if (procGroupPayment.value && !procVoucherNo.value.trim()) return ElMessage.warning('请输入团购核销单号')
   procPayBusy.value = true
   try {
-    await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify({ paymentType: procPayType.value, payMethod: procPayMethod.value, amount, clientRequestId: procPayRequestId.value }) })
+    await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify({ paymentType: procPayType.value, payMethod: procPayMethod.value, amount, ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), clientRequestId: procPayRequestId.value }) })
     ElMessage.success(`加工单 ${row.order_no} ${procPayType.value === 'DEPOSIT' ? '定金已收取' : '尾款已收清'}`)
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '收款失败') } finally { procPayBusy.value = false }
@@ -499,7 +513,9 @@ const processingForm = reactive({
 })
 function applyPaymentChannels(channels) {
   const icons = Object.fromEntries(defaultMethods.map(item => [item.code, item.icon]))
-  paymentMethods.value = reconcilePaymentMethods(channels, paymentMethods.value).map(method => ({
+  const groupCodes = ['DOUYIN_GROUP', 'MEITUAN_GROUP']
+  groupPaymentMethods.value = (channels || []).filter(channel => Number(channel.status) === 1 && groupCodes.includes(String(channel.channel_code).toUpperCase())).map(channel => ({ code: String(channel.channel_code).toUpperCase(), name: channel.channel_name }))
+  paymentMethods.value = reconcilePaymentMethods((channels || []).filter(channel => !groupCodes.includes(String(channel.channel_code).toUpperCase())), paymentMethods.value).map(method => ({
     ...method,
     icon: icons[method.code] || CircleDollarSign
   }))
@@ -572,7 +588,7 @@ function purityText(value) {
 function paymentLabel(value) {
   const code = String(value || '').trim()
   if (!code || code === '0') return '未标注'
-  const configured = Object.fromEntries(paymentMethods.value.map(method => [method.code, method.name]))
+  const configured = Object.fromEntries([...paymentMethods.value, ...groupPaymentMethods.value].map(method => [method.code, method.name]))
   return code.split('+').map(part => configured[part.trim().toUpperCase()] || paymentLabels[part.trim().toUpperCase()] || part.trim()).join('+')
 }
 function productGoldPrice(product) {
@@ -1691,8 +1707,9 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <h3 style="margin:0 0 6px">{{ procPayType === 'DEPOSIT' ? '收定金' : '收尾款' }} · {{ procManage?.order_no || '' }}</h3>
         <p class="muted" style="margin:0 0 10px">应收 {{ money(procManage?.due_amount) }} · 已收 {{ money(procManage?.paid_amount) }} · 未收 <b>{{ money(processingOutstanding(procManage)) }}</b></p>
         <label v-if="procPayType === 'DEPOSIT'">本次定金<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label>
-        <label>支付方式<select v-model="procPayMethod"><option v-if="!paymentMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in paymentMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
-        <small v-if="procPayType === 'BALANCE'" class="muted">尾款金额固定为剩余应收，不支持部分收取</small>
+        <label>支付方式<select v-model="procPayMethod" @change="changeProcPayMethod"><option v-if="!procPayMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in procPayMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
+        <template v-if="procGroupPayment"><label>本次实收<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label><label>团购核销单号<input v-model.trim="procVoucherNo" maxlength="100" placeholder="输入平台核销单号" /></label><p class="muted" style="margin:0">团购优惠 {{ money(procGroupDiscount) }} · 本次收款后结清</p></template>
+        <small v-else-if="procPayType === 'BALANCE'" class="muted">尾款金额固定为剩余应收，不支持部分收取</small>
         <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '收款中...' : '确认收款' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；可重复登记修正。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>

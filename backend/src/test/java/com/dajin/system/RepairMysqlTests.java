@@ -57,6 +57,7 @@ class RepairMysqlTests {
         jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code) values(1,1,'Admin','ADMIN')");
         jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(1,1,'test','test','Test',1)");
         jdbc.update("insert into sys_config(store_id,config_key,config_value) values(1,'discount_threshold','0.8'),(1,'default_commission_rate','0.01'),(1,'current_shift_no','SHIFT-TEST')");
+        jdbc.update("insert into pay_channel(store_id,channel_name,channel_code) values(1,'Cash','CASH'),(1,'Stored value','BALANCE')");
         jdbc.update("insert into goods_category(category_id,store_id,name,category_code,level) values(1,1,'Items','ITEMS',2)");
         jdbc.update("insert into member(member_id,store_id,name,phone,balance) values(1,1,'Member','13800000000',1000)");
         jdbc.update("insert into goods(goods_id,store_id,barcode,name,category_id,price_type,stock,cost_price,sale_price) values(1,1,'ITEM1','Item',1,2,1,20,100)");
@@ -195,6 +196,42 @@ class RepairMysqlTests {
         var controller=transactional(new com.dajin.system.processing.ProcessingController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
         controller.createOrder(Map.of("processingItemId",1,"customerName","Test","customerPhone","13800000000","quantity",1,"billingWeight",10),request);
         assertEquals(new BigDecimal("200.00"),jdbc.queryForObject("select labor_fee from processing_order",BigDecimal.class));
+    }
+
+    @Test void processingGroupPaymentSettlesActualAmountWithoutCreatingArrears() {
+        var migration = new com.dajin.system.config.SchemaCompatibilityMigration(jdbc);
+        migration.run();
+        assertEquals(2, jdbc.queryForObject("select count(*) from pay_channel where store_id=1 and channel_code in ('DOUYIN_GROUP','MEITUAN_GROUP')", Integer.class));
+        jdbc.update("delete from pay_channel where store_id=1 and channel_code='MEITUAN_GROUP'");
+        migration.run();
+        assertEquals(0, jdbc.queryForObject("select count(*) from pay_channel where store_id=1 and channel_code='MEITUAN_GROUP'", Integer.class));
+
+        jdbc.update("insert into processing_category(category_id,store_id,name,category_code) values(1,1,'Processing','PROC')");
+        jdbc.update("insert into processing_item(item_id,store_id,category_id,name,item_code,labor_fee) values(1,1,1,'Service','PIECE',200)");
+        var controller=transactional(new com.dajin.system.processing.ProcessingController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
+        var order=(Map<?,?>)controller.createOrder(Map.of("processingItemId",1,"customerName","Test","customerPhone","13800000000","quantity",1),request).data();
+        long id=((Number)order.get("processing_order_id")).longValue();
+        jdbc.update("update processing_order set status='COMPLETED' where processing_order_id=?", id);
+        controller.pay(id,Map.of("clientRequestId","deposit-1","paymentType","DEPOSIT","payMethod","CASH","amount",50),request);
+        var payment=Map.<String,Object>of("clientRequestId","group-1","paymentType","BALANCE","payMethod","DOUYIN_GROUP","amount",130,"voucherNo","DY-123");
+        controller.pay(id,payment,request);
+        controller.pay(id,payment,request);
+
+        var settled=jdbc.queryForMap("select original_due_amount,promotion_discount,due_amount,paid_amount,promotion_channel,voucher_no from processing_order where processing_order_id=?",id);
+        assertEquals(new BigDecimal("200.00"),settled.get("original_due_amount"));
+        assertEquals(new BigDecimal("20.00"),settled.get("promotion_discount"));
+        assertEquals(new BigDecimal("180.00"),settled.get("due_amount"));
+        assertEquals(new BigDecimal("180.00"),settled.get("paid_amount"));
+        assertEquals("DOUYIN_GROUP",settled.get("promotion_channel"));
+        assertEquals("DY-123",settled.get("voucher_no"));
+        assertEquals(new BigDecimal("180.00"),jdbc.queryForObject("select sum(amount) from processing_payment where processing_order_id=?",BigDecimal.class,id));
+        assertEquals(new BigDecimal("180.00"),jdbc.queryForObject("select sum(amount) from finance_record where category='PROCESSING_FEE'",BigDecimal.class));
+
+        var second=(Map<?,?>)controller.createOrder(Map.of("processingItemId",1,"customerName","Second","customerPhone","13800000001","quantity",1),request).data();
+        long secondId=((Number)second.get("processing_order_id")).longValue();
+        jdbc.update("update processing_order set status='COMPLETED' where processing_order_id=?",secondId);
+        assertEquals(409717,assertThrows(BusinessException.class,()->controller.pay(secondId,Map.of("clientRequestId","group-2","paymentType","BALANCE","payMethod","DOUYIN_GROUP","amount",180,"voucherNo","DY-123"),request)).getCode());
+        assertEquals(0,jdbc.queryForObject("select count(*) from processing_payment where processing_order_id=?",Integer.class,secondId));
     }
 
     @Test void repeatedProcessingGoldReturnsHaveSeparateLedgerEntries() {
@@ -348,7 +385,6 @@ class RepairMysqlTests {
 
     @Test void excessRefundRequiresRecoveryConfirmationAndReversesPayoutOnce() {
         jdbc.update("insert into gold_price(store_id,price_type,price,date) values(1,'回收金价',100,curdate())");
-        jdbc.update("insert into pay_channel(store_id,channel_name,channel_code,status) values(1,'Cash','CASH',1)");
         var q=sale("excess-refund");
         var old=new OrderController.OldMaterialItem("足金999",new BigDecimal("2"),BigDecimal.ONE,"回收金价",new BigDecimal("100"),"");
         var body=new OrderController.Req(q.memberId(),q.discount(),BigDecimal.ZERO,q.laborFee(),null,null,"CASH",1L,"",q.items(),List.of(old),q.clientRequestId(),null,false);
