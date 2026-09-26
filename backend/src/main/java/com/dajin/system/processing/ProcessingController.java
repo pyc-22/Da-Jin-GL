@@ -683,11 +683,15 @@ public class ProcessingController {
         long storeId = store(request);
         String requestId = text(body, "clientRequestId", "clientRequestId");
         Map<String, Object> order = lockedOrder(id, storeId);
-        List<Map<String, Object>> replay = db.list("select payment_id,processing_order_id from processing_payment where store_id=:s and client_request_id=:requestId for update", Map.of("s", storeId, "requestId", requestId));
+        List<Map<String, Object>> replay = db.list("select payment_id,processing_order_id,payment_type,amount,pay_method,client_request_id,remark,create_time from processing_payment where store_id=:s and client_request_id=:requestId for update", Map.of("s", storeId, "requestId", requestId));
         if (!replay.isEmpty()) {
             if (((Number) replay.get(0).get("processing_order_id")).longValue() != id)
                 throw new BusinessException(409708, "支付请求编号已用于其他加工单");
-            return ApiResponse.ok(Map.of("processingOrderId", id, "idempotentReplay", true));
+            Map<String, Object> result = new LinkedHashMap<>(orderDetail(id, storeId));
+            result.put("processingOrderId", id);
+            result.put("idempotentReplay", true);
+            result.put("replayedPayment", replay.get(0));
+            return ApiResponse.ok(result);
         }
         if ("PICKED_UP".equals(order.get("status"))) throw new BusinessException(409706, "已取货订单不能继续收款");
         String paymentType = text(body, "paymentType", "收款类型").toUpperCase(Locale.ROOT);

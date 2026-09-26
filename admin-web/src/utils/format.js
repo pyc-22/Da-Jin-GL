@@ -4,7 +4,9 @@ export const PAYMENT_METHOD_LABELS = Object.freeze({
   ALIPAY: '支付宝',
   BANK: '银行卡',
   BALANCE: '储值',
-  COMBINATION: '组合'
+  COMBINATION: '组合',
+  DOUYIN_GROUP: '抖音团购',
+  MEITUAN_GROUP: '美团团购'
 })
 
 export const OPERATION_MODULE_LABELS = Object.freeze({

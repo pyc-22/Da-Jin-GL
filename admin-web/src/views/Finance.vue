@@ -13,6 +13,7 @@ const report = ref(null)
 const profit = ref([])
 const recycle = ref({})
 const recycleRows = ref([])
+const exportLoading = ref(false)
 const app = useAppStore()
 
 function dateText(value) {
@@ -105,19 +106,29 @@ async function load() {
   report.value = reportData
 }
 
-function exportXlsx() {
-  const ws = XLSX.utils.json_to_sheet(records.value.map(row => ({
-    流水号: row.finance_id,
-    收支类型: formatFinanceType(row.type),
-    业务类型: formatFinanceBusiness(row),
-    金额: Number(row.amount || 0),
-    支付方式: formatPaymentMethod(row.pay_method, app.paymentChannels),
-    关联单据: row.related_bill_no || '',
-    时间: formatTime(row.create_time)
-  })))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '收支流水')
-  XLSX.writeFile(wb, `财务报表_${financeRange.value.start}_${financeRange.value.end}.xlsx`)
+async function exportXlsx() {
+  exportLoading.value = true
+  try {
+    const exportRows = await financeApi.records({ ...financeRange.value, all: true })
+    const ws = XLSX.utils.json_to_sheet((Array.isArray(exportRows) ? exportRows : []).map(row => ({
+      流水号: row.finance_id,
+      收支类型: formatFinanceType(row.type),
+      业务类型: formatFinanceBusiness(row),
+      原应收: row.processing_original_due_amount == null ? '' : Number(row.processing_original_due_amount),
+      优惠: row.processing_promotion_discount == null ? '' : Number(row.processing_promotion_discount),
+      实收: Number(row.amount || 0),
+      支付方式: formatPaymentMethod(row.pay_method, app.paymentChannels),
+      团购平台: row.processing_promotion_channel ? formatPaymentMethod(row.processing_promotion_channel, app.paymentChannels) : '',
+      核销号: row.processing_voucher_no || '',
+      关联单据: row.related_bill_no || '',
+      时间: formatTime(row.create_time)
+    })))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '收支流水')
+    XLSX.writeFile(wb, `财务报表_${financeRange.value.start}_${financeRange.value.end}.xlsx`)
+  } finally {
+    exportLoading.value = false
+  }
 }
 
 function exportRecycle() {
@@ -143,7 +154,7 @@ watch(() => app.eventVersion, load)
     <section class="panel">
       <div class="panel-title">
         <div class="finance-title-group"><span>经营汇总</span><el-tag type="info" effect="plain">{{ rangeLabel }}</el-tag></div>
-        <el-button size="small" @click="exportXlsx">导出 Excel</el-button>
+        <el-button size="small" :loading="exportLoading" @click="exportXlsx">导出 Excel</el-button>
       </div>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="销售订单数">{{ reportSummary.orderCount }}</el-descriptions-item>
@@ -203,13 +214,17 @@ watch(() => app.eventVersion, load)
   </section>
 
   <section v-if="period !== 'recycle' && period !== 'shifts'" class="panel" style="margin-top:16px">
-    <div class="panel-title"><span>收支流水</span><span class="muted">{{ rangeLabel }} · 最多显示 500 条</span></div>
+    <div class="panel-title"><span>收支流水</span><span class="muted">{{ rangeLabel }} · 页面最多显示 500 条，导出为完整结果</span></div>
     <el-table :data="records" empty-text="当前范围暂无收支流水">
       <el-table-column prop="finance_id" label="流水号" width="90" />
       <el-table-column label="业务类型" min-width="115"><template #default="s">{{ formatFinanceBusiness(s.row) }}</template></el-table-column>
       <el-table-column label="收支方向" width="90"><template #default="s"><el-tag :type="s.row.type === 'EXPENSE' ? 'danger' : 'success'">{{ formatFinanceType(s.row.type) }}</el-tag></template></el-table-column>
-      <el-table-column label="金额" align="right" min-width="110"><template #default="s"><span :class="s.row.type === 'EXPENSE' ? 'amount-expense' : ''">{{ formatMoney(s.row.amount) }}</span></template></el-table-column>
+      <el-table-column label="原应收" align="right" min-width="105"><template #default="s">{{ s.row.processing_original_due_amount == null ? '-' : formatMoney(s.row.processing_original_due_amount) }}</template></el-table-column>
+      <el-table-column label="优惠" align="right" min-width="95"><template #default="s">{{ s.row.processing_promotion_discount == null ? '-' : formatMoney(s.row.processing_promotion_discount) }}</template></el-table-column>
+      <el-table-column label="实收" align="right" min-width="105"><template #default="s"><span :class="s.row.type === 'EXPENSE' ? 'amount-expense' : ''">{{ formatMoney(s.row.amount) }}</span></template></el-table-column>
       <el-table-column label="支付方式" min-width="100"><template #default="s">{{ formatPaymentMethod(s.row.pay_method, app.paymentChannels) }}</template></el-table-column>
+      <el-table-column label="团购平台" min-width="110"><template #default="s">{{ s.row.processing_promotion_channel ? formatPaymentMethod(s.row.processing_promotion_channel, app.paymentChannels) : '-' }}</template></el-table-column>
+      <el-table-column prop="processing_voucher_no" label="核销号" min-width="130" />
       <el-table-column prop="related_bill_no" label="关联单据" min-width="180" />
       <el-table-column label="时间" min-width="170"><template #default="s">{{ formatTime(s.row.create_time) }}</template></el-table-column>
     </el-table>

@@ -233,8 +233,15 @@ async function confirmProcPay() {
   if (procGroupPayment.value && !procVoucherNo.value.trim()) return ElMessage.warning('请输入团购核销单号')
   procPayBusy.value = true
   try {
-    await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify({ paymentType: procPayType.value, payMethod: procPayMethod.value, amount, ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), clientRequestId: procPayRequestId.value }) })
-    ElMessage.success(`加工单 ${row.order_no} ${procPayType.value === 'DEPOSIT' ? '定金已收取' : '尾款已收清'}`)
+    const result = await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify({ paymentType: procPayType.value, payMethod: procPayMethod.value, amount, ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), clientRequestId: procPayRequestId.value }) })
+    if (result?.idempotentReplay) {
+      const replay = result.replayedPayment || {}
+      const replayAmount = replay.amount == null ? amount : Number(replay.amount)
+      const replayMethod = replay.pay_method || procPayMethod.value
+      ElMessage.warning(`该笔收款已完成：实收 ${money(replayAmount)}，支付方式 ${paymentLabel(replayMethod)}，系统未重复记账`)
+    } else {
+      ElMessage.success(`加工单 ${row.order_no} ${procPayType.value === 'DEPOSIT' ? '定金已收取' : '尾款已收清'}`)
+    }
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '收款失败') } finally { procPayBusy.value = false }
 }

@@ -31,9 +31,28 @@ public class AdminFinanceController {
     public ApiResponse<?> records(@RequestParam(required = false) String payMethod,
                                   @RequestParam(required = false) String start,
                                   @RequestParam(required = false) String end,
+                                  @RequestParam(defaultValue = "1") int page,
+                                  @RequestParam(defaultValue = "500") int pageSize,
+                                  @RequestParam(defaultValue = "false") boolean all,
                                   HttpServletRequest request) {
-        MapSqlParameterSource query = params(request).addValue("m", payMethod).addValue("start", start).addValue("end", end);
-        return ApiResponse.ok(db.list("select * from finance_record where store_id=:s and (:m is null or pay_method=:m) and (:start is null or create_time>=:start) and (:end is null or create_time<date_add(:end,interval 1 day)) order by finance_id desc limit 500", query));
+        int size = Math.max(1, Math.min(pageSize, 500));
+        int offset = Math.max(0, page - 1) * size;
+        MapSqlParameterSource query = params(request)
+                .addValue("m", payMethod)
+                .addValue("start", start)
+                .addValue("end", end)
+                .addValue("limit", size)
+                .addValue("offset", offset);
+        String limitSql = all ? "" : " limit :limit offset :offset";
+        return ApiResponse.ok(db.list("select f.*,p.processing_order_id,p.original_due_amount processing_original_due_amount,"
+                + "coalesce(p.promotion_discount,0) processing_promotion_discount,"
+                + "p.promotion_channel processing_promotion_channel,p.voucher_no processing_voucher_no "
+                + "from finance_record f left join processing_order p on p.store_id=f.store_id "
+                + "and p.order_no=f.related_bill_no and f.category='PROCESSING_FEE' "
+                + "where f.store_id=:s and (:m is null or f.pay_method=:m) "
+                + "and (:start is null or f.create_time>=:start) "
+                + "and (:end is null or f.create_time<date_add(:end,interval 1 day)) "
+                + "order by f.finance_id desc" + limitSql, query));
     }
 
     @GetMapping("/finance/shifts")
