@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron')
+let nextSocketId = 0
 
 contextBridge.exposeInMainWorld('dajin', {
   db: {
@@ -25,5 +26,39 @@ contextBridge.exposeInMainWorld('dajin', {
   config: {
     get: () => ipcRenderer.invoke('config:get'),
     set: value => ipcRenderer.invoke('config:set', value)
+  },
+  network: {
+    request: input => ipcRenderer.invoke('network:request', input),
+    uploadPhoto: input => ipcRenderer.invoke('network:upload-photo', input),
+    openSocket: (token, handlers) => {
+      const id = `${Date.now()}-${++nextSocketId}`
+      let closed = false
+      const listener = (_event, payload) => {
+        if (closed || payload.id !== id) return
+        if (payload.type === 'open') handlers.onopen?.()
+        if (payload.type === 'message') handlers.onmessage?.({ data: payload.data })
+        if (payload.type === 'close') {
+          closed = true
+          ipcRenderer.removeListener('network:socket-event', listener)
+          handlers.onclose?.()
+        }
+      }
+      ipcRenderer.on('network:socket-event', listener)
+      ipcRenderer.invoke('network:socket-connect', { token, id }).catch(error => {
+        if (closed) return
+        closed = true
+        ipcRenderer.removeListener('network:socket-event', listener)
+        handlers.onerror?.(error)
+        handlers.onclose?.()
+      })
+      return {
+        close: () => {
+          if (closed) return
+          closed = true
+          ipcRenderer.removeListener('network:socket-event', listener)
+          ipcRenderer.invoke('network:socket-close', id).catch(() => {})
+        }
+      }
+    }
   }
 })

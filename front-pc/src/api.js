@@ -19,6 +19,39 @@ export function setApiBase(value) {
   console.info('[dajin-api] baseURL updated:', API_BASE)
   return API_BASE
 }
+export async function fetchBackend(path, options = {}) {
+  if (window.dajin?.network?.request) {
+    const result = await window.dajin.network.request({
+      path, method: options.method || 'GET', headers: options.headers || {},
+      body: options.body, timeoutMs: options.timeoutMs
+    })
+    return new Response(result.status === 204 ? null : result.body, { status: result.status })
+  }
+  return fetch(`${API_BASE}${path}`, options)
+}
+
+export async function uploadBackendPhoto(file, orderNo) {
+  if (window.dajin?.network?.uploadPhoto) {
+    const result = await window.dajin.network.uploadPhoto({
+      bytes: new Uint8Array(await file.arrayBuffer()), filename: file.name,
+      type: file.type, orderNo, authorization: `Bearer ${getToken()}`
+    })
+    return new Response(result.status === 204 ? null : result.body, { status: result.status })
+  }
+  const form = new FormData()
+  form.append('file', file)
+  form.append('bizType', 'processing')
+  if (orderNo) form.append('orderNo', orderNo)
+  return fetchBackend('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: form })
+}
+
+export function openBackendSocket(handlers) {
+  if (window.dajin?.network?.openSocket) return window.dajin.network.openSocket(getToken(), handlers)
+  const socket = new WebSocket(wsUrl())
+  Object.assign(socket, handlers)
+  return socket
+}
+
 export async function request(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
@@ -27,7 +60,7 @@ export async function request(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase()
   const started = performance.now()
   try {
-    const response = await fetch(url, { ...options, headers })
+    const response = await fetchBackend(path, { ...options, headers })
     const elapsed = Math.round(performance.now() - started)
     console.info(`[dajin-api] ${method} ${url} -> ${response.status} (${elapsed}ms)`)
     const body = await response.json().catch(() => ({}))

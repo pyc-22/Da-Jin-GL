@@ -8,7 +8,7 @@ import {
   Minus, Monitor, PackageCheck, PanelLeft, Phone, Plus, Printer, Receipt, RefreshCw, Search,
   Settings2, ShieldAlert, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Wifi, WifiOff, X
 } from 'lucide-vue-next'
-import { apiBase, getToken, login, request, setApiBase, setToken, wsUrl } from './api'
+import { apiBase, fetchBackend, getToken, login, openBackendSocket, request, setApiBase, setToken, uploadBackendPhoto } from './api'
 import { filterCatalogProducts } from './catalog'
 import { calculateOldMaterialSettlement, handoverCheckout } from './checkout'
 import { buildProcessingPrintHtml, buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS } from './cashier'
@@ -284,10 +284,7 @@ function openProcFinish(row) {
   activeDialog.value = 'procFinish'
 }
 async function uploadProcessingPhoto(file, orderNo) {
-  const fd = new FormData(); fd.append('file', file)
-  fd.append('bizType', 'processing')
-  if (orderNo) fd.append('orderNo', orderNo)
-  const res = await fetch(`${apiBase()}/api/upload`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd })
+  const res = await uploadBackendPhoto(file, orderNo)
   const body = await res.json().catch(() => ({}))
   if (!res.ok || (body.code !== undefined && body.code !== 200)) throw new Error(body.message || '照片上传失败')
   return body.data?.url || body.url || body.data
@@ -374,7 +371,7 @@ async function submitProcFinish() {
 async function pickupWithWarranty(row) {
   try {
     if (Number(row.paid_amount || 0) < Number(row.due_amount || 0)) return ElMessage.warning(`尾款未收清（未收 ${money(Number(row.due_amount || 0) - Number(row.paid_amount || 0))}），请先收款`)
-    const response = await fetch(`${apiBase()}/api/processing/orders/${row.processing_order_id}/warranty`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const response = await fetchBackend(`/api/processing/orders/${row.processing_order_id}/warranty`, { headers: { Authorization: `Bearer ${getToken()}` } })
     if (!response.ok) throw new Error('质保单加载失败，请检查登录状态后重试')
     procWarrantyHtml.value = await response.text()
     procManage.value = row
@@ -414,7 +411,7 @@ async function confirmProcessingPickup(row) {
 }
 async function confirmProcessingHandover(row) {
   try {
-    const response = await fetch(`${apiBase()}/api/processing/orders/${row.processing_order_id}/print`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const response = await fetchBackend(`/api/processing/orders/${row.processing_order_id}/print`, { headers: { Authorization: `Bearer ${getToken()}` } })
     if (!response.ok) throw new Error('加工工单加载失败，请检查登录状态后重试')
     processingPrintModel.value = { orderNo: row.order_no, processingOrderId: row.processing_order_id }
     printPreview.value = { type: 'processing', text: '', html: await response.text() }
@@ -426,7 +423,7 @@ async function openPrintJob(row) {
     const path = row.job_type === 'SALES'
       ? `/api/order/${row.order_id}/receipt`
       : `/api/processing/orders/${row.order_id}/print`
-    const response = await fetch(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const response = await fetchBackend(path, { headers: { Authorization: `Bearer ${getToken()}` } })
     if (!response.ok) throw new Error('打印内容加载失败')
     activePrintJob.value = row
     processingPrintModel.value = row.job_type === 'PROCESSING'
@@ -900,49 +897,49 @@ function applyApprovalDecision(approvalId, statusValue) {
 function setupSocket() {
   if (!getToken() || !online.value || ws.value) return
   try {
-    const socketUrl = wsUrl()
-    console.info('[dajin-ws] connecting:', socketUrl.replace(/\?.*$/, ''))
-    ws.value = new WebSocket(socketUrl)
-    ws.value.onopen = () => console.info('[dajin-ws] connected')
-    ws.value.onmessage = async event => {
-      try {
-        const message = JSON.parse(event.data)
-        console.info('[dajin-ws] message:', message.type)
-        if (message.type === 'GOLD_PRICE_UPDATED') { const update = message.data; const found = gold.value.find(g => (g.price_type || g.priceType) === update.priceType); if (found) found.price = Number(update.price); else gold.value.push({ price_type: update.priceType, price: update.price }); await window.dajin?.db?.seed?.({ gold: plainPayload(gold.value) }); toast.value = `${update.priceType}金价已更新` }
-        if (message.type === 'APPROVAL_DECIDED') applyApprovalDecision(message.data?.approvalId ?? message.data?.id, message.data?.status)
-        if (message.type === 'APPROVAL_CREATED') noticeCount.value += 1
-        if (message.type === 'REMINDER_REFRESH') loadNotifications()
-        if (message.type === 'CATEGORIES_UPDATED') refreshOnlineData()
-        if (shouldRefreshCatalog(message.type)) {
-          refreshProducts().catch(error => console.warn('[dajin-catalog] realtime refresh skipped:', error?.message || error))
+    console.info('[dajin-ws] connecting')
+    ws.value = openBackendSocket({
+      onopen: () => console.info('[dajin-ws] connected'),
+      onmessage: async event => {
+        try {
+          const message = JSON.parse(event.data)
+          console.info('[dajin-ws] message:', message.type)
+          if (message.type === 'GOLD_PRICE_UPDATED') { const update = message.data; const found = gold.value.find(g => (g.price_type || g.priceType) === update.priceType); if (found) found.price = Number(update.price); else gold.value.push({ price_type: update.priceType, price: update.price }); await window.dajin?.db?.seed?.({ gold: plainPayload(gold.value) }); toast.value = `${update.priceType}金价已更新` }
+          if (message.type === 'APPROVAL_DECIDED') applyApprovalDecision(message.data?.approvalId ?? message.data?.id, message.data?.status)
+          if (message.type === 'APPROVAL_CREATED') noticeCount.value += 1
+          if (message.type === 'REMINDER_REFRESH') loadNotifications()
+          if (message.type === 'CATEGORIES_UPDATED') refreshOnlineData()
+          if (shouldRefreshCatalog(message.type)) {
+            refreshProducts().catch(error => console.warn('[dajin-catalog] realtime refresh skipped:', error?.message || error))
+          }
+          if (message.type === 'ORDER_COMPLETED') {
+            refreshMembers().catch(error => console.warn('[dajin-member] order refresh skipped:', error?.message || error))
+          }
+          if (message.type === 'MEMBER_UPDATED') refreshMembers().catch(error => console.warn('[dajin-member] refresh skipped:', error?.message || error))
+          if (message.type === 'PAY_CHANNELS_UPDATED' || message.type === 'CONFIG_UPDATED' || message.type === 'STORE_UPDATED') refreshOnlineData()
+          if (shouldRefreshProcessingReferences(message.type)) loadProcessingData()
+          if (message.type === 'PROCESSING_ORDER_CREATED' || message.type === 'PROCESSING_ORDER_UPDATED' || message.type === 'PRINT_JOB_UPDATED') loadFrontTodo()
+          if (message.type === 'OLD_MATERIAL_TYPES_UPDATED') refreshOldMaterialTypes()
+          if (message.type === 'MOBILE_ORDER_CREATED') { noticeCount.value += 1; toast.value = `收到移动开单 ${message.data?.orderNo || ''}`; if (activeMenu.value === 'bill') loadPageData(); setTimeout(() => { toast.value = '' }, 2200) }
+          if (message.type === 'PROCESSING_HANDOVER' || message.type === 'ORDER_HANDOVER') { noticeCount.value += 1; toast.value = `手机端转交：${message.data?.orderNo || '新单据'}`; loadFrontTodo(); setTimeout(() => { toast.value = '' }, 2200) }
+          if (message.type === 'PRINT_JOB_NEW') { noticeCount.value += 1; toast.value = `收到待打印单据 ${message.data?.orderNo || ''}`; loadFrontTodo(); setTimeout(() => { toast.value = '' }, 2200) }
+        } catch { /* ignore malformed push */ }
+      },
+      onclose: () => {
+        console.warn('[dajin-ws] disconnected')
+        ws.value = null
+        if (online.value && getToken() && !wsRetryTimer) {
+          wsRetryTimer = setTimeout(() => { wsRetryTimer = null; refreshOnlineData(); setupSocket() }, 2000)
         }
-        if (message.type === 'ORDER_COMPLETED') {
-          refreshMembers().catch(error => console.warn('[dajin-member] order refresh skipped:', error?.message || error))
-        }
-        if (message.type === 'MEMBER_UPDATED') refreshMembers().catch(error => console.warn('[dajin-member] refresh skipped:', error?.message || error))
-        if (message.type === 'PAY_CHANNELS_UPDATED' || message.type === 'CONFIG_UPDATED' || message.type === 'STORE_UPDATED') refreshOnlineData()
-        if (shouldRefreshProcessingReferences(message.type)) loadProcessingData()
-        if (message.type === 'PROCESSING_ORDER_CREATED' || message.type === 'PROCESSING_ORDER_UPDATED' || message.type === 'PRINT_JOB_UPDATED') loadFrontTodo()
-        if (message.type === 'OLD_MATERIAL_TYPES_UPDATED') refreshOldMaterialTypes()
-        if (message.type === 'MOBILE_ORDER_CREATED') { noticeCount.value += 1; toast.value = `收到移动开单 ${message.data?.orderNo || ''}`; if (activeMenu.value === 'bill') loadPageData(); setTimeout(() => { toast.value = '' }, 2200) }
-        if (message.type === 'PROCESSING_HANDOVER' || message.type === 'ORDER_HANDOVER') { noticeCount.value += 1; toast.value = `手机端转交：${message.data?.orderNo || '新单据'}`; loadFrontTodo(); setTimeout(() => { toast.value = '' }, 2200) }
-        if (message.type === 'PRINT_JOB_NEW') { noticeCount.value += 1; toast.value = `收到待打印单据 ${message.data?.orderNo || ''}`; loadFrontTodo(); setTimeout(() => { toast.value = '' }, 2200) }
-      } catch { /* ignore malformed push */ }
-    }
-    ws.value.onclose = () => {
-      console.warn('[dajin-ws] disconnected')
-      ws.value = null
-      if (online.value && getToken() && !wsRetryTimer) {
-        wsRetryTimer = setTimeout(() => { wsRetryTimer = null; refreshOnlineData(); setupSocket() }, 2000)
       }
-    }
+    })
   } catch (error) { console.warn('[dajin-ws] connect error:', error?.message || error); ws.value = null }
 }
 function setBackendReachable(value) {
   const wasOnline = online.value
   backendReachable.value = value
   if (wasOnline !== online.value) console.info(`[dajin-health] backend ${online.value ? 'online' : 'offline'} (${apiBase()})`)
-  if (!value && ws.value) ws.value.close()
+  if (!value && ws.value) { ws.value.close(); ws.value = null }
   if (!wasOnline && online.value) { refreshOnlineData(); doSync(); setupSocket() }
 }
 async function refreshOldMaterialTypes() {
@@ -965,8 +962,8 @@ async function probeBackend() {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 2200)
   try {
-    const response = await fetch(`${apiBase()}/actuator/health`, { cache: 'no-store', signal: controller.signal })
-    const healthy = response.ok
+    const response = await fetchBackend('/actuator/health', { cache: 'no-store', signal: controller.signal, timeoutMs: 2200 })
+    const healthy = response.ok && (await response.json().catch(() => null))?.status === 'UP'
     setBackendReachable(healthy)
     return healthy
   } catch (error) {
@@ -1537,10 +1534,22 @@ async function closeDialog() {
 }
 async function saveSettings() {
   if (!apiEndpoint.value.trim()) return ElMessage.warning('请输入后端 API 地址')
-  setApiBase(apiEndpoint.value)
-  await window.dajin?.config?.set?.({ apiBase: apiBase(), apiBaseUrl: apiBase(), paperWidth: printSettings.paperWidth, deviceName: printSettings.deviceName, silent: printSettings.silent })
-  ElMessage.success('设备设置已保存')
-  closeDialog()
+  let endpoint
+  try {
+    endpoint = new URL(apiEndpoint.value.trim())
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash) throw new Error('invalid URL')
+  } catch { return ElMessage.warning('请输入完整的后端站点根地址，如 https://admin.xinchengjinjiang.com') }
+  try {
+    await window.dajin?.config?.set?.({ apiBase: endpoint.origin, apiBaseUrl: endpoint.origin, paperWidth: printSettings.paperWidth, deviceName: printSettings.deviceName, silent: printSettings.silent })
+    ws.value?.close()
+    ws.value = null
+    setApiBase(endpoint.origin)
+    apiEndpoint.value = apiBase()
+    if (await probeBackend()) {
+      ElMessage.success('后端已连接，设置已保存')
+      activeDialog.value = getToken() ? '' : 'login'
+    } else ElMessage.warning('设置已保存，但后端暂未连接，请核对地址或网络')
+  } catch (error) { ElMessage.error(error?.message || '保存设置失败') }
 }
 function nav(id) { activeMenu.value = id; loadPageData() }
 
@@ -1554,7 +1563,7 @@ onMounted(async () => {
   const savedConfig = await window.dajin?.config?.get?.().catch?.(() => ({})) || {}
   const savedApiBase = savedConfig.apiBase || savedConfig.apiBaseUrl
   if (savedApiBase) { setApiBase(savedApiBase); apiEndpoint.value = apiBase() }
-  else if (window.dajin?.config) activeDialog.value = 'settings'
+  else if (window.dajin?.config) { apiEndpoint.value = 'https://admin.xinchengjinjiang.com'; activeDialog.value = 'settings' }
   if (savedConfig.paperWidth) printSettings.paperWidth = Number(savedConfig.paperWidth)
   if (savedConfig.deviceName != null) printSettings.deviceName = savedConfig.deviceName
   if (savedConfig.silent != null) printSettings.silent = Boolean(savedConfig.silent)
@@ -1564,7 +1573,7 @@ onMounted(async () => {
   try { const saved = JSON.parse(localStorage.getItem('dajin_user') || '{}'); if (saved.real_name) Object.assign(cashier, { name: saved.real_name, role: saved.role_code || cashier.role }) } catch { /* ignore malformed local session */ }
   await probeBackend(); await refreshOnlineData(); setupSocket(); await doSync()
   await loadConflicts()
-  if (!getToken()) activeDialog.value = 'login'
+  if (!getToken() && activeDialog.value !== 'settings') activeDialog.value = 'login'
 })
 onBeforeUnmount(() => { clearInterval(clockTimer); clearInterval(syncTimer); clearInterval(healthTimer); clearInterval(configTimer); clearTimeout(wsRetryTimer); window.removeEventListener('online', networkChanged); window.removeEventListener('offline', networkChanged); window.removeEventListener('focus', windowFocused); window.removeEventListener('dajin:unauthorized', sessionExpired); ws.value?.close() })
 watch(activeMenu, loadPageData)
@@ -1621,7 +1630,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
 
     <el-dialog v-model="dialogModel" :width="activeDialog === 'procFinish' ? '780px' : '520px'" :show-close="false" class="workflow-dialog">
       <template #header><div class="dialog-title"><div><span class="eyebrow">{{ dialogTitle }}</span><h2>{{ dialogHeading }}</h2></div><button class="icon-button quiet" @click="closeDialog"><X :size="18" /></button></div></template>
-      <form v-if="activeDialog === 'login'" class="dialog-body" @submit.prevent="submitLogin"><div class="form-grid"><label>账号<input v-model.trim="loginForm.username" autocomplete="username" autofocus /></label><label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" /></label></div><p class="settings-note"><Monitor :size="17" /><span>请使用门店账号登录。</span></p><div class="dialog-actions"><button class="primary-button full" type="submit"><Check :size="16" />登录收银台</button></div></form>
+      <form v-if="activeDialog === 'login'" class="dialog-body" @submit.prevent="submitLogin"><div class="form-grid"><label>账号<input v-model.trim="loginForm.username" autocomplete="username" autofocus /></label><label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" /></label></div><p class="settings-note"><Monitor :size="17" /><span>后端：{{ apiBase() }} · {{ online ? '已连接' : '未连接' }}</span></p><div class="dialog-actions"><button class="secondary-button" type="button" @click="openDialog('settings')">连接设置</button><button class="primary-button" type="submit"><Check :size="16" />登录收银台</button></div></form>
       <form v-else-if="activeDialog === 'memberCreate'" class="dialog-body" @submit.prevent="submitMemberCreate"><div class="form-grid"><label>会员姓名<input v-model.trim="memberCreateForm.name" maxlength="100" autofocus placeholder="请输入姓名" /></label><label>手机号<input v-model.trim="memberCreateForm.phone" inputmode="numeric" maxlength="11" placeholder="请输入11位手机号" /></label><label>生日<el-date-picker v-model="memberCreateForm.birthday" type="date" value-format="YYYY-MM-DD" placeholder="选择生日" clearable style="width:100%" /></label></div><p class="settings-note"><UserRound :size="17" /><span>生日为可选信息，保存后管理端和收银端会员档案会同步显示。</span></p><div class="dialog-actions"><button class="secondary-button" type="button" @click="closeDialog">取消</button><button class="primary-button" type="submit"><Check :size="16" />保存会员</button></div></form>
       <div v-else-if="activeDialog === 'oldMetal'" class="dialog-body">
         <div class="form-grid"><label>旧料类型<select v-model="oldMetalForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>旧金克重 (g)<input v-model.number="oldMetalForm.weight" type="number" step="0.001" min="0" autofocus /></label><label>成色<select v-model="oldMetalForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="oldMetalForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="oldMetalForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label><label>计价金价<select v-model="oldMetalForm.priceType"><option v-for="item in gold" :key="item.price_type" :value="item.price_type">{{ item.price_type }} · {{ money(item.price) }}/g</option></select></label><label>备注<input v-model="oldMetalForm.note" placeholder="如：手镯、项链" /></label></div>
@@ -1687,7 +1696,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
       <div v-else-if="activeDialog === 'approval'" class="dialog-body"><div class="approval-detail"><div class="approval-icon"><ShieldAlert :size="26" /></div><h3>折扣审批已提交</h3><p>本单折扣 {{ Math.round(discount * 100) }} 折，低于配置阈值 {{ Math.round(config.discountThreshold * 100) }} 折。店长通过审批后，才能继续结算。</p><div class="approval-state"><Clock3 :size="16" />{{ approval.status || '待审批' }}</div></div><div class="dialog-actions"><button class="secondary-button" @click="holdCurrentOrder"><Archive :size="16" />挂起并开新单</button><button class="text-button" @click="closeDialog">稍后处理</button><button class="primary-button" @click="refreshApproval"><RefreshCw :size="16" />刷新审批状态</button></div></div>
       <div v-else-if="activeDialog === 'notifications'" class="dialog-body"><div v-if="!notifications.length" class="empty-dialog">暂无通知，每天 8:30/12:30/16:30/19:30 自动生成超期与库存提醒</div><div v-for="n in notifications" :class="['old-metal-row', { 'danger-text': n.action === 'REMIND' }]" :key="n.notification_id"><div><b>{{ n.content }}</b><small>{{ String(n.create_time || '').replace('T', ' ').slice(0, 16) }} · {{ n.action === 'REMIND' ? '未读' : '已读' }}</small></div></div></div>
       <div v-else-if="activeDialog === 'conflict'" class="dialog-body conflict-dialog"><div class="approval-detail"><div class="approval-icon danger"><ShieldAlert :size="26" /></div><h3>发现数据冲突</h3><p>请选择每条冲突保留的版本。系统不会静默覆盖库存或金额数据。</p></div><div v-if="!conflictRows.length" class="empty-dialog">当前没有待处理冲突</div><div v-for="row in conflictRows" :key="row.id || row.client_request_id" class="conflict-card"><div class="conflict-card-head"><b>{{ row.path }}</b><small>{{ row.reason || '版本校验失败' }}</small></div><table class="conflict-table"><thead><tr><th>字段</th><th>本地版本</th><th>云端版本</th></tr></thead><tbody><tr v-for="field in conflictFields(row)" :key="field.key" :class="{ changed: field.changed }"><td>{{ field.key }}</td><td>{{ typeof field.local === 'object' ? JSON.stringify(field.local) : (field.local ?? '-') }}</td><td>{{ typeof field.cloud === 'object' ? JSON.stringify(field.cloud) : (field.cloud ?? '-') }}</td></tr></tbody></table><div class="conflict-actions"><button class="secondary-button" @click="resolveConflict(row, 'CLOUD')"><Cloud :size="15" />保留云端</button><button class="primary-button" @click="resolveConflict(row, 'LOCAL')"><Upload :size="15" />保留本地并重试</button></div></div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">稍后处理</button><button class="text-button" @click="loadConflicts"><RefreshCw :size="14" />刷新冲突</button></div></div>
-      <div v-else-if="activeDialog === 'settings'" class="dialog-body"><div class="form-grid"><label>后端 API 地址<input v-model.trim="apiEndpoint" placeholder="http://192.168.1.100:8080" /></label><label>热敏纸宽度<select v-model.number="printSettings.paperWidth"><option :value="58">58mm</option><option :value="80">80mm</option></select></label><label>打印机名称<select v-model="printSettings.deviceName"><option value="">系统默认打印机</option><option v-for="printer in printers" :key="printer.name || printer.deviceName" :value="printer.name || printer.deviceName">{{ printer.displayName || printer.name || printer.deviceName }}</option></select></label><label class="checkbox-label"><input v-model="printSettings.silent" type="checkbox" />静默打印（系统打印队列）</label></div><div class="settings-note"><Monitor :size="17" /><span>小票、质保单和交班单均通过 Electron 系统打印服务发送，可选择打印机和纸张规格。</span></div><div class="dialog-actions"><button class="primary-button" @click="saveSettings"><Check :size="16" />保存设置</button></div></div>
+      <div v-else-if="activeDialog === 'settings'" class="dialog-body"><div class="form-grid"><label>后端 API 地址<input v-model.trim="apiEndpoint" placeholder="https://admin.xinchengjinjiang.com" /></label><label>热敏纸宽度<select v-model.number="printSettings.paperWidth"><option :value="58">58mm</option><option :value="80">80mm</option></select></label><label>打印机名称<select v-model="printSettings.deviceName"><option value="">系统默认打印机</option><option v-for="printer in printers" :key="printer.name || printer.deviceName" :value="printer.name || printer.deviceName">{{ printer.displayName || printer.name || printer.deviceName }}</option></select></label><label class="checkbox-label"><input v-model="printSettings.silent" type="checkbox" />静默打印（系统打印队列）</label></div><div class="settings-note"><Monitor :size="17" /><span>云端地址：<button class="text-button" @click="apiEndpoint = 'https://admin.xinchengjinjiang.com'">admin.xinchengjinjiang.com</button></span></div><div class="dialog-actions"><button class="primary-button" @click="saveSettings"><Check :size="16" />保存设置</button></div></div>
       <div v-else-if="activeDialog === 'procFinish'" class="dialog-body">
         <h3 style="margin:0 0 6px">完成加工登记 · {{ procFinish.row?.order_no || '' }}</h3>
         <p class="muted" style="margin:0 0 10px">以下各项按需填写，全部提交后本单进入「待取货」；尾款在待取货环节收取。</p>

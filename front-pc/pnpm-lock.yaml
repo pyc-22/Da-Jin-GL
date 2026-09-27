@@ -32,6 +32,9 @@ importers:
       wait-on:
         specifier: ^8.0.3
         version: 8.0.5(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
     devDependencies:
       '@vue/test-utils':
         specifier: ^2.4.6

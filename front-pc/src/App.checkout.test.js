@@ -8,7 +8,9 @@ import { ElMessage } from 'element-plus'
 
 vi.mock('./api', () => ({
   apiBase: () => 'http://localhost:18080', getToken: () => 'test-token',
-  request: vi.fn(), login: vi.fn(), setApiBase: vi.fn(), setToken: vi.fn(), wsUrl: () => 'ws://localhost:18080/ws'
+  request: vi.fn(), login: vi.fn(), setApiBase: vi.fn(), setToken: vi.fn(), wsUrl: () => 'ws://localhost:18080/ws',
+  fetchBackend: (path, options) => fetch(`http://localhost:18080${path}`, options),
+  uploadBackendPhoto: vi.fn(), openBackendSocket: () => new WebSocket('ws://localhost:18080/ws')
 }))
 vi.mock('./offline', () => ({
   cancelQueuedOrder: vi.fn(), enqueueWithId: vi.fn(), localConflicts: async () => [],
@@ -86,7 +88,7 @@ beforeEach(() => {
   request.mockImplementation((...args) => requestHandler(...args))
   requestOrQueue.mockImplementation(async path => path === '/api/order/create'
     ? { orderId: 42, orderNo: 'SALE-42', status: 0 } : { status: 1 })
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, text: async () => '<html>Processing print</html>' })))
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ status: 'UP' }), text: async () => '<html>Processing print</html>' })))
   vi.stubGlobal('WebSocket', class { close() {} })
   window.dajin = { print: { system: vi.fn(async () => ({ success: true })) } }
 })

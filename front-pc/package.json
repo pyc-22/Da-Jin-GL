@@ -1,7 +1,7 @@
 {
   "name": "dajin-front-pc",
   "description": "打金店收银台",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "author": "打金店系统",
   "private": true,
   "main": "electron/main.cjs",
@@ -10,7 +10,7 @@
     "build": "vite build && node scripts/verify-build.cjs",
     "dist": "pnpm run build && electron-builder",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "vitest run"
+    "test": "vitest run && node --test test/backend-network.checks.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "latest",
@@ -20,7 +20,8 @@
     "sql.js": "^1.13.0",
     "vite": "^6.1.0",
     "vue": "^3.5.13",
-    "wait-on": "^8.0.3"
+    "wait-on": "^8.0.3",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "electron": "^34.0.0",

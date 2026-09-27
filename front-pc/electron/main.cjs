@@ -1,11 +1,19 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const fs = require('fs')
 const path = require('path')
+const WebSocket = require('ws')
 const { createDb } = require('./db.cjs')
+const { backendRequest, uploadPhoto, socketUrl } = require('./backend-network.cjs')
 const { receiptEscPos, receiptHtml, openDrawerEscPos, printHtml } = require('./print.cjs')
 
 let mainWindow
 let db
+const sockets = new Map()
+function closeSocket(socket) {
+  if (!socket) return
+  if (socket.readyState === WebSocket.CONNECTING) socket.terminate()
+  else socket.close()
+}
 app.setName('打金店收银台')
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 const configFile = () => path.join(app.getPath('userData'), 'config.json')
@@ -74,6 +82,34 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   ipcMain.handle('print:log', (_, item) => db.printLog(item))
   ipcMain.handle('config:get', () => readConfig())
   ipcMain.handle('config:set', (_, value) => writeConfig(value))
+  ipcMain.handle('network:request', (_, input) => backendRequest(readConfig().apiBase, input))
+  ipcMain.handle('network:upload-photo', (_, input) => uploadPhoto(readConfig().apiBase, input))
+  ipcMain.handle('network:socket-connect', (event, { token, id }) => {
+    if (typeof id !== 'string' || !/^\d+-\d+$/.test(id)) throw new Error('连接标识无效')
+    const sender = event.sender
+    const previous = sockets.get(sender.id)
+    const socket = new WebSocket(socketUrl(readConfig().apiBase, token), { handshakeTimeout: 10000 })
+    socket.dajinId = id
+    sockets.set(sender.id, socket)
+    closeSocket(previous)
+    const relay = payload => { if (!sender.isDestroyed() && sockets.get(sender.id) === socket) sender.send('network:socket-event', { ...payload, id }) }
+    socket.on('open', () => relay({ type: 'open' }))
+    socket.on('message', data => relay({ type: 'message', data: data.toString() }))
+    socket.on('error', error => console.warn('[dajin-ws] connection error:', error.message))
+    socket.on('close', () => {
+      relay({ type: 'close' })
+      if (sockets.get(sender.id) === socket) sockets.delete(sender.id)
+    })
+    const onDestroyed = () => { if (sockets.get(sender.id) === socket) closeSocket(socket) }
+    sender.once('destroyed', onDestroyed)
+    socket.once('close', () => sender.removeListener('destroyed', onDestroyed))
+  })
+  ipcMain.handle('network:socket-close', (event, id) => {
+    const socket = sockets.get(event.sender.id)
+    if (socket?.dajinId !== id) return
+    sockets.delete(event.sender.id)
+    closeSocket(socket)
+  })
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
