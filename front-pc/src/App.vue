@@ -70,6 +70,7 @@ const config = reactive({ discountThreshold: 0.85, recycleLimit: 10000 })
 const oldMaterialTypes = ref(['足金999', '足金990', '22K金', '18K金', '14K金', '铂金950', '铂金900', '纯银'])
 const browserOnline = ref(navigator.onLine)
 const backendReachable = ref(false)
+const backendConfigured = ref(!window.dajin?.network)
 const online = computed(() => isBackendOnline({ browserOnline: browserOnline.value, backendReachable: backendReachable.value }))
 const syncing = ref(false)
 const conflictCount = ref(0)
@@ -959,6 +960,7 @@ async function probeBackend() {
   // Chromium's navigator.onLine is only a network-interface hint. A reachable
   // store backend is the source of truth, including localhost and LAN servers.
   browserOnline.value = navigator.onLine
+  if (!backendConfigured.value) return false
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 2200)
   try {
@@ -1541,6 +1543,7 @@ async function saveSettings() {
   } catch { return ElMessage.warning('请输入完整的后端站点根地址，如 https://admin.xinchengjinjiang.com') }
   try {
     await window.dajin?.config?.set?.({ apiBase: endpoint.origin, apiBaseUrl: endpoint.origin, paperWidth: printSettings.paperWidth, deviceName: printSettings.deviceName, silent: printSettings.silent })
+    backendConfigured.value = true
     ws.value?.close()
     ws.value = null
     setApiBase(endpoint.origin)
@@ -1562,7 +1565,7 @@ onMounted(async () => {
   window.addEventListener('online', networkChanged); window.addEventListener('offline', networkChanged); window.addEventListener('focus', windowFocused); window.addEventListener('dajin:unauthorized', sessionExpired)
   const savedConfig = await window.dajin?.config?.get?.().catch?.(() => ({})) || {}
   const savedApiBase = savedConfig.apiBase || savedConfig.apiBaseUrl
-  if (savedApiBase) { setApiBase(savedApiBase); apiEndpoint.value = apiBase() }
+  if (savedApiBase) { backendConfigured.value = true; setApiBase(savedApiBase); apiEndpoint.value = apiBase() }
   else if (window.dajin?.config) { apiEndpoint.value = 'https://admin.xinchengjinjiang.com'; activeDialog.value = 'settings' }
   if (savedConfig.paperWidth) printSettings.paperWidth = Number(savedConfig.paperWidth)
   if (savedConfig.deviceName != null) printSettings.deviceName = savedConfig.deviceName

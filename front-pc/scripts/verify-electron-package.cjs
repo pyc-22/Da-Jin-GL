@@ -44,9 +44,18 @@ app.on('browser-window-created', (_event, window) => {
         preloadReady: typeof window.dajin?.config?.get === 'function',
         resources: performance.getEntriesByType('resource').filter(item => item.name.startsWith('file:')).map(item => item.name)
       })`)
+      if (process.env.DAJIN_SMOKE_API_BASE) {
+        state.network = await contents.executeJavaScript(`(async () => {
+          await window.dajin.config.set({ apiBase: ${JSON.stringify(process.env.DAJIN_SMOKE_API_BASE)} })
+          const health = await window.dajin.network.request({ path: '/actuator/health' })
+          const protectedRoute = await window.dajin.network.request({ path: '/api/member/list' })
+          return { healthStatus: health.status, healthy: JSON.parse(health.body).status === 'UP', protectedStatus: protectedRoute.status }
+        })()`)
+      }
       const screenshot = await contents.capturePage()
       fs.writeFileSync(path.join(output, 'window.png'), screenshot.toPNG())
       const passed = state.url.startsWith('file:') && state.mounted && state.cssLoaded && state.preloadReady && failures.length === 0
+        && (!state.network || (state.network.healthStatus === 200 && state.network.healthy && state.network.protectedStatus === 401))
       finish({ passed, state })
     } catch (error) {
       finish({ passed: false, reason: error.message })

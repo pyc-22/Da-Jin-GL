@@ -102,6 +102,15 @@ afterEach(() => {
 })
 
 describe('cashier mounted checkout and processing flows', () => {
+  it('shows connection settings without probing an unconfigured packaged backend', async () => {
+    window.dajin.network = { request: vi.fn() }
+    window.dajin.config = { get: vi.fn(async () => ({})) }
+    await start()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('后端 API 地址')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(window.dajin.network.request).not.toHaveBeenCalled()
+  })
+
   it('opens payment on the first checkout click and submits creation/payment only once while pending', async () => {
     const creation = deferred()
     requestOrQueue.mockImplementationOnce(() => creation.promise)
