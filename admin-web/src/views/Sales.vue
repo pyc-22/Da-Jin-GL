@@ -5,9 +5,11 @@ import * as XLSX from 'xlsx'
 import { salesApi } from '../api/modules'
 import { formatMoney, formatPaymentMethod, formatTime, orderStatus } from '../utils/format'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 const rows = ref([])
 const app = useAppStore()
+const auth = useAuthStore()
 const filters = reactive({ keyword: '', status: null })
 const detail = ref(null)
 const detailVisible = ref(false)
@@ -135,7 +137,7 @@ onMounted(load)
       <el-table-column label="操作" width="145" fixed="right">
         <template #default="scope">
           <el-button link type="primary" @click="show(scope.row)">详情</el-button>
-          <el-button v-if="Number(scope.row.status) === 1" link type="danger" @click="refund(scope.row)">退单申请</el-button>
+          <el-button v-if="auth.can('order:refund') && (Number(scope.row.status) === 1 || (Number(scope.row.status) === 0 && Number(scope.row.actual_paid) > 0))" link type="danger" @click="refund(scope.row)">退单申请</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -188,17 +190,18 @@ onMounted(load)
       <section class="order-detail-section">
         <h3 class="order-detail-section-title">支付明细</h3>
         <el-table :data="payments" size="small" show-summary :summary-method="paymentSummary">
+          <el-table-column label="类型" width="76"><template #default="scope">{{ scope.row.type === 'EXPENSE' ? '退款' : '收款' }}</template></el-table-column>
           <el-table-column label="支付方式" min-width="130"><template #default="scope">{{ formatPaymentMethod(scope.row.pay_method, app.paymentChannels) }}</template></el-table-column>
           <el-table-column prop="amount" label="支付金额" min-width="110" align="right"><template #default="scope">{{ formatMoney(scope.row.amount) }}</template></el-table-column>
           <el-table-column label="支付时间" min-width="170"><template #default="scope">{{ formatTime(scope.row.create_time) }}</template></el-table-column>
         </el-table>
-        <div class="order-total-note">实付合计：<span class="order-money">{{ formatMoney(paymentTotal || order.pay_amount) }}</span></div>
+        <div class="order-total-note">净实收：<span class="order-money">{{ formatMoney(actualPaid(order)) }}</span></div>
       </section>
     </template>
     <template #footer>
       <el-button @click="detailVisible = false">关闭</el-button>
       <el-button @click="printPlaceholder">打印</el-button>
-      <el-button v-if="Number(order.status) === 1" type="danger" @click="refund(order)">退单申请</el-button>
+      <el-button v-if="auth.can('order:refund') && (Number(order.status) === 1 || (Number(order.status) === 0 && Number(order.actual_paid) > 0))" type="danger" @click="refund(order)">退单申请</el-button>
     </template>
   </el-dialog>
 </template>

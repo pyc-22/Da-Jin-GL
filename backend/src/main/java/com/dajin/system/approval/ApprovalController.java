@@ -2,6 +2,7 @@ package com.dajin.system.approval;
 
 import com.dajin.system.common.*;
 import com.dajin.system.config.RequireRoles;
+import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.recycle.RecycleController;
 import com.dajin.system.stock.OldMaterialLedgerService;
@@ -35,11 +36,13 @@ public class ApprovalController {
     }
 
     @GetMapping("/pending")
+    @RequirePermission("approval:view")
     public ApiResponse<?> pending(HttpServletRequest r) {
         return ApiResponse.ok(db.list("select * from approval where store_id=:s and status=1 order by approval_id desc", Map.of("s", db.store(r))));
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("approval:view")
     public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
         Map<String,Object> approval = db.one("select * from approval where approval_id=:id and store_id=:s", Map.of("id", id, "s", db.store(r)));
         Map<String,Object> result = new LinkedHashMap<>();
@@ -70,10 +73,12 @@ public class ApprovalController {
     }
 
     @PostMapping("/{id}/approve")
+    @RequirePermission("approval:handle")
     @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public ApiResponse<?> approve(@PathVariable long id, @RequestBody(required=false) Map<String,Object> q, HttpServletRequest r) { return decide(id, 3, q, r); }
 
     @PostMapping("/{id}/reject")
+    @RequirePermission("approval:handle")
     @Transactional
     public ApiResponse<?> reject(@PathVariable long id, @RequestBody(required=false) Map<String,Object> q, HttpServletRequest r) { return decide(id, 4, q, r); }
 
@@ -220,15 +225,15 @@ public class ApprovalController {
     /** 退款审批通过：回滚库存与件、冲销财务流水、退回储值、标记订单已退款。 */
     private void refundOrder(long orderId, Map<String,Object> confirmation, HttpServletRequest r) {
         long storeId = db.store(r);
-        Map<String,Object> order = db.one("select * from sales_order where order_id=:o and store_id=:s for update", Map.of("o", orderId, "s", storeId));
+        Map<String,Object> order = db.one("select o.*, " + com.dajin.system.order.SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:o and o.store_id=:s for update", Map.of("o", orderId, "s", storeId));
         int status = ((Number) order.get("status")).intValue();
-        if (status != 1) throw new BusinessException(409108, "只有已结算订单可以退款");
+        if (status != 1 && status != 0) throw new BusinessException(409108, "只有已收款订单可以退款");
         BigDecimal excess = new BigDecimal(String.valueOf(order.getOrDefault("old_material_excess",0)));
         if (excess.signum()>0 && (confirmation==null || !Boolean.TRUE.equals(confirmation.get("oldMaterialExcessRecovered"))))
             throw new BusinessException(409112,"请确认已按原渠道收回超额旧金返款后再审批退款");
-        BigDecimal refund = new BigDecimal(String.valueOf(order.get("pay_amount")));
-        if (refund.signum() < 0) throw new BusinessException(400213, "订单实付金额不合法");
-        for (Map<String,Object> item : db.list("select order_item_id,goods_id,qty from sales_order_item where order_id=:o and store_id=:s and goods_id is not null order by goods_id,order_item_id", Map.of("o", orderId, "s", storeId))) {
+        BigDecimal refund = new BigDecimal(String.valueOf(order.get("actual_paid")));
+        if (refund.signum() < 0 || (status == 0 && refund.signum() == 0)) throw new BusinessException(400213, "订单实付金额不合法");
+        if (status == 1) for (Map<String,Object> item : db.list("select order_item_id,goods_id,qty from sales_order_item where order_id=:o and store_id=:s and goods_id is not null order by goods_id,order_item_id", Map.of("o", orderId, "s", storeId))) {
             db.jdbc().update("update goods set stock=stock+:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s",
                     new MapSqlParameterSource().addValue("qty", item.get("qty")).addValue("g", item.get("goods_id")).addValue("s", storeId));
             int pieceQty = (int) Math.round(new BigDecimal(String.valueOf(item.get("qty"))).doubleValue());
@@ -237,7 +242,13 @@ public class ApprovalController {
             db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:no,'SALE_REFUND',:g,:qty,0,:uid,now())",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("no","REFUND-"+item.get("order_item_id")).addValue("g",item.get("goods_id")).addValue("qty",item.get("qty")).addValue("uid",userId(r)));
         }
+        if (status == 0) {
+            db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where store_id=:s and sales_order_id=:o and status=2", Map.of("s", storeId, "o", orderId));
+            db.jdbc().update("delete from old_material where store_id=:s and source=concat('ORDER:',:o) and status=0", Map.of("s", storeId, "o", orderId));
+        }
         String shift = new com.dajin.system.shift.ShiftService(db).current(storeId);
+        List<Map<String,Object>> priorRefunds = db.list("select finance_id from finance_record where store_id=:s and related_bill_no=:no and type='EXPENSE' and category='SALE_REFUND' limit 1", Map.of("s",storeId,"no",order.get("order_no")));
+        if (!priorRefunds.isEmpty()) throw new BusinessException(409110,"该订单已有退款流水，请先核对");
         List<Map<String,Object>> paymentLines = db.list("select pay_method,sum(amount) amount from finance_record where store_id=:s and related_bill_no=:no and type='INCOME' and category='SALE' group by pay_method",
                 Map.of("s",storeId,"no",order.get("order_no")));
         if (paymentLines.isEmpty() && refund.signum()>0) {
@@ -261,12 +272,12 @@ public class ApprovalController {
                 new com.dajin.system.member.MemberBalanceLedger(db).record(storeId,order.get("member_id"),amount,"SALE_REFUND",String.valueOf(orderId),userId(r));
             }
         }
-        if (order.get("member_id") != null) {
+        if (status == 1 && order.get("member_id") != null) {
             db.jdbc().update("update member set total_consume=total_consume-:a where member_id=:m and store_id=:s and total_consume>=:a",
                     new MapSqlParameterSource().addValue("a", refund).addValue("m", order.get("member_id")).addValue("s", storeId));
             db.jdbc().update("delete from member_consume where store_id=:s and order_id=:o", Map.of("s", storeId, "o", orderId));
         }
-        oldMaterials.returnAndRecord(storeId,"ORDER:"+orderId,userId(r));
+        if (status == 1) oldMaterials.returnAndRecord(storeId,"ORDER:"+orderId,userId(r));
         if (excess.signum()>0) {
             var payouts=db.list("select pay_method,sum(amount) amount from finance_record where store_id=:s and related_bill_no=:no and type='EXPENSE' and category='RECYCLE' group by pay_method",Map.of("s",storeId,"no",order.get("order_no")));
             BigDecimal paid=payouts.stream().map(row->new BigDecimal(row.get("amount").toString())).reduce(BigDecimal.ZERO,BigDecimal::add);
@@ -274,8 +285,8 @@ public class ApprovalController {
             for(var payout:payouts) db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'INCOME','RECYCLE_REFUND',:amount,:method,:no,:uid,'销售退款收回超额旧金返款',:shift,now())",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("amount",payout.get("amount")).addValue("method",payout.get("pay_method")).addValue("no",order.get("order_no")).addValue("uid",userId(r)).addValue("shift",shift));
         }
-        db.jdbc().update("update sales_order set status=5,update_time=now(),version=version+1 where order_id=:o and store_id=:s and status=1", Map.of("o", orderId, "s", storeId));
-        if (order.get("sales_id") != null) new com.dajin.system.commission.CommissionLedger(db).rebuildForOrder(storeId, orderId);
+        db.jdbc().update("update sales_order set status=5,update_time=now(),version=version+1 where order_id=:o and store_id=:s and status=:status", Map.of("o", orderId, "s", storeId, "status", status));
+        if (status == 1 && order.get("sales_id") != null) new com.dajin.system.commission.CommissionLedger(db).rebuildForOrder(storeId, orderId);
         db.jdbc().update("update visit_task set status=2,call_result='ORDER_REFUNDED',record=case when record is null or trim(record)='' then '订单已退款，回访任务自动关闭' else record end,update_time=now() where store_id=:s and order_id=:orderId and status=1",
                 Map.of("s", storeId, "orderId", orderId));
         db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:u,'ORDER','REFUND',:content,'',now())",

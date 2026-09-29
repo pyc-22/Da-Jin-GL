@@ -28,6 +28,9 @@ public class VisitController {
     @GetMapping("/stats") public ApiResponse<?> stats(HttpServletRequest req) {
         return ApiResponse.ok(db.one("select count(*) total,sum(status=1) pending,sum(status=2) completed,sum(call_result='CONNECTED') connected,sum(call_result in ('NO_ANSWER','REJECTED','INVALID','UNREACHABLE')) unsuccessful from visit_task v where v.store_id=:s"+salesScope(req),params(req)));
     }
+    @GetMapping("/assignees") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> assignees(HttpServletRequest req) {
+        return ApiResponse.ok(db.list("select u.user_id,u.real_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=:s and u.status=1 and r.status=1 and r.role_code in ('SALES','MANAGER') order by u.real_name,u.user_id",Map.of("s",db.store(req))));
+    }
     @PostMapping("/tasks") @Transactional public ApiResponse<?> createTask(@RequestBody Map<String,Object> body,HttpServletRequest req) {
         long memberId=longValue(body.get("memberId")); io.jsonwebtoken.Claims c=claims(req); long uid=Long.parseLong(c.getSubject()); long storeId=db.store(req);
         Map<String,Object> member=db.one("select member_id,sales_id,phone,gender from member where member_id=:m and store_id=:s",Map.of("m",memberId,"s",storeId));

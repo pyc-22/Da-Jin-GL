@@ -36,6 +36,20 @@ public class PermissionService {
     }
 
     public Set<String> userPermissions(long userId, long storeId, String roleCode) {
+        if ("MANAGER".equalsIgnoreCase(roleCode)) {
+            Set<String> rolePermissions = permissions(storeId, roleCode);
+            Integer customized = jdbc.queryForObject(
+                    "select permission_customized from sys_user where user_id=:uid and store_id=:store",
+                    Map.of("uid", userId, "store", storeId), Integer.class);
+            if (customized == null || customized != 1) return rolePermissions;
+            Set<String> personal = personalPermissions(userId, storeId, roleCode);
+            personal.retainAll(rolePermissions);
+            return personal;
+        }
+        return personalPermissions(userId, storeId, roleCode);
+    }
+
+    private Set<String> personalPermissions(long userId, long storeId, String roleCode) {
         Integer initialized = jdbc.queryForObject(
                 "select permission_initialized from sys_user where user_id=:uid and store_id=:store",
                 Map.of("uid", userId, "store", storeId), Integer.class);

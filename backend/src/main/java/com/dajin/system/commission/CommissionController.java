@@ -2,6 +2,7 @@ package com.dajin.system.commission;
 
 import com.dajin.system.common.*;
 import com.dajin.system.config.RequireRoles;
+import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import org.springframework.transaction.annotation.*;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,7 @@ public class CommissionController {
     private final SyncWebSocketHandler ws;
     public CommissionController(DbSupport db,SyncWebSocketHandler ws) { this.db=db; this.ws=ws; }
     @PostMapping("/calculate")
+    @RequirePermission("commission:manage")
     @Transactional(isolation=Isolation.READ_COMMITTED)
     public ApiResponse<?> calculate(@RequestBody(required=false) Map<String,Object> body,HttpServletRequest request) {
         String month=body==null || body.get("month")==null?java.time.LocalDate.now().toString().substring(0,7):String.valueOf(body.get("month"));

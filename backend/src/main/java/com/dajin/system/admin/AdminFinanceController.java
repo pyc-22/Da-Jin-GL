@@ -56,7 +56,7 @@ public class AdminFinanceController {
     }
 
     @GetMapping("/finance/shifts")
-    @RequirePermission("shift:confirm")
+    @RequirePermission(value = {"shift:confirm", "report:view:all"}, anyOf = true)
     public ApiResponse<?> shifts(HttpServletRequest request) {
         return ApiResponse.ok(db.list("select log_id shift_id,user_id,content,create_time from operation_log where store_id=:s and module='SHIFT' and action='CONFIRM' order by log_id desc limit 200", params(request)));
     }

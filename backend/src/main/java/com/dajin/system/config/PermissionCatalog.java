@@ -16,20 +16,22 @@ public final class PermissionCatalog {
             group("stock", "库存管理", item("stock:view", "查看库存"), item("stock:inbound:create", "盘点入库"), item("stock:transfer", "库存调拨"),
                     item("stock:check:view", "查看盘点"), item("stock:check:create", "发起盘点"),
                     item("stock:check:submit", "提交盘点"), item("stock:check:approve", "审批盘点")),
+            group("approval", "审批中心", item("approval:view", "查看审批"), item("approval:handle", "处理审批")),
             group("order", "销售收银", item("order:create", "销售开单"), item("order:checkout", "订单结算"), item("order:refund", "退款申请")),
-            group("member", "会员管理", item("member:view", "查看会员"), item("member:view:all", "查看全店会员"), item("member:create", "新增会员"), item("member:follow", "会员跟进回访")),
-            group("processing", "加工管理", item("processing:view", "查看及处理加工业务")),
+            group("member", "会员管理", item("member:view", "查看会员"), item("member:view:all", "查看全店会员"), item("member:create", "新增会员"), item("member:follow", "会员跟进回访"), item("member:manage", "编辑会员与储值")),
+            group("processing", "加工管理", item("processing:view", "查看加工订单与看板"), item("processing:manage", "处理加工订单与收款"),
+                    item("processing:items", "维护加工项目"), item("processing:commissions", "查看与发放加工提成"), item("processing:loss", "查看与设置损耗考核")),
             group("recycle", "回收以旧换新", item("recycle:view", "查看及处理回收业务")),
-            group("report", "报表", item("report:view", "查看业绩报表"), item("report:view:all", "查看全店报表")),
+            group("report", "报表", item("report:view", "查看业绩报表"), item("report:view:all", "查看全店报表"), item("commission:manage", "设置与重算销售提成")),
             group("staff", "人员管理", item("staff:manage", "员工与角色管理")),
             group("shift", "交班结算", item("shift:confirm", "交班结算")),
             group("notification", "消息通知", item("notification:view", "查看消息")),
-            group("system", "系统设置", item("gold:manage", "金价设置"), item("system:manage", "系统设置"))
+            group("system", "系统设置", item("gold:view", "查看金价与行情"), item("gold:manage", "设置金价"), item("system:manage", "系统设置"))
     );
 
     private static final Map<String, Set<String>> DEFAULTS = Map.of(
             "ADMIN", Set.of("*"),
-            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "report:view:all", "staff:manage", "shift:confirm", "notification:view", "gold:manage"),
+            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:view:all", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
             "SALES", Set.of("dashboard:view", "goods:search", "stock:inbound:create", "stock:check:view", "stock:check:create", "stock:check:submit", "member:view", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "notification:view"),
             "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "processing:view", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view"),
             "CRAFTSMAN", Set.of("processing:view")
@@ -52,6 +54,22 @@ public final class PermissionCatalog {
     public static Set<String> codes() {
         Set<String> result = new LinkedHashSet<>();
         for (Group group : GROUPS) for (Item item : group.items()) result.add(item.code());
+        return result;
+    }
+
+    public static Set<String> withPrerequisites(Set<String> selected) {
+        Set<String> result = new LinkedHashSet<>(selected);
+        if (result.contains("goods:manage")) result.add("goods:search");
+        if (result.contains("gold:manage")) result.add("gold:view");
+        if (result.contains("stock:transfer") || result.contains("stock:inbound:create") || result.stream().anyMatch(code -> code.startsWith("stock:check:"))) result.add("stock:view");
+        if (result.contains("stock:check:approve")) result.add("stock:check:view");
+        if (result.contains("approval:handle")) result.add("approval:view");
+        if (result.contains("order:refund")) result.add("order:checkout");
+        if (result.contains("member:manage") || result.contains("member:create")) result.add("member:view");
+        if (result.contains("processing:manage")) result.add("processing:view");
+        if (result.contains("processing:items") || result.contains("processing:commissions") || result.contains("processing:loss")) result.add("processing:view");
+        if (result.contains("commission:manage")) result.add("report:view:all");
+        if (result.contains("report:view:all")) result.add("report:view");
         return result;
     }
 

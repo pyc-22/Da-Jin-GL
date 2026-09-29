@@ -5,8 +5,10 @@ import { ArrowDown, ArrowUp, Edit, Plus, Trash2 } from 'lucide-vue-next'
 import { systemApi } from '../api/modules'
 import { formatOperationAction, formatOperationModule, formatTime } from '../utils/format'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 const app = useAppStore()
+const auth = useAuthStore()
 const store = reactive({ store_name: '', address: '', phone: '', logo: '' })
 const configs = ref([])
 const logs = ref([])
@@ -144,16 +146,16 @@ watch(() => app.eventVersion, () => {
     <section class="panel">
       <div class="panel-title">门店信息</div>
       <el-form label-width="90px">
-        <el-form-item label="门店名称"><el-input v-model="store.store_name" /></el-form-item>
-        <el-form-item label="地址"><el-input v-model="store.address" /></el-form-item>
-        <el-form-item label="电话"><el-input v-model="store.phone" /></el-form-item>
-        <el-form-item label="Logo"><el-input v-model="store.logo" placeholder="图片地址（可选）" /></el-form-item>
-        <el-button type="primary" @click="saveStore">保存门店信息</el-button>
+        <el-form-item label="门店名称"><el-input v-model="store.store_name" :disabled="auth.role !== 'ADMIN'" /></el-form-item>
+        <el-form-item label="地址"><el-input v-model="store.address" :disabled="auth.role !== 'ADMIN'" /></el-form-item>
+        <el-form-item label="电话"><el-input v-model="store.phone" :disabled="auth.role !== 'ADMIN'" /></el-form-item>
+        <el-form-item label="Logo"><el-input v-model="store.logo" :disabled="auth.role !== 'ADMIN'" placeholder="图片地址（可选）" /></el-form-item>
+        <el-button v-if="auth.role === 'ADMIN'" type="primary" @click="saveStore">保存门店信息</el-button>
       </el-form>
     </section>
 
     <section class="panel">
-      <div class="panel-title system-panel-title"><span>系统参数</span><el-button size="small" :loading="backupBusy" @click="backup">手动备份</el-button></div>
+      <div class="panel-title system-panel-title"><span>系统参数</span><el-button v-if="auth.role === 'ADMIN'" size="small" :loading="backupBusy" @click="backup">手动备份</el-button></div>
       <el-form v-for="config in systemConfigs" :key="config.config_id || config.config_key" inline label-position="left">
         <el-form-item :label="config.description || config.config_key">
           <el-input v-model="config.config_value" :disabled="config.config_key === 'current_shift_no'" @blur="saveConfig(config)" />

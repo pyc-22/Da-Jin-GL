@@ -56,11 +56,11 @@ public class RolePermissionController {
     @Transactional
     public ApiResponse<?> saveUserPermissions(@PathVariable long id, @RequestBody Map<String, Object> body, HttpServletRequest request) {
         Map<String, Object> user = user(id, request);
-        Set<String> selected = selected(body);
+        Set<String> selected = "MANAGER".equals(user.get("role_code")) ? PermissionCatalog.withPrerequisites(selected(body)) : selected(body);
         long store = db.store(request);
         db.jdbc().update("delete from sys_user_permission where store_id=:store and user_id=:user", Map.of("store", store, "user", id));
         for (String permission : selected) db.jdbc().update("insert into sys_user_permission(store_id,user_id,permission_code) values(:store,:user,:permission)", Map.of("store", store, "user", id, "permission", permission));
-        db.jdbc().update("update sys_user set permission_initialized=1,update_time=now(),version=version+1 where store_id=:store and user_id=:user", Map.of("store", store, "user", id));
+        db.jdbc().update("update sys_user set permission_initialized=1,permission_customized=1,update_time=now(),version=version+1 where store_id=:store and user_id=:user", Map.of("store", store, "user", id));
         long operatorId = Long.parseLong(((io.jsonwebtoken.Claims) request.getAttribute("claims")).getSubject());
         db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:store,:operator,'USER_PERMISSION','UPDATE',:content,:ip,now())",
                 new MapSqlParameterSource().addValue("store", store).addValue("operator", operatorId).addValue("content", "员工=" + user.get("username") + ",权限数=" + selected.size()).addValue("ip", request.getRemoteAddr()));
@@ -72,14 +72,14 @@ public class RolePermissionController {
     @Transactional
     public ApiResponse<?> save(@PathVariable String code, @RequestBody Map<String, Object> body, HttpServletRequest request) {
         String roleCode = normalizeRole(code, request);
-        Set<String> selected = selected(body);
+        Set<String> selected = "MANAGER".equals(roleCode) ? PermissionCatalog.withPrerequisites(selected(body)) : selected(body);
         if ("ADMIN".equals(roleCode)) selected = Set.of("*");
         long store = db.store(request);
         db.jdbc().update("delete from sys_role_permission where store_id=:store and role_code=:role", Map.of("store", store, "role", roleCode));
         for (String permission : selected) db.jdbc().update("insert into sys_role_permission(store_id,role_code,permission_code) values(:store,:role,:permission)", Map.of("store", store, "role", roleCode, "permission", permission));
         try {
             String json = objectMapper.writeValueAsString(new ArrayList<>(selected));
-            db.jdbc().update("update sys_role set permissions=:permissions,update_time=now() where store_id=:store and role_code=:role", new MapSqlParameterSource().addValue("permissions", json).addValue("store", store).addValue("role", roleCode));
+            db.jdbc().update("update sys_role set permissions=:permissions,permission_initialized=1,update_time=now() where store_id=:store and role_code=:role", new MapSqlParameterSource().addValue("permissions", json).addValue("store", store).addValue("role", roleCode));
         } catch (Exception e) { throw new BusinessException(500440, "权限数据保存失败"); }
         long userId = Long.parseLong(((io.jsonwebtoken.Claims) request.getAttribute("claims")).getSubject());
         db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:store,:user,'ROLE_PERMISSION','UPDATE',:content,:ip,now())", new MapSqlParameterSource().addValue("store", store).addValue("user", userId).addValue("content", "角色=" + roleCode + ",权限数=" + selected.size()).addValue("ip", request.getRemoteAddr()));
@@ -90,7 +90,8 @@ public class RolePermissionController {
     private Set<String> selected(Map<String, Object> body) {
         Set<String> selected = new LinkedHashSet<>();
         Object raw = body.get("permissions");
-        if (raw instanceof Collection<?> values) for (Object value : values) selected.add(String.valueOf(value));
+        if (!(raw instanceof Collection<?> values)) throw new BusinessException(400440, "权限列表格式不正确");
+        for (Object value : values) selected.add(String.valueOf(value));
         if (!PermissionCatalog.codes().containsAll(selected)) throw new BusinessException(400440, "权限编码中包含未定义项");
         return selected;
     }

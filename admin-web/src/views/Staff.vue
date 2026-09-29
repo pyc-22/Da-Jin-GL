@@ -19,6 +19,11 @@ const permissionTree = ref([])
 const permissionTreeRef = ref()
 const permissionUser = ref(null)
 const permissionSaving = ref(false)
+const rolePermissionDialog = ref(false)
+const rolePermissionTree = ref([])
+const rolePermissionTreeRef = ref()
+const rolePermissionSaving = ref(false)
+const managerPermissionCount = ref(null)
 const formRef = ref()
 const editingId = ref(null)
 const usernameState = reactive({ checking: false, available: null, message: '' })
@@ -188,6 +193,29 @@ async function savePermissions() {
   finally { permissionSaving.value = false }
 }
 
+async function openManagerPermissions() {
+  try {
+    const [tree, selected] = await Promise.all([staffApi.permissionTree(), staffApi.rolePermissions('MANAGER')])
+    rolePermissionTree.value = tree
+    managerPermissionCount.value = selected.permissions?.length || 0
+    rolePermissionDialog.value = true
+    await nextTick()
+    rolePermissionTreeRef.value?.setCheckedKeys(selected.permissions || [])
+  } catch (error) { ElMessage.error(error.message || '店长权限加载失败') }
+}
+
+async function saveManagerPermissions() {
+  const codes = rolePermissionTreeRef.value?.getCheckedKeys(true) || []
+  rolePermissionSaving.value = true
+  try {
+    const result = await staffApi.saveRolePermissions('MANAGER', codes)
+    managerPermissionCount.value = result.permissions?.length || 0
+    rolePermissionDialog.value = false
+    ElMessage.success('店长角色权限已保存，在线店长会自动更新')
+  } catch (error) { ElMessage.error(error.message || '店长权限保存失败') }
+  finally { rolePermissionSaving.value = false }
+}
+
 function roleTag(code) { return ({ ADMIN: 'danger', MANAGER: 'warning', CASHIER: 'success', SALES: 'primary', CRAFTSMAN: 'info' })[code] || 'info' }
 function canManageRow(row) { return canManageStaffRole(row?.role_code, auth.role) }
 function openSchedule(date) { scheduleForm.date = date; scheduleForm.userId = rows.value[0]?.user_id || null; scheduleDialog.value = true }
@@ -204,6 +232,9 @@ watch(()=>app.eventVersion,()=>{if(['STAFF_UPDATED','ROLE_UPDATED','USER_PERMISS
 
 <template>
   <el-tabs>
+    <el-tab-pane v-if="auth.role === 'ADMIN'" label="店长角色权限">
+      <section class="panel"><div class="page-toolbar"><div><b>店长（MANAGER）</b><div class="muted role-help">配置所有店长在管理端可见的菜单和可执行的操作；个人权限仅能进一步收紧。</div></div><el-button type="primary" @click="openManagerPermissions">配置权限</el-button></div><p class="muted">{{ managerPermissionCount == null ? '点击配置查看当前权限' : `当前启用 ${managerPermissionCount} 项权限` }}</p></section>
+    </el-tab-pane>
     <el-tab-pane label="员工档案">
       <section class="panel">
         <div class="page-toolbar">
@@ -227,7 +258,7 @@ watch(()=>app.eventVersion,()=>{if(['STAFF_UPDATED','ROLE_UPDATED','USER_PERMISS
 
     <el-tab-pane label="员工权限">
       <section class="panel">
-        <div class="page-toolbar"><div><b>员工个人权限</b><div class="muted role-help">每个账号独立配置；角色只提供新建账号时的初始权限模板</div></div></div>
+        <div class="page-toolbar"><div><b>员工个人权限</b><div class="muted role-help">个人权限可进一步收紧店长角色权限；其他角色按账号独立配置。</div></div></div>
         <el-table :data="rows" stripe>
           <el-table-column prop="real_name" label="员工" min-width="130"><template #default="scope"><b>{{ scope.row.real_name || scope.row.username }}</b></template></el-table-column>
           <el-table-column prop="username" label="移动端账号" min-width="150" />
@@ -256,6 +287,8 @@ watch(()=>app.eventVersion,()=>{if(['STAFF_UPDATED','ROLE_UPDATED','USER_PERMISS
   </el-dialog>
 
   <el-dialog v-model="permissionDialog" :title="`${permissionUser?.real_name || permissionUser?.username || ''} - 配置个人权限`" width="620px"><div class="permission-toolbar"><span class="muted">权限只对当前员工生效；按模块勾选功能</span><div><el-button size="small" @click="permissionTreeRef?.setCheckedKeys([])">清空</el-button><el-button size="small" @click="selectAllPermissions">全选</el-button></div></div><el-tree ref="permissionTreeRef" :data="permissionTree" node-key="id" show-checkbox default-expand-all :props="{ label: 'label', children: 'children' }" class="permission-tree" /><template #footer><el-button @click="permissionDialog = false">取消</el-button><el-button type="primary" :loading="permissionSaving" @click="savePermissions">保存个人权限</el-button></template></el-dialog>
+
+  <el-dialog v-model="rolePermissionDialog" title="配置店长角色权限" width="640px"><div class="permission-toolbar"><span class="muted">操作权限会自动带上对应的查看权限；取消查看时也请取消相关操作。</span><div><el-button size="small" @click="rolePermissionTreeRef?.setCheckedKeys([])">清空</el-button></div></div><el-tree ref="rolePermissionTreeRef" :data="rolePermissionTree" node-key="id" show-checkbox default-expand-all :props="{ label: 'label', children: 'children' }" class="permission-tree" /><template #footer><el-button @click="rolePermissionDialog = false">取消</el-button><el-button type="primary" :loading="rolePermissionSaving" @click="saveManagerPermissions">保存店长权限</el-button></template></el-dialog>
 
   <el-dialog v-model="scheduleDialog" title="排班安排" width="460px"><el-form label-width="90px"><el-form-item label="员工"><el-select v-model="scheduleForm.userId"><el-option v-for="user in rows" :key="user.user_id" :value="user.user_id" :label="user.real_name || user.username" /></el-select></el-form-item><el-form-item label="日期"><el-date-picker v-model="scheduleForm.date" value-format="YYYY-MM-DD" /></el-form-item><el-form-item label="班次"><el-select v-model="scheduleForm.shift"><el-option label="早班" value="早班" /><el-option label="晚班" value="晚班" /><el-option label="全天" value="全天" /></el-select></el-form-item><el-form-item label="开始"><el-time-select v-model="scheduleForm.startTime" start="07:00" step="00:30" end="22:00" /></el-form-item><el-form-item label="结束"><el-time-select v-model="scheduleForm.endTime" start="07:00" step="00:30" end="23:30" /></el-form-item><el-form-item label="备注"><el-input v-model="scheduleForm.remark" /></el-form-item></el-form><template #footer><el-button @click="scheduleDialog = false">取消</el-button><el-button type="primary" @click="saveSchedule">保存排班</el-button></template></el-dialog>
 </template>

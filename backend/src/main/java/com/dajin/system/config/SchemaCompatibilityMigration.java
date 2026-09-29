@@ -51,7 +51,9 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "commission_rate_snapshot", "DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER unit_labor_fee");
         addColumn("sys_user", "remark", "VARCHAR(500) NULL AFTER entry_date");
         addColumn("sys_user", "permission_initialized", "TINYINT NOT NULL DEFAULT 0 AFTER remark");
+        addColumn("sys_user", "permission_customized", "TINYINT NOT NULL DEFAULT 0 AFTER permission_initialized");
         addColumn("sys_role", "description", "VARCHAR(255) NULL AFTER role_code");
+        addColumn("sys_role", "permission_initialized", "TINYINT NOT NULL DEFAULT 0 AFTER permissions");
         addIndex("sales_order", "idx_order_shift", "store_id,shift_no");
         addIndex("finance_record", "idx_finance_shift", "store_id,shift_no");
         addIndex("goods", "idx_goods_gold_type", "store_id,gold_type");
@@ -163,13 +165,13 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("insert ignore into sys_role(store_id,role_name,role_code,description,permissions,status) "
                 + "select store_id,'打金师傅','CRAFTSMAN','加工订单承接、损耗与提成归属','[]',1 from sys_store");
         jdbc.update("update sys_role set description=case role_code when 'ADMIN' then '系统全部权限' when 'MANAGER' then '门店经营及管理权限' when 'CASHIER' then '收银、会员及交班权限' when 'SALES' then '个人业绩、会员及回访权限' when 'CRAFTSMAN' then '加工订单承接、损耗与提成归属' else description end where description is null or trim(description)='' ");
-        for (String roleCode : java.util.List.of("ADMIN", "MANAGER", "CASHIER", "SALES", "CRAFTSMAN")) {
-            for (String permission : PermissionCatalog.defaults(roleCode)) {
-                jdbc.update("insert ignore into sys_role_permission(store_id,role_code,permission_code) select store_id,role_code,? from sys_role where role_code=?", permission, roleCode);
-            }
-        }
+        jdbc.update("update sys_role r set r.permission_initialized=1 where r.permission_initialized=0 and exists "
+                + "(select 1 from operation_log l where l.store_id=r.store_id and l.module='ROLE_PERMISSION' and l.action='UPDATE' and l.content like concat('角色=',r.role_code,',%'))");
+        for (String roleCode : java.util.List.of("ADMIN", "MANAGER", "CASHIER", "SALES", "CRAFTSMAN"))
+            for (String permission : PermissionCatalog.defaults(roleCode))
+                jdbc.update("insert ignore into sys_role_permission(store_id,role_code,permission_code) select store_id,role_code,? from sys_role where role_code=? and permission_initialized=0", permission, roleCode);
         // Preserve permissions added by older installations before the relation table became authoritative.
-        java.util.List<java.util.Map<String,Object>> roles = jdbc.queryForList("select store_id,role_code,cast(permissions as char) permissions from sys_role where permissions is not null and json_valid(permissions)=1");
+        java.util.List<java.util.Map<String,Object>> roles = jdbc.queryForList("select store_id,role_code,cast(permissions as char) permissions from sys_role where permission_initialized=0 and permissions is not null and json_valid(permissions)=1");
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         for (java.util.Map<String,Object> role : roles) {
             try {
@@ -181,6 +183,10 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
                 }
             } catch (Exception ignored) { }
         }
+        jdbc.update("update sys_role set permission_initialized=1 where permission_initialized=0");
+        jdbc.update("update sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id set u.permission_customized=1 "
+                + "where r.role_code='MANAGER' and u.permission_customized=0 and exists "
+                + "(select 1 from operation_log l where l.store_id=u.store_id and l.module='USER_PERMISSION' and l.action='UPDATE' and l.content like concat('员工=',u.username,',%'))");
         jdbc.update("insert ignore into sys_user_permission(store_id,user_id,permission_code) "
                 + "select u.store_id,u.user_id,rp.permission_code from sys_user u "
                 + "join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id "

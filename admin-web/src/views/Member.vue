@@ -3,9 +3,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { memberApi, staffApi } from '../api/modules'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 import { formatMoney, formatTime } from '../utils/format'
 
 const app = useAppStore()
+const auth = useAuthStore()
 const tab = ref('all')
 const rows = ref([])
 const pool = ref([])
@@ -39,7 +41,7 @@ async function load() {
   const data = tab.value === 'pool' ? await memberApi.pool(params) : await memberApi.list(params)
   if (tab.value === 'pool') pool.value = data.records || []
   else rows.value = data.records || []
-  sales.value = (await staffApi.list()).filter(user => [3, 4].includes(Number(user.role_id)))
+  sales.value = auth.can('staff:manage') ? (await staffApi.list()).filter(user => [3, 4].includes(Number(user.role_id))) : []
 }
 
 function resetForm() {
@@ -192,7 +194,7 @@ watch(() => app.eventVersion, () => {
         <el-button @click="load">查询</el-button>
         <el-button @click="clearFilters">重置</el-button>
       </div>
-      <el-button type="primary" @click="openCreate">新增会员</el-button>
+      <el-button v-if="auth.can('member:create')" type="primary" @click="openCreate">新增会员</el-button>
     </div>
 
     <el-table :data="visibleRows" @sort-change="handleSortChange">
@@ -207,9 +209,9 @@ watch(() => app.eventVersion, () => {
       <el-table-column prop="points" label="积分" min-width="70" />
       <el-table-column prop="total_consume" label="累计消费" min-width="110"><template #default="scope">{{ formatMoney(scope.row.total_consume) }}</template></el-table-column>
       <el-table-column v-if="tab === 'pool'" label="归属" min-width="140">
-        <template #default="scope"><el-button link type="primary" @click="openAssign(scope.row)">分配</el-button><el-button link @click="memberApi.claim(scope.row.member_id).then(load)">认领</el-button></template>
+        <template #default="scope"><el-button v-if="auth.can('member:manage') && auth.can('staff:manage')" link type="primary" @click="openAssign(scope.row)">分配</el-button><el-button v-if="auth.can('member:follow')" link @click="memberApi.claim(scope.row.member_id).then(load)">认领</el-button></template>
       </el-table-column>
-      <el-table-column label="操作" min-width="130"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button link @click="openEdit(scope.row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" min-width="130"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button v-if="auth.can('member:manage')" link @click="openEdit(scope.row)">编辑</el-button></template></el-table-column>
     </el-table>
   </section>
 
@@ -226,7 +228,7 @@ watch(() => app.eventVersion, () => {
 
   <el-drawer v-model="detailVisible" title="会员详情" size="44%">
     <template v-if="detail">
-      <div class="page-toolbar"><strong>{{ detail.name }}</strong><el-button type="primary" size="small" @click="openEdit(detail)">编辑</el-button></div>
+      <div class="page-toolbar"><strong>{{ detail.name }}</strong><el-button v-if="auth.can('member:manage')" type="primary" size="small" @click="openEdit(detail)">编辑</el-button></div>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="姓名">{{ detail.name }}</el-descriptions-item>
         <el-descriptions-item label="手机号">{{ detail.phone }}</el-descriptions-item>
@@ -236,7 +238,7 @@ watch(() => app.eventVersion, () => {
         <el-descriptions-item label="积分">{{ detail.points || 0 }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ formatTime(detail.create_time) }}</el-descriptions-item>
       </el-descriptions>
-      <div class="inline-actions balance-actions"><el-button type="primary" @click="openBalance('RECHARGE')">储值充值</el-button><el-button type="warning" @click="openBalance('DEDUCT')">储值扣款</el-button><el-button @click="openAssign(detail)">分配销售</el-button></div>
+      <div v-if="auth.can('member:manage')" class="inline-actions balance-actions"><el-button type="primary" @click="openBalance('RECHARGE')">储值充值</el-button><el-button type="warning" @click="openBalance('DEDUCT')">储值扣款</el-button><el-button v-if="auth.can('staff:manage')" @click="openAssign(detail)">分配销售</el-button></div>
       <h4>储值流水</h4>
       <el-table :data="detail.balanceRecords || []" size="small"><el-table-column prop="amount" label="变动金额" /><el-table-column label="时间"><template #default="scope">{{ formatTime(scope.row.consume_time) }}</template></el-table-column></el-table>
       <h4>消费记录</h4>

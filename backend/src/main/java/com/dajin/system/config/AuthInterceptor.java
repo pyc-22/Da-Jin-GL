@@ -14,7 +14,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     @Override public boolean preHandle(HttpServletRequest req, HttpServletResponse res, Object handler) throws Exception {
         // Let WebConfig add CORS headers to browser preflight requests before JWT checks.
         if ("OPTIONS".equalsIgnoreCase(req.getMethod())) return true;
-        String path=req.getRequestURI(); if (path.startsWith("/api/auth/") || path.startsWith("/api/file/") || path.equals("/api/user/login") || path.startsWith("/swagger") || path.startsWith("/v3/api-docs") || path.equals("/actuator/health")) return true;
+        String path=req.getRequestURI(); if (path.equals("/api/auth/login") || path.equals("/api/auth/logout") || path.startsWith("/api/file/") || path.equals("/api/user/login") || path.startsWith("/swagger") || path.startsWith("/v3/api-docs") || path.equals("/actuator/health")) return true;
         String value=req.getHeader("Authorization");
         if (value==null || !value.startsWith("Bearer ")) { res.setStatus(401); return false; }
         try { Claims c=jwt.parse(value.substring(7)); long userId=Long.parseLong(c.getSubject()); long storeId=((Number)c.get("storeId")).longValue();
@@ -33,7 +33,14 @@ public class AuthInterceptor implements HandlerInterceptor {
                             : java.util.Arrays.stream(required.value()).allMatch(code -> permissions.hasPermission(userId, storeId, access.roleCode(), code));
                     if (!allowed) { res.setStatus(403); return false; }
                 }
+                if ("MANAGER".equals(access.roleCode())) {
+                    String managerPermission = ManagerPermissionPolicy.required(path, req.getMethod());
+                    if (managerPermission != null && java.util.Arrays.stream(managerPermission.split("\\|")).noneMatch(code -> permissions.hasPermission(userId, storeId, access.roleCode(), code))) {
+                        res.setStatus(403); return false;
+                    }
+                }
             }
+            req.setAttribute("permissions", permissions.userPermissions(userId, storeId, access.roleCode()));
             return true; }
         catch (Exception e) { res.setStatus(401); return false; }
     }

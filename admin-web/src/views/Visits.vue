@@ -1,10 +1,12 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { staffApi, visitApi } from '../api/modules'
+import { visitApi } from '../api/modules'
 import { formatMoney, formatTime } from '../utils/format'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 const app=useAppStore()
+const auth=useAuthStore()
 
 const rows = ref([])
 const staff = ref([])
@@ -18,10 +20,11 @@ const resultLabel = value => ({ CONNECTED: '已接通', NO_ANSWER: '未接通', 
 
 async function load() {
   try {
-    const [tasks, summary, users] = await Promise.all([visitApi.tasks(filters), visitApi.stats(), staffApi.list({ status: 1 })])
+    const canAssign = ['ADMIN', 'MANAGER'].includes(auth.role)
+    const [tasks, summary, users] = await Promise.all([visitApi.tasks(filters), visitApi.stats(), canAssign ? visitApi.assignees() : []])
     rows.value = tasks || []
     Object.assign(stats, summary || {})
-    staff.value = (users || []).filter(user => [2, 4].includes(Number(user.role_id)) && Number(user.status) === 1)
+    staff.value = users || []
   } catch (error) { ElMessage.error(error?.message || '回访数据加载失败') }
 }
 
@@ -68,7 +71,7 @@ watch(()=>app.eventVersion,()=>{if(['VISIT_TASK_UPDATED','MEMBER_UPDATED','STAFF
       <el-table-column label="结果" width="100"><template #default="scope">{{ resultLabel(scope.row.call_result) }}</template></el-table-column>
       <el-table-column label="回访内容" min-width="220" show-overflow-tooltip><template #default="scope"><span class="record-preview">{{ scope.row.record || (Number(scope.row.status) === 2 ? '未填写' : '-') }}</span></template></el-table-column>
       <el-table-column label="完成时间" min-width="165"><template #default="scope">{{ Number(scope.row.status) === 2 ? formatTime(scope.row.update_time) : '-' }}</template></el-table-column>
-      <el-table-column label="负责员工" min-width="150"><template #default="scope"><el-select :model-value="scope.row.sales_id" size="small" @change="assign(scope.row, $event)"><el-option v-for="user in staff" :key="user.user_id" :label="user.real_name" :value="user.user_id" /></el-select></template></el-table-column>
+      <el-table-column label="负责员工" min-width="150"><template #default="scope"><el-select v-if="['ADMIN', 'MANAGER'].includes(auth.role)" :model-value="scope.row.sales_id" size="small" @change="assign(scope.row, $event)"><el-option v-for="user in staff" :key="user.user_id" :label="user.real_name" :value="user.user_id" /></el-select><span v-else>{{ scope.row.sales_name || '-' }}</span></template></el-table-column>
       <el-table-column label="操作" width="100" fixed="right"><template #default="scope"><el-button v-if="Number(scope.row.status) === 2" link type="primary" @click="showRecord(scope.row)">查看详情</el-button><span v-else>-</span></template></el-table-column>
     </el-table>
   </section>
