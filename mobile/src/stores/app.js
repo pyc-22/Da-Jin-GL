@@ -181,7 +181,7 @@ export const useAppStore = defineStore('app', {
           if (m.type === 'GOLD_PRICE_UPDATED') {
             const rows = Array.isArray(this.gold) ? [...this.gold] : []
             const i = rows.findIndex(x => String(x.price_type || x.priceType) === String(data.priceType))
-            if (i >= 0) rows[i] = { ...rows[i], price: data.price }; else rows.push({ price_type: data.priceType, price: data.price })
+            if (i >= 0) rows[i] = { ...rows[i], price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode }; else rows.push({ price_type: data.priceType, price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode })
             this.gold = rows; setStorage('dajin-gold', JSON.stringify(rows))
           }
           if (m.type === 'APPROVAL_CREATED') { this.unread++; this.approvals = [...this.approvals, data] }

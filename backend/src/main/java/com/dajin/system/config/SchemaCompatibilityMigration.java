@@ -4,8 +4,13 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.sql.Timestamp;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Keeps existing local databases compatible with additive schema changes. */
 @Component
@@ -39,6 +44,17 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("finance_record", "shift_no", "VARCHAR(48) NULL AFTER remark");
         addColumn("sales_order_item", "cost_snapshot", "DECIMAL(14,2) NULL AFTER subtotal");
         addColumn("sales_order_item", "piece_nos", "JSON NULL AFTER cost_snapshot");
+        addColumn("sales_order_item", "gold_base_instrument", "VARCHAR(16) NULL AFTER piece_nos");
+        addColumn("sales_order_item", "gold_base_price", "DECIMAL(12,4) NULL AFTER gold_base_instrument");
+        addColumn("sales_order_item", "gold_pricing_mode", "VARCHAR(10) NULL AFTER gold_base_price");
+        addColumn("sales_order_item", "gold_purity_coefficient", "DECIMAL(8,6) NULL AFTER gold_pricing_mode");
+        addColumn("sales_order_item", "gold_markup", "DECIMAL(12,2) NULL AFTER gold_purity_coefficient");
+        addColumn("sales_order_item", "gold_recycle_deduction", "DECIMAL(12,2) NULL AFTER gold_markup");
+        addColumn("sales_order_item", "gold_sale_price_snapshot", "DECIMAL(12,2) NULL AFTER gold_recycle_deduction");
+        addColumn("sales_order_item", "gold_recycle_price_snapshot", "DECIMAL(12,2) NULL AFTER gold_sale_price_snapshot");
+        addColumn("sales_order_item", "gold_quote_time", "VARCHAR(32) NULL AFTER gold_recycle_price_snapshot");
+        addColumn("sales_order_item", "gold_quote_source", "VARCHAR(20) NULL AFTER gold_quote_time");
+        addColumn("sales_order_item", "gold_market_status", "VARCHAR(16) NULL AFTER gold_quote_source");
         addColumn("trade_in", "operator_id", "BIGINT NULL AFTER approval_id");
         addColumn("member", "birthday", "DATE NULL AFTER sales_id");
         addColumn("member", "gender", "VARCHAR(16) NULL AFTER birthday");
@@ -72,8 +88,24 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "promotion_reason", "VARCHAR(200) NULL AFTER voucher_no");
         addColumn("processing_order", "sales_id", "BIGINT NULL AFTER craftsman_id");
         addColumn("processing_order", "sales_commission_rate_snapshot", "DECIMAL(8,4) NULL AFTER sales_id");
+        addColumn("processing_order", "gold_base_instrument", "VARCHAR(16) NULL AFTER store_gold_price");
+        addColumn("processing_order", "gold_base_price", "DECIMAL(12,4) NULL AFTER gold_base_instrument");
+        addColumn("processing_order", "gold_purity_coefficient", "DECIMAL(8,6) NULL AFTER gold_base_price");
+        addColumn("processing_order", "gold_markup", "DECIMAL(12,2) NULL AFTER gold_purity_coefficient");
+        addColumn("processing_order", "gold_recycle_deduction", "DECIMAL(12,2) NULL AFTER gold_markup");
+        addColumn("processing_order", "gold_price_snapshot", "DECIMAL(12,2) NULL AFTER gold_recycle_deduction");
+        addColumn("processing_order", "gold_quote_time", "VARCHAR(32) NULL AFTER gold_price_snapshot");
+        addColumn("processing_order", "gold_quote_source", "VARCHAR(20) NULL AFTER gold_quote_time");
+        addColumn("processing_order", "gold_market_status", "VARCHAR(16) NULL AFTER gold_quote_source");
         addColumn("commission_record", "processing_base", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER sales_amount");
         addColumn("commission_record", "processing_commission", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER processing_base");
+        addColumn("recycle_order", "gold_base_instrument", "VARCHAR(16) NULL AFTER purity");
+        addColumn("recycle_order", "gold_base_price", "DECIMAL(12,4) NULL AFTER gold_base_instrument");
+        addColumn("recycle_order", "gold_purity_coefficient", "DECIMAL(8,6) NULL AFTER gold_base_price");
+        addColumn("recycle_order", "gold_recycle_price_snapshot", "DECIMAL(12,2) NULL AFTER gold_purity_coefficient");
+        addColumn("recycle_order", "gold_quote_time", "VARCHAR(32) NULL AFTER gold_recycle_price_snapshot");
+        addColumn("recycle_order", "gold_quote_source", "VARCHAR(20) NULL AFTER gold_quote_time");
+        addColumn("recycle_order", "gold_market_status", "VARCHAR(16) NULL AFTER gold_quote_source");
         addIndex("processing_order", "idx_processing_order_sales", "store_id,sales_id,status");
         replaceProcessingCommissionUniqueIndex();
         addIndex("processing_order", "uk_processing_voucher", "store_id,promotion_channel,voucher_no", true);
@@ -115,6 +147,55 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) values(1,'SYSTEM','gold_metal_types','[{\"name\":\"足金\",\"code\":\"GOLD\",\"purity\":99.9,\"price\":612,\"sort\":1,\"status\":1},{\"name\":\"回收金价\",\"code\":\"RECYCLE\",\"purity\":99.9,\"price\":578,\"sort\":2,\"status\":1},{\"name\":\"18K\",\"code\":\"18K\",\"purity\":75,\"price\":428,\"sort\":3,\"status\":1},{\"name\":\"铂金\",\"code\":\"PLATINUM\",\"purity\":95,\"price\":0,\"sort\":4,\"status\":1},{\"name\":\"银\",\"code\":\"SILVER\",\"purity\":99.9,\"price\":0,\"sort\":5,\"status\":1},{\"name\":\"银回收价\",\"code\":\"SILVER_RECYCLE\",\"purity\":99.9,\"price\":0,\"sort\":6,\"status\":1}]','贵金属类型（JSON数组）',5,1) on duplicate key update config_value=if(config_value is null or trim(config_value)='',values(config_value),config_value),enabled=1");
         jdbc.update("update sys_config set config_value='0.02',description='默认成品销售提成比例（2%）' where config_key='default_commission_rate' and config_value='0.01' and enabled=1");
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','processing_sales_commission_rate','0.01','默认加工导购提成比例（1%）',6,1 from sys_store");
+        jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','gold_market_freeze_threshold','0.05','行情异常冻结阈值（5%）',7,1 from sys_store");
+        createGoldPricingTables();
+        migrateGoldDefinitions();
+    }
+
+    private void createGoldPricingTables() {
+        jdbc.execute("create table if not exists gold_market_quote (quote_id bigint primary key auto_increment,store_id bigint not null,instrument_code varchar(16) not null,price decimal(12,4) null,raw_price decimal(12,4) null,raw_unit varchar(20) null,quote_time varchar(32) null,source varchar(20) null,market_status varchar(16) not null default 'ERROR',message varchar(255) null,auto_frozen tinyint not null default 0,fetched_at datetime null,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_gold_market_quote_store_instrument(store_id,instrument_code),key idx_gold_market_quote_status(store_id,market_status))");
+        jdbc.execute("create table if not exists gold_price_change_log (log_id bigint primary key auto_increment,store_id bigint not null,operator_id bigint null,price_type varchar(50) not null,base_instrument varchar(16) null,base_price decimal(12,4) null,purity_coefficient decimal(8,6) null,markup decimal(12,2) null,recycle_deduction decimal(12,2) null,old_sale_price decimal(12,2) null,old_recycle_price decimal(12,2) null,new_sale_price decimal(12,2) null,new_recycle_price decimal(12,2) null,source varchar(20) null,detail varchar(500) null,create_time datetime not null default current_timestamp,key idx_gold_price_change_store_time(store_id,create_time))");
+        addColumn("gold_price", "sale_price", "DECIMAL(12,2) NULL AFTER price");
+        addColumn("gold_price", "recycle_price", "DECIMAL(12,2) NULL AFTER sale_price");
+        addColumn("gold_price", "base_price", "DECIMAL(12,4) NULL AFTER recycle_price");
+        addColumn("gold_price", "base_instrument", "VARCHAR(16) NULL AFTER base_price");
+        addColumn("gold_price", "purity_coefficient", "DECIMAL(8,6) NULL AFTER base_instrument");
+        addColumn("gold_price", "markup", "DECIMAL(12,2) NULL AFTER purity_coefficient");
+        addColumn("gold_price", "recycle_deduction", "DECIMAL(12,2) NULL AFTER markup");
+        addColumn("gold_price", "rounding_rule", "VARCHAR(16) NULL AFTER recycle_deduction");
+        addColumn("gold_price", "pricing_mode", "VARCHAR(10) NULL AFTER rounding_rule");
+        addColumn("gold_price", "source", "VARCHAR(20) NULL AFTER pricing_mode");
+        addColumn("gold_price", "quote_time", "VARCHAR(32) NULL AFTER source");
+        addColumn("gold_price", "market_status", "VARCHAR(16) NULL AFTER quote_time");
+        addColumn("gold_price", "auto_frozen", "TINYINT NOT NULL DEFAULT 0 AFTER market_status");
+    }
+
+    private void migrateGoldDefinitions() {
+        ObjectMapper mapper = new ObjectMapper();
+        List<Map<String, Object>> rows = jdbc.queryForList("select store_id,config_value from sys_config where config_key='gold_metal_types' and enabled=1");
+        for (Map<String, Object> row : rows) {
+            try {
+                List<Map<String, Object>> items = mapper.readValue(String.valueOf(row.get("config_value")), new TypeReference<>() {});
+                boolean changed = false;
+                for (Map<String, Object> item : items) {
+                    String code = String.valueOf(item.getOrDefault("code", "")).toUpperCase();
+                    if (!item.containsKey("pricingMode")) { item.put("pricingMode", "MANUAL"); changed = true; }
+                    if (!item.containsKey("baseInstrument")) { item.put("baseInstrument", code.contains("SILVER") ? "Ag_TD" : "Au_TD"); changed = true; }
+                    if (!item.containsKey("purityCoefficient")) { item.put("purityCoefficient", coefficient(item.get("purity"))); changed = true; }
+                    if (!item.containsKey("markup")) { item.put("markup", 0); changed = true; }
+                    if (!item.containsKey("recycleDeduction")) { item.put("recycleDeduction", 0); changed = true; }
+                    if (!item.containsKey("roundingRule")) { item.put("roundingRule", "NONE"); changed = true; }
+                }
+                if (changed) jdbc.update("update sys_config set config_value=?,update_time=now() where store_id=? and config_key='gold_metal_types'", mapper.writeValueAsString(items), row.get("store_id"));
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private String coefficient(Object value) {
+        try {
+            java.math.BigDecimal number = new java.math.BigDecimal(String.valueOf(value));
+            return (number.compareTo(java.math.BigDecimal.ONE) > 0 ? number.movePointLeft(2) : number).setScale(6, java.math.RoundingMode.HALF_UP).toPlainString();
+        } catch (Exception ignored) { return "1.000000"; }
     }
 
     private void upgradeAuditColumns() {
@@ -301,7 +382,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
     private void createProcessingTables() {
         jdbc.execute("create table if not exists processing_category (category_id bigint primary key auto_increment,store_id bigint not null,name varchar(64) not null,category_code varchar(32) not null,sort int not null default 0,status tinyint not null default 1,created_by bigint,updated_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_category_store_code(store_id,category_code),key idx_processing_category_store_status(store_id,status,sort))");
         jdbc.execute("create table if not exists processing_item (item_id bigint primary key auto_increment,store_id bigint not null,category_id bigint not null,name varchar(100) not null,item_code varchar(32) not null,labor_fee decimal(12,2) not null default 0,processing_days smallint not null default 0,commission_rate decimal(5,2) not null default 0,status tinyint not null default 1,remark varchar(500),created_by bigint,updated_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_item_store_code(store_id,item_code),key idx_processing_item_category(store_id,category_id,status))");
-        jdbc.execute("create table if not exists processing_order (processing_order_id bigint primary key auto_increment,store_id bigint not null,order_no varchar(32) not null,member_id bigint,customer_name varchar(64) not null,customer_phone varchar(32) not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,unit_labor_fee decimal(12,2) not null default 0,commission_rate_snapshot decimal(5,2) not null default 0,quantity int not null default 1,labor_fee decimal(12,2) not null default 0,old_gold_weight decimal(10,3),old_gold_fineness decimal(6,4),residual_material_type varchar(50),residual_gold_weight decimal(10,3),residual_gold_fineness decimal(6,4),residual_gold_handling varchar(24) not null default 'TAKE_AWAY',residual_gold_deduction decimal(12,2) not null default 0,residual_material_recorded tinyint not null default 0,due_amount decimal(12,2) not null default 0,original_due_amount decimal(12,2),promotion_discount decimal(12,2) not null default 0,promotion_channel varchar(50),voucher_no varchar(100),promotion_reason varchar(200),paid_amount decimal(12,2) not null default 0,pickup_date date,craftsman_id bigint,sales_id bigint,sales_commission_rate_snapshot decimal(8,4),status varchar(24) not null default 'PENDING',remark varchar(500),source_sales_order_id bigint,created_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,completed_time datetime null,picked_up_time datetime null,version int not null default 0,unique key uk_processing_order_store_no(store_id,order_no),key idx_processing_order_status(store_id,status,create_time),key idx_processing_order_craftsman(store_id,craftsman_id,status),key idx_processing_order_sales(store_id,sales_id,status))");
+        jdbc.execute("create table if not exists processing_order (processing_order_id bigint primary key auto_increment,store_id bigint not null,order_no varchar(32) not null,member_id bigint,customer_name varchar(64) not null,customer_phone varchar(32) not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,unit_labor_fee decimal(12,2) not null default 0,commission_rate_snapshot decimal(5,2) not null default 0,quantity int not null default 1,labor_fee decimal(12,2) not null default 0,old_gold_weight decimal(10,3),old_gold_fineness decimal(6,4),store_gold_weight decimal(10,3) not null default 0,store_gold_fineness decimal(6,4) null,store_gold_price decimal(12,2) not null default 0,gold_base_instrument varchar(16) null,gold_base_price decimal(12,4) null,gold_purity_coefficient decimal(8,6) null,gold_markup decimal(12,2) null,gold_recycle_deduction decimal(12,2) null,gold_price_snapshot decimal(12,2) null,gold_quote_time varchar(32) null,gold_quote_source varchar(20) null,gold_market_status varchar(16) null,store_gold_amount decimal(12,2) not null default 0,residual_material_type varchar(50),residual_gold_weight decimal(10,3),residual_gold_fineness decimal(6,4),residual_gold_handling varchar(24) not null default 'TAKE_AWAY',residual_gold_deduction decimal(12,2) not null default 0,residual_material_recorded tinyint not null default 0,due_amount decimal(12,2) not null default 0,original_due_amount decimal(12,2),promotion_discount decimal(12,2) not null default 0,promotion_channel varchar(50),voucher_no varchar(100),promotion_reason varchar(200),paid_amount decimal(12,2) not null default 0,pickup_date date,craftsman_id bigint,sales_id bigint,sales_commission_rate_snapshot decimal(8,4),status varchar(24) not null default 'PENDING',remark varchar(500),source_sales_order_id bigint,created_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,completed_time datetime null,picked_up_time datetime null,version int not null default 0,unique key uk_processing_order_store_no(store_id,order_no),key idx_processing_order_status(store_id,status,create_time),key idx_processing_order_craftsman(store_id,craftsman_id,status),key idx_processing_order_sales(store_id,sales_id,status))");
         jdbc.execute("create table if not exists processing_payment (payment_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,payment_type varchar(16) not null,amount decimal(12,2) not null,pay_method varchar(50) not null,client_request_id varchar(64),operator_id bigint,remark varchar(500),create_time datetime not null default current_timestamp,unique key uk_processing_payment_client(store_id,client_request_id),key idx_processing_payment_order(store_id,processing_order_id,create_time))");
         jdbc.execute("create table if not exists processing_commission (commission_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,employee_id bigint not null,commission_base decimal(12,2) not null default 0,commission_rate decimal(5,2) not null default 0,commission_amount decimal(12,2) not null default 0,status varchar(16) not null default 'PENDING',paid_at datetime null,paid_by bigint null,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_commission_order_employee(processing_order_id,employee_id),key idx_processing_commission_status(store_id,status,employee_id))");
         jdbc.execute("create table if not exists print_job (job_id bigint primary key auto_increment,store_id bigint not null,order_id bigint not null,order_no varchar(32) not null,customer_name varchar(64),customer_phone varchar(32),job_type varchar(20) not null default 'PROCESSING',status varchar(16) not null default 'PENDING',created_by bigint,create_time datetime not null default current_timestamp,printed_time datetime null,printed_by bigint null,ignored_time datetime null,ignored_by bigint null,key idx_print_store_status(store_id,status,create_time))");

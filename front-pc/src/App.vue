@@ -591,6 +591,8 @@ const goldSpot = computed(() => goldMap.value['足金'] || 612)
 const recycleSpot = computed(() => goldMap.value['回收金价'] || 578)
 const silverSaleSpot = computed(() => goldMap.value['银'] || 0)
 const silverRecycleSpot = computed(() => goldMap.value['银回收价'] || 0)
+const marketLabel = row => { const status = String(row?.marketStatus || '').toUpperCase(); const state = status === 'OPEN' ? '开市' : status === 'CLOSED' ? '休市' : status === 'ERROR' ? '行情失败·旧价' : status === 'FROZEN' ? '异常冻结' : '—'; return `${row?.source || '—'} ${row?.quoteTime || ''} ${state}`.trim() }
+const pricingLabel = row => { if (!row) return '基准 — · 加价 — / 扣减 — · 手动'; const base = row.basePrice == null ? '—' : money(row.basePrice); return `基准 ${base}/g · 加价 ${money(row.markup)} / 扣减 ${money(row.recycleDeduction)} · ${row.pricingMode === 'AUTO' ? '自动' : '手动'}` }
 const cartSubtotal = computed(() => orderDraft.value?.settlement?.subtotal ?? cart.value.reduce((sum, item) => sum + item.amount * item.qty, 0))
 const cartLabor = computed(() => orderDraft.value?.settlement?.laborFee ?? cart.value.reduce((sum, item) => sum + item.laborFee * item.qty, 0))
 const oldDeduct = computed(() => orderDraft.value?.settlement?.oldMaterialValue ?? oldMetals.value.reduce((sum, m) => sum + m.weight * m.purity * (goldMap.value[m.priceType] || recycleSpot.value), 0))
@@ -952,7 +954,7 @@ function setupSocket() {
         try {
           const message = JSON.parse(event.data)
           console.info('[dajin-ws] message:', message.type)
-          if (message.type === 'GOLD_PRICE_UPDATED') { const update = message.data; const found = gold.value.find(g => (g.price_type || g.priceType) === update.priceType); if (found) found.price = Number(update.price); else gold.value.push({ price_type: update.priceType, price: update.price }); await window.dajin?.db?.seed?.({ gold: plainPayload(gold.value) }); toast.value = `${update.priceType}金价已更新` }
+          if (message.type === 'GOLD_PRICE_UPDATED') { const update = message.data; const found = gold.value.find(g => (g.price_type || g.priceType) === update.priceType); if (found) Object.assign(found, { price: Number(update.price), salePrice: update.salePrice, recyclePrice: update.recyclePrice, source: update.source, quoteTime: update.quoteTime, marketStatus: update.marketStatus, pricingMode: update.pricingMode }); else gold.value.push({ price_type: update.priceType, price: update.price, salePrice: update.salePrice, recyclePrice: update.recyclePrice, source: update.source, quoteTime: update.quoteTime, marketStatus: update.marketStatus, pricingMode: update.pricingMode }); await window.dajin?.db?.seed?.({ gold: plainPayload(gold.value) }); toast.value = `${update.priceType}金价已更新` }
           if (message.type === 'APPROVAL_DECIDED') applyApprovalDecision(message.data?.approvalId ?? message.data?.id, message.data?.status)
           if (message.type === 'APPROVAL_CREATED') noticeCount.value += 1
           if (message.type === 'REMINDER_REFRESH') loadNotifications()
@@ -1052,7 +1054,7 @@ async function submitOrder() {
     oldMaterials: oldMetals.value.map(m => ({ materialType: m.materialType || '足金旧料', weight: m.weight, purity: m.purity, priceType: m.priceType, note: m.note })),
     salesId: selectedSalesId.value || null,
     remark: oldMetals.value.length ? `旧金抵扣${oldMetals.value.length}件` : '',
-    items: cart.value.map(item => ({ goodsId: item.goodsId, itemName: item.name, weight: Number(item.weight) > 0 ? item.weight : null, unitPrice: item.unitPrice, laborFee: item.laborFee, qty: item.qty, subtotal: item.amount * item.qty })),
+    items: cart.value.map(item => ({ goodsId: item.goodsId, itemName: item.name, weight: Number(item.weight) > 0 ? item.weight : null, unitPrice: item.unitPrice, laborFee: item.laborFee, qty: item.qty, subtotal: item.amount * item.qty, goldType: item.goldType, priceType: item.priceType })),
     clientRequestId: uuid()
   }
   checkoutSubmitting.value = true
@@ -1684,7 +1686,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
     <div class="app-shell">
     <header class="topbar">
       <div class="brand"><div class="brand-mark"><Gem :size="18" /></div><div><strong>{{ cashier.storeName }}</strong><span>黄金业务工作台</span></div></div>
-      <div class="top-metrics"><div class="metric"><span>足金卖价</span><b>{{ money(goldSpot) }}<small>/g</small></b></div><div class="metric"><span>黄金回收价</span><b>{{ money(recycleSpot) }}<small>/g</small></b></div><div class="metric silver"><span>银卖价</span><b>{{ money(silverSaleSpot) }}<small>/g</small></b></div><div class="metric silver"><span>银回收价</span><b>{{ money(silverRecycleSpot) }}<small>/g</small></b></div></div>
+      <div class="top-metrics"><div class="metric"><span>足金卖价</span><b>{{ money(goldSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '足金')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '足金')) }}</small></em></div><div class="metric"><span>黄金回收价</span><b>{{ money(recycleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '回收金价')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '回收金价')) }}</small></em></div><div class="metric silver"><span>银卖价</span><b>{{ money(silverSaleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '银')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '银')) }}</small></em></div><div class="metric silver"><span>银回收价</span><b>{{ money(silverRecycleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '银回收价')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '银回收价')) }}</small></em></div></div>
       <div class="top-actions"><span class="online-state" :class="{ offline: !online }"><span class="status-dot"></span>{{ online ? (syncing ? '同步中' : '在线') : '离线' }}</span><button class="icon-button" title="消息通知" @click="openNotifications"><Bell :size="18" /><i v-if="noticeBadge">{{ noticeBadge }}</i></button><span class="top-time">{{ currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</span><button class="user-chip" @click="loginDialog"><span class="avatar">{{ cashier.name.slice(0, 1) }}</span>{{ cashier.name }}<ChevronRight :size="14" /></button></div>
     </header>
     <main class="workspace">

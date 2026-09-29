@@ -26,6 +26,7 @@ b,strong{font-variant-numeric:tabular-nums}
 .mobile-silver-prices{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line-soft);border-bottom:1px solid var(--line-soft)}
 .mobile-silver-prices span{min-height:36px;display:flex;align-items:center;justify-content:center;gap:5px;background:var(--card);font-size:var(--f-xs);color:var(--ink-3)}
 .mobile-silver-prices b{color:var(--ink);font-size:var(--f-sm)}
+.mobile-silver-prices small{display:block;color:var(--ink-3);font-size:10px;margin-top:2px}
 .topbar>div:first-child{display:flex;align-items:center;min-width:0;flex:1;overflow:hidden;white-space:nowrap}
 .topbar strong{font-size:var(--f-md);flex:0 0 auto}
 .store{font-size:var(--f-xs);color:var(--ink-3);margin-left:var(--s-2)}
@@ -417,3 +418,4 @@ b,strong{font-variant-numeric:tabular-nums}
 .supplier-create{display:flex;gap:6px;margin-top:6px}
 .supplier-create input{flex:1;min-height:38px;border:1px solid #dfe3e8;border-radius:8px;padding:0 10px;background:#fff}
 .supplier-create button{min-height:38px;white-space:nowrap}
+.market-config { display: block; color: var(--ink-3); font-size: 10px; line-height: 1.25; }

@@ -8,6 +8,7 @@ import com.dajin.system.common.DbSupport;
 import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
+import com.dajin.system.gold.GoldMarketService;
 import com.dajin.system.pay.PaymentChannelPolicy;
 import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
@@ -39,13 +40,20 @@ public class ProcessingController {
     private final SyncWebSocketHandler ws;
     private final ShiftService shifts;
     private final OldMaterialLedgerService oldMaterialLedger;
+    private final GoldMarketService market;
 
     public ProcessingController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts,
                                 OldMaterialLedgerService oldMaterialLedger) {
+        this(db, ws, shifts, oldMaterialLedger, null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProcessingController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts,
+                                OldMaterialLedgerService oldMaterialLedger, GoldMarketService market) {
         this.db = db;
         this.ws = ws;
         this.shifts = shifts;
         this.oldMaterialLedger = oldMaterialLedger;
+        this.market = market;
     }
 
     @GetMapping("/categories")
@@ -257,8 +265,13 @@ public class ProcessingController {
         BigDecimal storeGoldPrice = optionalDecimal(body.get("storeGoldPrice"), 2);
         if (storeGoldPrice != null && storeGoldPrice.signum() < 0) throw new BusinessException(400721, "店供金料金价不能小于0");
         BigDecimal storeGoldAmount = BigDecimal.ZERO;
+        Map<String, Object> goldSnapshot = market == null ? Map.of() : market.snapshot(storeId, "足金", storeGoldPrice);
+        BigDecimal configuredRetailPrice = decimalValue(goldSnapshot.get("salePrice"));
+        BigDecimal configuredRecyclePrice = decimalValue(goldSnapshot.get("recyclePrice"));
+        if (configuredRetailPrice == null || configuredRetailPrice.signum() <= 0) configuredRetailPrice = retailGoldPrice(storeId);
+        if (configuredRecyclePrice == null || configuredRecyclePrice.signum() <= 0) configuredRecyclePrice = recyclePrice(storeId);
         if (storeGoldWeight != null) {
-            if (storeGoldPrice == null || storeGoldPrice.signum() == 0) storeGoldPrice = retailGoldPrice(storeId);
+            if (storeGoldPrice == null || storeGoldPrice.signum() == 0) storeGoldPrice = configuredRetailPrice;
             if (storeGoldPrice == null || storeGoldPrice.signum() <= 0) throw new BusinessException(400722, "未配置足金零售价，无法计价店供金料，请先在金价管理维护");
             storeGoldAmount = storeGoldWeight.multiply(storeGoldPrice).setScale(2, RoundingMode.HALF_UP);
         }
@@ -268,7 +281,7 @@ public class ProcessingController {
             if (materialType == null || materialType.isBlank() || residualWeight == null || residualWeight.signum() <= 0 || residualFineness == null || residualFineness.signum() <= 0) {
                 throw new BusinessException(400711, "留店抵扣需填写旧料类型、克重和成色");
             }
-            deduction = residualWeight.multiply(residualFineness).multiply(recyclePrice(storeId)).setScale(2, RoundingMode.HALF_UP).min(laborFee);
+            deduction = residualWeight.multiply(residualFineness).multiply(configuredRecyclePrice == null ? BigDecimal.ZERO : configuredRecyclePrice).setScale(2, RoundingMode.HALF_UP).min(laborFee);
         }
         BigDecimal due = laborFee.subtract(deduction).add(storeGoldAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         Long craftsman = nullableId(body.get("craftsmanId"));
@@ -290,8 +303,9 @@ public class ProcessingController {
                 .addValue("materialType", materialType).addValue("residualWeight", residualWeight).addValue("residualFineness", residualFineness)
                 .addValue("handling", handling).addValue("deduction", deduction).addValue("due", due).addValue("pickup", body.get("pickupDate"))
                 .addValue("sgWeight", storeGoldWeight != null ? storeGoldWeight : BigDecimal.ZERO).addValue("sgFineness", storeGoldFineness).addValue("sgPrice", storeGoldWeight != null && storeGoldPrice != null ? storeGoldPrice : BigDecimal.ZERO).addValue("sgAmount", storeGoldAmount)
+                .addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", configuredRetailPrice).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus"))
                 .addValue("craftsman", craftsman).addValue("sales", sales).addValue("sourceSalesOrder", sourceSalesOrder).addValue("remark", optionalText(body, "remark")).addValue("uid", userId(request));
-        db.jdbc().update("insert into processing_order(store_id,order_no,member_id,customer_name,customer_phone,processing_item_id,item_name_snapshot,unit_labor_fee,commission_rate_snapshot,pricing_unit,billing_weight,quantity,labor_fee,old_gold_weight,old_gold_fineness,store_gold_weight,store_gold_fineness,store_gold_price,store_gold_amount,residual_material_type,residual_gold_weight,residual_gold_fineness,residual_gold_handling,residual_gold_deduction,due_amount,paid_amount,pickup_date,craftsman_id,sales_id,status,remark,source_sales_order_id,created_by,create_time,update_time) values(:s,:no,:member,:name,:phone,:itemId,:itemName,:unitFee,:commissionRate,:pricingUnit,:billingWeight,:qty,:laborFee,:oldWeight,:oldFineness,:sgWeight,:sgFineness,:sgPrice,:sgAmount,:materialType,:residualWeight,:residualFineness,:handling,:deduction,:due,0,:pickup,:craftsman,:sales,'PENDING',:remark,:sourceSalesOrder,:uid,now(),now())", p);
+        db.jdbc().update("insert into processing_order(store_id,order_no,member_id,customer_name,customer_phone,processing_item_id,item_name_snapshot,unit_labor_fee,commission_rate_snapshot,pricing_unit,billing_weight,quantity,labor_fee,old_gold_weight,old_gold_fineness,store_gold_weight,store_gold_fineness,store_gold_price,store_gold_amount,gold_base_instrument,gold_base_price,gold_purity_coefficient,gold_markup,gold_recycle_deduction,gold_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,residual_material_type,residual_gold_weight,residual_gold_fineness,residual_gold_handling,residual_gold_deduction,due_amount,paid_amount,pickup_date,craftsman_id,sales_id,status,remark,source_sales_order_id,created_by,create_time,update_time) values(:s,:no,:member,:name,:phone,:itemId,:itemName,:unitFee,:commissionRate,:pricingUnit,:billingWeight,:qty,:laborFee,:oldWeight,:oldFineness,:sgWeight,:sgFineness,:sgPrice,:sgAmount,:goldInstrument,:goldBase,:goldPurity,:goldMarkup,:goldDeduction,:goldSnapshot,:goldQuoteTime,:goldSource,:goldMarketStatus,:materialType,:residualWeight,:residualFineness,:handling,:deduction,:due,0,:pickup,:craftsman,:sales,'PENDING',:remark,:sourceSalesOrder,:uid,now(),now())", p);
         long orderId = db.jdbc().queryForObject("select processing_order_id from processing_order where store_id=:s and order_no=:no", p, Long.class);
         if ("STORE_DEDUCT".equals(handling)) recordResidualMaterial(storeId, orderId, orderNo, materialType, residualWeight, residualFineness, deduction, userId(request));
         if (storeGoldWeight != null) deductGoldMaterial(storeId, orderId, orderNo, storeGoldWeight, userId(request));
@@ -382,13 +396,14 @@ public class ProcessingController {
             price = oldWeight.signum() > 0 && decimal(order.get("store_gold_price")).signum() > 0 ? decimal(order.get("store_gold_price")) : retailGoldPrice(storeId);
         }
         if (price == null || price.signum() <= 0) throw new BusinessException(400722, "未配置足金零售价，无法计价补金，请先在金价管理维护");
+        Map<String, Object> goldSnapshot = market == null ? Map.of() : market.snapshot(storeId, "足金", price);
         BigDecimal amount = weight.multiply(price).setScale(2, RoundingMode.HALF_UP);
         long operator = userId(request);
         adjustGoldMaterial(storeId, String.valueOf(order.get("order_no")), weight.subtract(oldWeight), operator);
         BigDecimal due = decimal(order.get("due_amount")).subtract(oldAmount).add(amount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         if (due.compareTo(decimal(order.get("paid_amount"))) < 0) throw new BusinessException(409716, "修正后的应收低于已收款，请先核对退款");
-        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,due_amount=:due,original_due_amount=case when original_due_amount is null then null else :due+promotion_discount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
-                new MapSqlParameterSource().addValue("w", weight).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("due", due)
+        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,gold_base_instrument=:goldInstrument,gold_base_price=:goldBase,gold_purity_coefficient=:goldPurity,gold_markup=:goldMarkup,gold_recycle_deduction=:goldDeduction,gold_price_snapshot=:goldSnapshot,gold_quote_time=:goldQuoteTime,gold_quote_source=:goldSource,gold_market_status=:goldMarketStatus,due_amount=:due,original_due_amount=case when original_due_amount is null then null else :due+promotion_discount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+                new MapSqlParameterSource().addValue("w", weight).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", price).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus")).addValue("due", due)
                         .addValue("id", id).addValue("s", storeId));
         log(storeId, operator, "ORDER_STORE_GOLD", "加工单=" + order.get("order_no") + ",补金=" + weight + "g,金额=" + amount + ",应收=" + due);
         Map<String, Object> result = orderDetail(id, storeId, request);
@@ -1140,4 +1155,5 @@ public class ProcessingController {
     private BigDecimal percent(Object value, String label) { BigDecimal rate = nonNegative(value, label); if (rate.compareTo(BigDecimal.valueOf(100)) > 0) throw new BusinessException(400723, label + "不能超过100%"); return rate; }
     private BigDecimal optionalDecimal(Object value, int scale) { if (value == null || String.valueOf(value).isBlank()) return null; try { return new BigDecimal(String.valueOf(value)).setScale(scale, RoundingMode.HALF_UP); } catch (NumberFormatException e) { throw new BusinessException(400720, "数值格式不正确"); } }
     private BigDecimal decimal(Object value) { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); }
+    private BigDecimal decimalValue(Object value) { if (value == null || "null".equalsIgnoreCase(String.valueOf(value))) return null; try { return new BigDecimal(String.valueOf(value)); } catch (Exception ignored) { return null; } }
 }

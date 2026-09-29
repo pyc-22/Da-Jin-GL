@@ -32,8 +32,8 @@ public final class PermissionCatalog {
     private static final Map<String, Set<String>> DEFAULTS = Map.of(
             "ADMIN", Set.of("*"),
             "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:view:all", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
-            "SALES", Set.of("dashboard:view", "goods:search", "stock:inbound:create", "stock:check:view", "stock:check:create", "stock:check:submit", "member:view", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "notification:view"),
-            "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "processing:view", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view"),
+            "SALES", Set.of("dashboard:view", "goods:search", "stock:inbound:create", "stock:check:view", "stock:check:create", "stock:check:submit", "member:view", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "notification:view", "gold:view"),
+            "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "processing:view", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view", "gold:view"),
             "CRAFTSMAN", Set.of("processing:view")
     );
 

@@ -54,6 +54,7 @@ export const mobileFunctions = [
   { key: 'deposit', label: '客存金台账', path: '/manager/deposit', permission: 'processing:view' },
   { key: 'daily', label: '经营日报', path: '/manager/daily', permission: 'report:view:all' },
   { key: 'report', label: '经营报表', path: '/report', permission: 'report:view' },
+  { key: 'gold-settings', label: '金价设置', path: '/gold-settings', permission: 'gold:manage' },
   { key: 'member-overview', label: '会员总览', section: 'member', permission: 'member:view' },
   { key: 'visits', label: '客户回访', path: '/visits', permission: 'member:follow' },
   { key: 'birthday', label: '生日提醒', path: '/sales/birthday', permission: 'member:view' },

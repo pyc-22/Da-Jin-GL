@@ -32,6 +32,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .metric b { color: #f2c291; font-size: 17px; letter-spacing: .3px; }
 .metric.silver b { color: #d6dde7; }
 .metric small { color: #aaa; font-size: 11px; font-weight: 400; margin-left: 3px; }
+.metric em { display: block; color: #8f949b; font-size: 10px; font-style: normal; white-space: nowrap; }
 .top-actions { display: flex; align-items: center; gap: 17px; }
 .online-state { display: inline-flex; align-items: center; gap: 7px; color: #7ed0a9; font-size: 11px; }
 .online-state.offline { color: #f0ab73; }
@@ -339,3 +340,4 @@ td b { font-weight: 650; }
 .processing-balance b { font-size: 16px; }
 @media (max-width: 1250px) { .processing-layout { grid-template-columns: minmax(0, 1fr) 320px; } }
 @media (max-width: 1250px) { .top-metrics { gap: 16px; } .content-area { padding-left: 23px; padding-right: 23px; } .order-layout { grid-template-columns: minmax(0, 1fr) 350px; } .cart-panel { padding-left: 15px; padding-right: 15px; } }
+.market-config { display: block; color: #8491a3; font-size: 10px; line-height: 1.25; }

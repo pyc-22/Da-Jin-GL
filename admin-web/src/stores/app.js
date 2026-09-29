@@ -19,8 +19,8 @@ export const useAppStore = defineStore('app', {
             const data = message.data || message
             const rows = Array.isArray(this.gold) ? [...this.gold] : []
             const index = rows.findIndex(row => String(row.price_type || row.priceType) === String(data.priceType))
-            if (index >= 0) rows[index] = { ...rows[index], price: data.price }
-            else rows.push({ price_type: data.priceType, price: data.price })
+            if (index >= 0) rows[index] = { ...rows[index], price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode }
+            else rows.push({ price_type: data.priceType, price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode })
             this.gold = rows
           }
           this.eventVersion += 1

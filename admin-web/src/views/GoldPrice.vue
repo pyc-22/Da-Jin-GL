@@ -1,128 +1,104 @@
 <script setup>
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { goldApi } from '../api/modules'
-import { formatMoney, formatTime } from '../utils/format'
+import { formatMoney } from '../utils/format'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
-const app=useAppStore()
-const auth=useAuthStore()
 
+const app = useAppStore()
+const auth = useAuthStore()
 const current = ref([])
 const history = ref([])
 const types = ref([])
+const logs = ref([])
+const silverSpot = ref({})
+const loading = ref(false)
 const priceDialog = ref(false)
 const typeDialog = ref(false)
 const editingType = ref(null)
-const typeFormRef = ref()
 const savingType = ref(false)
 const priceForm = reactive({ priceType: '', price: 0 })
-const typeForm = reactive({ name: '', code: '', purity: 99.9, price: 0, sort: 0 })
-const requiredText = label => ({ validator: (_rule, value, callback) => String(value || '').trim() ? callback() : callback(new Error(`请输入${label}`)), trigger: 'blur' })
-const typeRules = {
-  name: [requiredText('类型名称')],
-  code: [requiredText('类型编码')],
-  purity: [{ validator: (_rule, value, callback) => Number(value) > 0 && Number(value) <= 100 ? callback() : callback(new Error('成色必须在0到100之间')), trigger: 'change' }],
-  price: [{ validator: (_rule, value, callback) => Number(value) >= 0 ? callback() : callback(new Error('价格不能小于0')), trigger: 'change' }],
-  sort: [{ validator: (_rule, value, callback) => Number.isInteger(Number(value)) && Number(value) >= 0 ? callback() : callback(new Error('排序必须是非负整数')), trigger: 'change' }]
-}
+const typeForm = reactive({ name: '', code: '', purity: 99.9, sort: 0, pricingMode: 'MANUAL', baseInstrument: 'Au_TD', purityCoefficient: 0.999, markup: 0, recycleDeduction: 0, roundingRule: 'NONE', status: 1 })
+const roundingOptions = [{ value: 'NONE', label: '不取整' }, { value: 'TENTH', label: '到角' }, { value: 'YUAN', label: '到元' }, { value: 'TAIL_8', label: '尾数 .8' }, { value: 'TAIL_9', label: '尾数 .9' }]
+const statusText = value => ({ OPEN: '开市', CLOSED: '休市', ERROR: '行情失败', FROZEN: '已冻结' }[String(value || '').toUpperCase()] || '未知')
+const statusType = value => ({ OPEN: 'success', CLOSED: 'info', ERROR: 'danger', FROZEN: 'warning' }[String(value || '').toUpperCase()] || 'info')
+const typeId = row => row?.type_id || row?.type_code || row?.code
 
 async function load() {
-  const [now, past, all] = await Promise.all([goldApi.current(), goldApi.history({ days: 30 }), goldApi.typesAll()])
-  current.value = now || []; history.value = past || []; types.value = all || []
-}
-function openPrice(row) { Object.assign(priceForm, { priceType: row?.price_type || row?.type_name || '', price: Number(row?.price || 0) }); priceDialog.value = true }
-async function savePrice() { if (!priceForm.priceType) return ElMessage.warning('请选择贵金属类型'); await goldApi.save(priceForm); priceDialog.value = false; ElMessage.success('金价已保存并推送'); await load() }
-function openType(row) { editingType.value = row || null; Object.assign(typeForm, row ? { name: row.type_name, code: row.type_code, purity: Number(row.purity), price: Number(row.price ?? row.current_price ?? 0), sort: Number(row.sort || 0) } : { name: '', code: '', purity: 99.9, price: 0, sort: types.value.length + 1 }); typeDialog.value = true; nextTick(() => typeFormRef.value?.clearValidate()) }
-async function saveType() {
-  try { await typeFormRef.value.validate() } catch { return }
-  savingType.value = true
+  loading.value = true
   try {
-    if (editingType.value) await goldApi.updateType(editingType.value.type_id, { ...typeForm })
-    else await goldApi.createType({ ...typeForm })
-    typeDialog.value = false
-    ElMessage.success(editingType.value ? '类型已更新' : '类型已新增')
-    await load()
-  } catch (error) {
-    if (!error?.messageShown) ElMessage.error(error?.message || '贵金属类型保存失败')
-  } finally {
-    savingType.value = false
-  }
-}
-async function removeType(row) {
-  try { await ElMessageBox.confirm(`确定删除“${row.type_name}”吗？有历史或商品关联时系统会自动禁用。`, '确认操作', { type: 'warning' }) } catch { return }
-  const result = await goldApi.deleteType(row.type_id)
-  ElMessage.success(result?.disabled ? '该类型已有业务关联，已禁用' : '类型已删除'); await load()
-}
-async function toggleType(row) { await goldApi.updateType(row.type_id, { status: Number(row.status) === 1 ? 0 : 1 }); ElMessage.success(Number(row.status) === 1 ? '类型已禁用' : '类型已启用'); await load() }
-onMounted(load)
-const spot = ref({})
-const silverSpot = ref({})
-const spotLoading = ref(false)
-const silverSpotLoading = ref(false)
-async function loadSpot() {
-  spotLoading.value = true
-  try { spot.value = await goldApi.spot() || {} } catch { spot.value = { price: null, message: '行情获取失败，请手动填写金价' } } finally { spotLoading.value = false }
-}
-async function applySpot() {
-  if (!Number(spot.value.price)) return
-  try { await ElMessageBox.confirm(`将「足金」卖价更新为行情参考价 ${formatMoney(spot.value.price)}/g？确认后同步收银台与手机端。`, '按行情更新足金价', { type: 'warning' }) } catch { return }
-  await goldApi.save({ priceType: '足金', price: Number(spot.value.price) })
-  ElMessage.success('足金价已按行情更新并推送'); await load()
-}
-async function loadSilverSpot() {
-  silverSpotLoading.value = true
-  try { silverSpot.value = await goldApi.silverSpot() || {} } catch { silverSpot.value = { price: null, message: '白银行情获取失败，请保留门店手动价格' } } finally { silverSpotLoading.value = false }
+    const typeRequest = auth.can('gold:manage') ? goldApi.typesAll() : goldApi.current()
+    const [now, past, all, changeLogs, spot] = await Promise.all([goldApi.current(), goldApi.history({ days: 30 }), typeRequest, goldApi.logs({ limit: 200 }), goldApi.silverSpot().catch(() => ({}))])
+    current.value = now || []; history.value = past || []; types.value = all || []; logs.value = changeLogs || []
+    silverSpot.value = spot || {}
+  } catch (error) { ElMessage.error(error?.message || '金价数据加载失败') } finally { loading.value = false }
 }
 async function applySilverSpot() {
-  if (!Number(silverSpot.value.price)) return
-  const silverType = current.value.find(row => String(row.price_type || '').trim() === '银回收价' || String(row.type_code || row.code || '').toUpperCase() === 'SILVER_RECYCLE')
-  if (!silverType) return ElMessage.warning('请先新增并启用“银回收价”类型')
-  const priceType = silverType.price_type
-  try { await ElMessageBox.confirm(`将「${priceType}」更新为白银实时回收参考价 ${formatMoney(silverSpot.value.price)}/g？确认后同步收银台与手机端。`, '按行情更新银回收价', { type: 'warning' }) } catch { return }
-  await goldApi.save({ priceType, price: Number(silverSpot.value.price) })
-  ElMessage.success('银回收价已按实时行情更新并推送'); await load()
+  if (!Number(silverSpot.value.price)) return ElMessage.warning('白银实时参考价暂不可用')
+  const silverType = current.value.find(row => String(row.price_type || '').trim() === '银回收价' || String(row.type_code || '').toUpperCase() === 'SILVER_RECYCLE')
+  if (!silverType) return ElMessage.warning('请先配置银回收价类型')
+  await goldApi.save({ priceType: silverType.price_type, price: Number(silverSpot.value.price) })
+  ElMessage.success('白银实时参考价已作为手动价格保存'); await load()
 }
-onMounted(loadSpot)
-onMounted(loadSilverSpot)
-watch(()=>app.eventVersion,()=>{if(['GOLD_PRICE_UPDATED','GOLD_TYPES_UPDATED'].includes(app.lastEventType)){load();loadSpot();loadSilverSpot()}})
+function openPrice(row) { Object.assign(priceForm, { priceType: row?.price_type || row?.type_name || '', price: Number(row?.price || 0) }); priceDialog.value = true }
+async function savePrice() { if (!priceForm.priceType || Number(priceForm.price) < 0) return ElMessage.warning('请填写有效价格'); await goldApi.save(priceForm); priceDialog.value = false; ElMessage.success('手动价格已保存并同步'); await load() }
+function openType(row) {
+  editingType.value = row || null
+  Object.assign(typeForm, row ? { name: row.type_name || row.name, code: row.type_code || row.code, purity: Number(row.purity || 100), sort: Number(row.sort || 0), pricingMode: row.pricingMode || 'MANUAL', baseInstrument: row.baseInstrument || 'Au_TD', purityCoefficient: Number(row.purityCoefficient || 1), markup: Number(row.markup || 0), recycleDeduction: Number(row.recycleDeduction || 0), roundingRule: row.roundingRule || 'NONE', status: Number(row.status ?? 1) } : { name: '', code: '', purity: 99.9, sort: types.value.length + 1, pricingMode: 'MANUAL', baseInstrument: 'Au_TD', purityCoefficient: 0.999, markup: 0, recycleDeduction: 0, roundingRule: 'NONE', status: 1 })
+  typeDialog.value = true
+}
+function syncCoefficient() { if (typeForm.purity > 0 && typeForm.purity <= 100) typeForm.purityCoefficient = Number(typeForm.purity) / 100 }
+async function saveType() {
+  if (!String(typeForm.name).trim() || !String(typeForm.code).trim()) return ElMessage.warning('类型名称和编码不能为空')
+  if (Number(typeForm.purityCoefficient) <= 0 || Number(typeForm.purityCoefficient) > 1) return ElMessage.warning('成色系数必须在0到1之间')
+  if (Number(typeForm.markup) < 0 || Number(typeForm.recycleDeduction) < 0) return ElMessage.warning('加价和回收扣减不能小于0')
+  savingType.value = true
+  try {
+    const body = { ...typeForm, purity: Number(typeForm.purity), sort: Number(typeForm.sort), purityCoefficient: Number(typeForm.purityCoefficient), markup: Number(typeForm.markup), recycleDeduction: Number(typeForm.recycleDeduction), status: Number(typeForm.status) }
+    if (editingType.value) await goldApi.updateType(typeId(editingType.value), body)
+    else await goldApi.createType({ ...body, price: 0 })
+    typeDialog.value = false; ElMessage.success('金类配置已保存'); await load()
+  } catch (error) { ElMessage.error(error?.message || '金类配置保存失败') } finally { savingType.value = false }
+}
+async function toggleType(row) { await goldApi.updateType(typeId(row), { status: Number(row.status) === 1 ? 0 : 1 }); ElMessage.success(Number(row.status) === 1 ? '已禁用' : '已启用'); await load() }
+async function removeType(row) { try { await ElMessageBox.confirm(`确定删除“${row.type_name}”吗？已有业务关联时会自动禁用。`, '确认操作', { type: 'warning' }) } catch { return }; await goldApi.deleteType(typeId(row)); ElMessage.success('操作完成'); await load() }
+async function resumeAuto(row) { await goldApi.updateType(typeId(row), { pricingMode: 'AUTO', resumeAuto: true }); ElMessage.success('已恢复自动定价'); await load() }
+onMounted(load)
+watch(() => app.eventVersion, () => { if (['GOLD_PRICE_UPDATED', 'GOLD_TYPES_UPDATED'].includes(app.lastEventType)) load() })
 </script>
+
 <template>
-  <section class="panel">
-    <div class="spot-grid">
-      <div class="spot-bar">
-        <div class="spot-copy">
-          <div class="muted">黄金实时行情参考（{{ spot.name || '上海黄金 Au9999' }}）· 元/克</div>
-          <div><strong>{{ Number(spot.price) ? formatMoney(spot.price) : '—' }}<small v-if="Number(spot.price)">/g</small></strong><small class="muted spot-meta">{{ Number(spot.price) ? `${spot.source || ''} · ${spot.time || ''}` : (spot.message || '加载中...') }}</small></div>
-        </div>
-        <div class="spot-actions"><el-button @click="loadSpot" :loading="spotLoading">刷新黄金</el-button><el-button v-if="auth.can('gold:manage') && Number(spot.price)" type="warning" @click="applySpot">按行情更新足金价</el-button></div>
-      </div>
-      <div class="spot-bar silver-spot">
-        <div class="spot-copy">
-          <div class="muted">白银实时回收参考（{{ silverSpot.name || '白银延期 Ag(T+D)' }}）· 已换算为元/克</div>
-          <div><strong>{{ Number(silverSpot.price) ? formatMoney(silverSpot.price) : '—' }}<small v-if="Number(silverSpot.price)">/g</small></strong><small class="muted spot-meta">{{ Number(silverSpot.price) ? `${silverSpot.source || ''} · ${silverSpot.time || ''}` : (silverSpot.message || '加载中...') }}</small></div>
-        </div>
-        <div class="spot-actions"><el-button @click="loadSilverSpot" :loading="silverSpotLoading">刷新白银</el-button><el-button v-if="auth.can('gold:manage') && Number(silverSpot.price)" type="warning" @click="applySilverSpot">按行情更新银回收价</el-button></div>
-      </div>
-    </div>
-    <div class="page-toolbar"><div class="muted">启用类型会同步到收银台和手机端计价选择</div><el-button v-if="auth.can('gold:manage')" type="primary" @click="openType()">新增类型</el-button></div>
-    <div class="gold-card"><div v-for="row in current" :key="row.type_id || row.price_type" class="panel gold-item"><span>{{ row.price_type }}</span><strong>{{ formatMoney(row.price) }}<small>/g</small></strong><el-button v-if="auth.can('gold:manage')" link type="primary" @click="openPrice(row)">修改价格</el-button></div><div v-if="!current.length" class="empty-table">暂无启用的金价类型</div></div>
+  <section class="panel" v-loading="loading">
+    <div class="page-toolbar"><div><strong>金银卖价与回收价</strong><p class="muted">自动定价只更新 AUTO 金类；单据创建时锁定当时价格。</p></div><el-button v-if="auth.can('gold:manage')" type="primary" @click="openType()">新增金类</el-button></div>
+    <div class="reference-bar"><span>白银实时回收参考 · Ag(T+D) · 元/克 <b>{{ Number(silverSpot.price) ? formatMoney(silverSpot.price) : '—' }}</b></span><small>{{ silverSpot.source || silverSpot.message || '白银行情由统一数据源提供' }}</small><el-button v-if="auth.can('gold:manage')" link type="warning" @click="applySilverSpot">按行情更新银回收价</el-button></div>
+    <el-table :data="current" stripe>
+      <el-table-column prop="price_type" label="金类" min-width="100" />
+      <el-table-column label="卖价 /g" width="120"><template #default="s">{{ formatMoney(s.row.salePrice) }}</template></el-table-column>
+      <el-table-column label="回收价 /g" width="120"><template #default="s">{{ formatMoney(s.row.recyclePrice) }}</template></el-table-column>
+      <el-table-column label="基准价 /g" width="120"><template #default="s">{{ formatMoney(s.row.basePrice) }}</template></el-table-column>
+      <el-table-column label="定价" width="90"><template #default="s"><el-tag :type="s.row.pricingMode === 'AUTO' ? 'success' : 'info'">{{ s.row.pricingMode === 'AUTO' ? '自动' : '手动' }}</el-tag></template></el-table-column>
+      <el-table-column label="行情" min-width="180"><template #default="s"><el-tag :type="statusType(s.row.marketStatus)">{{ statusText(s.row.marketStatus) }}</el-tag> {{ s.row.source || '—' }}<small class="block">{{ s.row.quoteTime || '—' }}</small></template></el-table-column>
+      <el-table-column label="配置" min-width="150"><template #default="s">+{{ formatMoney(s.row.markup) }} / -{{ formatMoney(s.row.recycleDeduction) }}<small class="block">{{ s.row.baseInstrument }} · {{ Number(s.row.purityCoefficient || 0).toFixed(4) }}</small></template></el-table-column>
+      <el-table-column v-if="auth.can('gold:manage')" label="操作" width="220"><template #default="s"><el-button link type="primary" @click="openType(s.row)">配置</el-button><el-button link @click="openPrice(s.row)">手动价格</el-button><el-button v-if="s.row.autoFrozen || s.row.marketStatus === 'FROZEN'" link type="warning" @click="resumeAuto(s.row)">恢复自动</el-button><el-button link type="danger" @click="removeType(s.row)">删除</el-button></template></el-table-column>
+    </el-table>
+    <div v-if="current.some(row => row.marketMessage)" class="warning-note">{{ current.find(row => row.marketMessage)?.marketMessage }}</div>
+    <div v-if="!current.length" class="empty-table">暂无金类价格</div>
   </section>
-  <section class="panel" style="margin-top:16px"><div class="panel-title">贵金属类型管理</div><el-table :data="types" stripe><el-table-column prop="type_name" label="类型名称"/><el-table-column prop="type_code" label="类型编码"/><el-table-column label="成色"><template #default="s">{{ Number(s.row.purity).toFixed(1) }}%</template></el-table-column><el-table-column label="当前价格"><template #default="s">{{ formatMoney(s.row.price ?? s.row.current_price) }}</template></el-table-column><el-table-column prop="sort" label="排序" width="80"/><el-table-column label="状态" width="90"><template #default="s"><el-tag :type="Number(s.row.status) === 1 ? 'success' : 'info'">{{ Number(s.row.status) === 1 ? '启用' : '禁用' }}</el-tag></template></el-table-column><el-table-column v-if="auth.can('gold:manage')" label="操作" width="220"><template #default="s"><el-button link type="primary" @click="openType(s.row)">编辑</el-button><el-button link :type="Number(s.row.status) === 1 ? 'warning' : 'success'" @click="toggleType(s.row)">{{ Number(s.row.status) === 1 ? '禁用' : '启用' }}</el-button><el-button link type="danger" @click="removeType(s.row)">删除</el-button></template></el-table-column></el-table></section>
-  <section class="panel" style="margin-top:16px"><div class="panel-title">金价历史</div><el-table :data="history" stripe><el-table-column prop="date" label="日期"/><el-table-column prop="price_type" label="类型"/><el-table-column label="价格"><template #default="s">{{ formatMoney(s.row.price) }}</template></el-table-column><el-table-column label="更新时间"><template #default="s">{{ formatTime(s.row.create_time) }}</template></el-table-column></el-table></section>
-  <el-dialog v-model="priceDialog" title="修改金价" width="420px"><el-form label-width="90px"><el-form-item label="金价类型"><el-select v-model="priceForm.priceType"><el-option v-for="row in current" :key="row.type_id || row.price_type" :label="row.price_type" :value="row.price_type"/></el-select></el-form-item><el-form-item label="价格"><el-input-number v-model="priceForm.price" :min="0" :precision="2"/></el-form-item></el-form><template #footer><el-button @click="priceDialog=false">取消</el-button><el-button type="primary" @click="savePrice">保存并推送</el-button></template></el-dialog>
-  <el-dialog v-model="typeDialog" :title="editingType ? '编辑贵金属类型' : '新增贵金属类型'" width="480px"><el-form ref="typeFormRef" :model="typeForm" :rules="typeRules" label-width="90px" status-icon><el-form-item label="类型名称" prop="name" required><el-input v-model="typeForm.name" placeholder="例如：钯金"/></el-form-item><el-form-item label="类型编码" prop="code" required><el-input v-model="typeForm.code" placeholder="例如：PALLADIUM"/></el-form-item><el-form-item label="成色" prop="purity"><el-input-number v-model="typeForm.purity" :min="0.1" :max="100" :precision="1"/></el-form-item><el-form-item label="初始价格" prop="price"><el-input-number v-model="typeForm.price" :min="0" :precision="2"/></el-form-item><el-form-item label="排序" prop="sort"><el-input-number v-model="typeForm.sort" :min="0" :precision="0"/></el-form-item></el-form><template #footer><el-button @click="typeDialog=false">取消</el-button><el-button type="primary" :loading="savingType" @click="saveType">保存</el-button></template></el-dialog>
+
+  <section class="panel section-gap"><div class="panel-title">金类配置</div><el-table :data="types" stripe><el-table-column prop="type_name" label="名称"/><el-table-column prop="type_code" label="编码"/><el-table-column label="成色"><template #default="s">{{ Number(s.row.purity || 0).toFixed(1) }}%</template></el-table-column><el-table-column label="模式"><template #default="s">{{ s.row.pricingMode === 'AUTO' ? '自动' : '手动' }}</template></el-table-column><el-table-column prop="sort" label="排序" width="80"/><el-table-column label="状态" width="90"><template #default="s"><el-tag :type="Number(s.row.status) === 1 ? 'success' : 'info'">{{ Number(s.row.status) === 1 ? '启用' : '禁用' }}</el-tag></template></el-table-column><el-table-column v-if="auth.can('gold:manage')" label="操作" width="190"><template #default="s"><el-button link type="primary" @click="openType(s.row)">编辑</el-button><el-button link @click="toggleType(s.row)">{{ Number(s.row.status) === 1 ? '禁用' : '启用' }}</el-button><el-button link type="danger" @click="removeType(s.row)">删除</el-button></template></el-table-column></el-table></section>
+  <section class="panel section-gap"><div class="panel-title">最近价格变更日志</div><el-table :data="logs" stripe max-height="420"><el-table-column prop="create_time" label="时间" width="170"/><el-table-column prop="price_type" label="金类" width="100"/><el-table-column label="基准 /g"><template #default="s">{{ formatMoney(s.row.base_price) }} · {{ s.row.base_instrument || '—' }}</template></el-table-column><el-table-column label="卖价变化"><template #default="s">{{ formatMoney(s.row.old_sale_price) }} → {{ formatMoney(s.row.new_sale_price) }}</template></el-table-column><el-table-column label="回收变化"><template #default="s">{{ formatMoney(s.row.old_recycle_price) }} → {{ formatMoney(s.row.new_recycle_price) }}</template></el-table-column><el-table-column prop="source" label="来源" width="100"/></el-table></section>
+
+  <el-dialog v-model="priceDialog" title="手动设置门店价格" width="420px"><el-form label-width="90px"><el-form-item label="金类"><el-select v-model="priceForm.priceType"><el-option v-for="row in types" :key="typeId(row)" :label="row.type_name" :value="row.type_name"/></el-select></el-form-item><el-form-item label="价格"><el-input-number v-model="priceForm.price" :min="0" :precision="2" /></el-form-item></el-form><template #footer><el-button @click="priceDialog=false">取消</el-button><el-button type="primary" @click="savePrice">保存</el-button></template></el-dialog>
+  <el-dialog v-model="typeDialog" :title="editingType ? '编辑金类配置' : '新增金类配置'" width="560px"><el-form label-width="110px"><el-form-item label="名称"><el-input v-model="typeForm.name" /></el-form-item><el-form-item label="编码"><el-input v-model="typeForm.code" /></el-form-item><el-form-item label="成色"><el-input-number v-model="typeForm.purity" :min="0.1" :max="100" :precision="3" @change="syncCoefficient" /></el-form-item><el-form-item label="定价方式"><el-radio-group v-model="typeForm.pricingMode"><el-radio value="MANUAL">手动</el-radio><el-radio value="AUTO">自动</el-radio></el-radio-group></el-form-item><el-form-item label="基准品种"><el-select v-model="typeForm.baseInstrument"><el-option label="黄金 Au(T+D)" value="Au_TD"/><el-option label="白银 Ag(T+D)" value="Ag_TD"/></el-select></el-form-item><el-form-item label="成色系数"><el-input-number v-model="typeForm.purityCoefficient" :min="0.0001" :max="1" :precision="6" /></el-form-item><el-form-item label="卖价加价"><el-input-number v-model="typeForm.markup" :min="0" :precision="2" /></el-form-item><el-form-item label="回收扣减"><el-input-number v-model="typeForm.recycleDeduction" :min="0" :precision="2" /></el-form-item><el-form-item label="取整规则"><el-select v-model="typeForm.roundingRule"><el-option v-for="item in roundingOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item label="排序"><el-input-number v-model="typeForm.sort" :min="0" :precision="0" /></el-form-item></el-form><p class="muted">卖价 = 基准价 × 成色系数 + 加价；回收价 = 基准价 × 成色系数 − 回收扣减。行情休市、异常或冻结时不自动重算。</p><template #footer><el-button @click="typeDialog=false">取消</el-button><el-button type="primary" :loading="savingType" @click="saveType">保存配置</el-button></template></el-dialog>
 </template>
 
 <style scoped>
-.spot-grid { display:grid; gap:10px; margin-bottom:14px; }
-.spot-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:12px 16px; border:1px solid #efd9a9; border-radius:8px; background:#faf6ee; }
-.spot-bar.silver-spot { border-color:#d8dee8; background:#f7f9fc; }
-.spot-copy { min-width:280px; flex:1; font-size:13px; }
-.spot-copy strong { color:#a66b2c; font-size:20px; }
-.silver-spot .spot-copy strong { color:#44546a; }
-.spot-copy strong small { font-size:12px; }
-.spot-meta { margin-left:8px; }
-.spot-actions { display:flex; gap:8px; flex-wrap:wrap; }
-@media (max-width: 720px) { .spot-actions { width:100%; } .spot-actions .el-button { flex:1; margin-left:0; } .spot-meta { display:block; margin:4px 0 0; } }
+.section-gap { margin-top: 16px; }
+.block { display: block; color: #8491a3; margin-top: 3px; }
+.warning-note { margin-top: 12px; padding: 10px 12px; color: #8a5a00; background: #fff8e8; border: 1px solid #f0d18a; border-radius: 6px; }
+.reference-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 0; padding: 10px 12px; background: #f7f9fc; border: 1px solid #dce2eb; border-radius: 6px; }
+.reference-bar b { color: #44546a; margin-left: 8px; }
+.reference-bar small { color: #8491a3; }
+.muted { margin: 5px 0 0; color: #8491a3; font-size: 12px; }
 </style>

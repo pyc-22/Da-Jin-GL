@@ -4,6 +4,7 @@ import com.dajin.system.common.*;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.SyncWebSocketHandler;
+import com.dajin.system.gold.GoldMarketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +23,15 @@ public class OrderController {
     private final DbSupport db;
     private final SyncWebSocketHandler ws;
     private final ObjectMapper objectMapper;
-    public OrderController(DbSupport db, SyncWebSocketHandler ws, ObjectMapper objectMapper) { this.db = db; this.ws = ws; this.objectMapper = objectMapper; }
-    public record Item(Long goodsId, String itemName, BigDecimal weight, BigDecimal unitPrice, BigDecimal laborFee, Integer qty, BigDecimal subtotal, List<String> pieceNos) {}
+    private final GoldMarketService market;
+    public OrderController(DbSupport db, SyncWebSocketHandler ws, ObjectMapper objectMapper) { this(db, ws, objectMapper, null); }
+    @org.springframework.beans.factory.annotation.Autowired
+    public OrderController(DbSupport db, SyncWebSocketHandler ws, ObjectMapper objectMapper, GoldMarketService market) { this.db = db; this.ws = ws; this.objectMapper = objectMapper; this.market = market; }
+    public record Item(Long goodsId, String itemName, BigDecimal weight, BigDecimal unitPrice, BigDecimal laborFee, Integer qty, BigDecimal subtotal, List<String> pieceNos, String goldType, Integer priceType) {
+        public Item(Long goodsId, String itemName, BigDecimal weight, BigDecimal unitPrice, BigDecimal laborFee, Integer qty, BigDecimal subtotal, List<String> pieceNos) {
+            this(goodsId, itemName, weight, unitPrice, laborFee, qty, subtotal, pieceNos, null, null);
+        }
+    }
     public record OldMaterialItem(String materialType, BigDecimal weight, BigDecimal purity, String priceType, BigDecimal price, String note) {}
     public record Req(Long memberId, BigDecimal discount, BigDecimal oldMaterialDeduct, BigDecimal laborFee,
                       BigDecimal payAmount, String payMethod, String oldMaterialPayoutMethod, Long salesId,
@@ -55,17 +63,19 @@ public class OrderController {
                 return ApiResponse.ok(replay);
             }
         }
-        for (Item item : q.items()) {
+        if (market != null) market.refreshStore(db.store(r));
+        List<Item> pricedItems = q.items().stream().map(item -> priceItem(item, r)).toList();
+        for (Item item : pricedItems) {
             if (item.qty() == null || item.qty() <= 0 || (item.weight() != null && item.weight().signum() <= 0)
                     || item.subtotal() == null || item.subtotal().signum() < 0)
                 throw new BusinessException(400105, "商品数量、克重和金额参数不合法");
         }
-        validateStockAvailability(q.items(), r);
+        validateStockAvailability(pricedItems, r);
         Set<String> requestedPieceNos = new HashSet<>();
-        for (Item item : q.items()) {
+        for (Item item : pricedItems) {
             validatePieces(item, requestedPieceNos, r);
         }
-        BigDecimal total = q.items().stream().map(Item::subtotal).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal total = pricedItems.stream().map(Item::subtotal).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal discount = q.discount() == null ? BigDecimal.ONE : q.discount();
         BigDecimal laborFee = q.laborFee() == null ? BigDecimal.ZERO : q.laborFee();
         if (laborFee.signum() < 0) throw new BusinessException(400106, "工费不能小于0");
@@ -83,12 +93,13 @@ public class OrderController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", no).addValue("m", q.memberId()).addValue("total", total).addValue("discount", discount).addValue("old", settlement.appliedDeduction()).addValue("excess", settlement.excessPayout()).addValue("payoutMethod", payoutMethod).addValue("labor", laborFee).addValue("pay", BigDecimal.ZERO).addValue("method", null).addValue("cashier", userId(r)).addValue("sales", salesId).addValue("approval", null).addValue("status", status).addValue("remark", q.remark()).addValue("client", q.clientRequestId()).addValue("handover", Boolean.TRUE.equals(q.handover()) ? 1 : 0);
         db.jdbc().update("insert into sales_order(store_id,order_no,member_id,total_amount,discount,old_material_deduct,old_material_excess,old_material_payout_method,labor_fee,pay_amount,pay_method,cashier_id,sales_id,approval_id,status,remark,client_request_id,handover,create_time,update_time) values(:s,:no,:m,:total,:discount,:old,:excess,:payoutMethod,:labor,:pay,:method,:cashier,:sales,:approval,:status,:remark,:client,:handover,now(),now())", p);
         long id = db.jdbc().queryForObject("select order_id from sales_order where store_id=:s and order_no=:no", p, Long.class);
-        for (Item i : q.items()) {
+        for (Item i : pricedItems) {
             BigDecimal costSnapshot = costSnapshot(i, r);
-            db.jdbc().update("insert into sales_order_item(store_id,order_id,goods_id,item_name,weight,unit_price,labor_fee,qty,subtotal,cost_snapshot,piece_nos,create_time) values(:s,:id,:g,:name,:w,:u,coalesce(:fee,0),:qty,coalesce(:sub,0),:cost,:pieceNos,now())",
-                    new MapSqlParameterSource().addValue("s", db.store(r)).addValue("id", id).addValue("g", i.goodsId()).addValue("name", i.itemName()).addValue("w", i.weight()).addValue("u", i.unitPrice()).addValue("fee", i.laborFee()).addValue("qty", i.qty()).addValue("sub", i.subtotal()).addValue("cost", costSnapshot).addValue("pieceNos", pieceNosJson(i.pieceNos())));
+            Map<String, Object> snapshot = market == null ? Map.of() : market.snapshot(db.store(r), i.goldType(), i.unitPrice());
+            db.jdbc().update("insert into sales_order_item(store_id,order_id,goods_id,item_name,weight,unit_price,labor_fee,qty,subtotal,cost_snapshot,piece_nos,gold_base_instrument,gold_base_price,gold_pricing_mode,gold_purity_coefficient,gold_markup,gold_recycle_deduction,gold_sale_price_snapshot,gold_recycle_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,create_time) values(:s,:id,:g,:name,:w,:u,coalesce(:fee,0),:qty,coalesce(:sub,0),:cost,:pieceNos,:instrument,:base,:mode,:purity,:markup,:deduction,:sale,:recycle,:quoteTime,:source,:marketStatus,now())",
+                    new MapSqlParameterSource().addValue("s", db.store(r)).addValue("id", id).addValue("g", i.goodsId()).addValue("name", i.itemName()).addValue("w", i.weight()).addValue("u", i.unitPrice()).addValue("fee", i.laborFee()).addValue("qty", i.qty()).addValue("sub", i.subtotal()).addValue("cost", costSnapshot).addValue("pieceNos", pieceNosJson(i.pieceNos())).addValue("instrument", snapshot.get("baseInstrument")).addValue("base", snapshot.get("basePrice")).addValue("mode", snapshot.get("pricingMode")).addValue("purity", snapshot.get("purityCoefficient")).addValue("markup", snapshot.get("markup")).addValue("deduction", snapshot.get("recycleDeduction")).addValue("sale", snapshot.get("salePrice")).addValue("recycle", snapshot.get("recyclePrice")).addValue("quoteTime", snapshot.get("quoteTime")).addValue("source", snapshot.get("source")).addValue("marketStatus", snapshot.get("marketStatus")));
         }
-        reservePieces(id, q.items(), r);
+        reservePieces(id, pricedItems, r);
         insertPendingOldMaterials(id, q.oldMaterials(), r);
         Long approvalId = null;
         if (status == 3) {
@@ -115,6 +126,15 @@ public class OrderController {
         return method;
     }
     private BigDecimal configDecimal(HttpServletRequest r, String k) { String v = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key=:k and enabled=1", Map.of("s", db.store(r), "k", k), String.class); if (v == null) throw new BusinessException(500101, "缺少系统配置: " + k); return new BigDecimal(v); }
+    private Item priceItem(Item item, HttpServletRequest request) {
+        if (market == null || item.goldType() == null || item.goldType().isBlank()) return item;
+        Map<String, Object> snapshot = market.snapshot(db.store(request), item.goldType(), item.unitPrice());
+        BigDecimal sale = snapshot.get("salePrice") instanceof BigDecimal value ? value : null;
+        if (sale == null || sale.signum() <= 0 || item.weight() == null || item.weight().signum() <= 0 || !Objects.equals(item.priceType(), 1)) return item;
+        BigDecimal qty = BigDecimal.valueOf(item.qty() == null ? 1 : item.qty());
+        BigDecimal subtotal = sale.multiply(item.weight()).multiply(qty).setScale(2, RoundingMode.HALF_UP);
+        return new Item(item.goodsId(), item.itemName(), item.weight(), sale, item.laborFee(), item.qty(), subtotal, item.pieceNos(), item.goldType(), item.priceType());
+    }
     void validateStockAvailability(Item item, HttpServletRequest request) {
         if (item.goodsId() == null) return;
         validateStockAvailability(item.goodsId(), item.qty(), request, false);
