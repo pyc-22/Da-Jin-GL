@@ -1,0 +1,145 @@
+<html style="margin:0;padding:0;">
+<title>提成体系架构图 · 打金店管理系统</title>
+<div style="width:100%;box-sizing:border-box;background:#f8fafc;font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;color:#0f172a;padding:24px 18px;">
+  <div style="max-width:1180px;margin:0 auto;">
+    <div style="text-align:center;margin-bottom:18px;">
+      <div style="font-size:22px;font-weight:700;">打金店管理系统 · 提成体系架构图</div>
+      <div style="font-size:14px;color:#64748b;margin-top:6px;">两条相互独立的提成线：<b style="color:#b45309;">销售提成（导购 · 按月重算）</b> ｜ <b style="color:#0f766e;">加工提成（金匠 · 按单生成与发放）</b></div>
+    </div>
+
+    <!-- ① 使用角色 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:#475569;letter-spacing:1px;margin-bottom:10px;">① 使用角色与入口</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <div style="flex:1;min-width:200px;background:#f1f5f9;border-radius:8px;padding:10px 12px;font-size:14px;"><b>管理员 / 店长</b><br><span style="color:#64748b;font-size:13px;">管理端网页：配规则、核算、生成与发放提成、导出工资表</span></div>
+        <div style="flex:1;min-width:200px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:14px;"><b>导购（SALES）</b><br><span style="color:#92400e;font-size:13px;">手机端：只看本人销售业绩与销售提成</span></div>
+        <div style="flex:1;min-width:200px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:10px 12px;font-size:14px;"><b>金匠（CRAFTSMAN）</b><br><span style="color:#115e59;font-size:13px;">手机端：只看本人加工单与加工提成</span></div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#94a3b8;font-size:18px;margin:8px 0;">▼</div>
+
+    <!-- ② 规则配置 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:#475569;letter-spacing:1px;margin-bottom:10px;">② 提成规则配置（管理端维护）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <div style="flex:1;min-width:230px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;font-size:13.5px;">
+          <b>默认销售提成率</b><br>
+          <span style="color:#64748b;">sys_config：<code>default_commission_rate</code>，默认 <b>1%（0.01）</b></span><br>
+          <span style="color:#92400e;">销售单结算时快照到订单，之后改率不影响旧单</span>
+        </div>
+        <div style="flex:1;min-width:230px;background:#f0fdfa;border:1px solid #5eead4;border-radius:8px;padding:10px 12px;font-size:13.5px;">
+          <b>加工项目提成率</b><br>
+          <span style="color:#64748b;">processing_item 按项目设置（如饰品加工 10%、维修 15%）</span><br>
+          <span style="color:#115e59;">开加工单时快照到 processing_order</span>
+        </div>
+        <div style="flex:1;min-width:230px;background:#f8fafc;border:1px dashed #94a3b8;border-radius:8px;padding:10px 12px;font-size:13.5px;">
+          <b>提成规则表 commission_rule <span style="color:#dc2626;">（预留）</span></b><br>
+          <span style="color:#64748b;">可按 销售/加工/回收 配比例与条件 JSON，管理端可增改</span><br>
+          <span style="color:#dc2626;">当前核算引擎尚未读取其阶梯条件；回收提成也未单独核算</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#94a3b8;font-size:18px;margin:8px 0;">▼</div>
+
+    <!-- ③ 两条核算泳道 -->
+    <div style="display:flex;flex-wrap:wrap;gap:14px;">
+      <!-- 泳道A 销售提成 -->
+      <div style="flex:1;min-width:330px;border:2px solid #f59e0b;border-radius:12px;overflow:hidden;">
+        <div style="background:#b45309;color:#fff;padding:10px 14px;font-weight:700;font-size:15px;">A · 销售提成 → 导购（按月重算）</div>
+        <div style="background:#fffbeb;padding:14px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;">
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px;"><b>1. 触发：销售单结清</b><br><span style="color:#78350f;">收银端全额收款 / 优惠结清（PayController，单据 0→1 已完成）；审批通过补结的单同样触发</span></div>
+          <div style="text-align:center;color:#d97706;">▼</div>
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px;"><b>2. 快照提成率</b><br><span style="color:#78350f;">结算时把当时默认率写入 sales_order.commission_rate_snapshot（仅写一次）</span></div>
+          <div style="text-align:center;color:#d97706;">▼</div>
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px;"><b>3. CommissionLedger 月度重算</b>（按"导购 × 月份"分组）<br>
+            <span style="color:#78350f;">· 销售基数 = 财务流水实收：SALE 收入 − SALE_REFUND 退款<br>
+            · 提成额 = Σ round（每单实收 × 该单快照率，2 位）<br>
+            · 仅统计已完成单（部分收款单不计入）<br>
+            · 当月 delete + insert 重算，幂等可重复执行；门店行锁防并发</span>
+          </div>
+          <div style="text-align:center;color:#d97706;">▼</div>
+          <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:9px 12px;font-weight:700;">4. 落账：commission_record<br><span style="font-weight:400;color:#78350f;">每个导购每月一行：销售额 / 提成额 / 来源 SETTLED_ORDERS</span></div>
+          <div style="font-size:12.5px;color:#92400e;margin-top:2px;">手动入口：管理端"重新核算" POST /api/commission/calculate（管理员/店长）</div>
+        </div>
+      </div>
+
+      <!-- 泳道B 加工提成 -->
+      <div style="flex:1;min-width:330px;border:2px solid #14b8a6;border-radius:12px;overflow:hidden;">
+        <div style="background:#0f766e;color:#fff;padding:10px 14px;font-weight:700;font-size:15px;">B · 加工提成 → 金匠（按单生成、手动发放）</div>
+        <div style="background:#f0fdfa;padding:14px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;">
+          <div style="background:#fff;border:1px solid #5eead4;border-radius:8px;padding:9px 12px;"><b>1. 触发：加工单完工 / 取货</b><br><span style="color:#134e4a;">状态 COMPLETED 或 PICKED_UP，且已分配金匠 craftsman_id</span></div>
+          <div style="text-align:center;color:#0d9488;">▼</div>
+          <div style="background:#fff;border:1px solid #5eead4;border-radius:8px;padding:9px 12px;"><b>2. 管理员点"生成提成"</b><br><span style="color:#134e4a;">POST /processing/commissions/generate，按单+金匠幂等（同一单不重复生成）</span></div>
+          <div style="text-align:center;color:#0d9488;">▼</div>
+          <div style="background:#fff;border:1px solid #5eead4;border-radius:8px;padding:9px 12px;"><b>3. 按单计算</b><br>
+            <span style="color:#134e4a;">· 提成基数 = 工费 labor_fee（不是金价）<br>
+            · 提成额 = 工费 × 项目快照率 ÷ 100（四舍五入 2 位）<br>
+            · 归属该单金匠</span>
+          </div>
+          <div style="text-align:center;color:#0d9488;">▼</div>
+          <div style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:8px;padding:9px 12px;font-weight:700;">4. 落账：processing_commission = 待发放 PENDING</div>
+          <div style="text-align:center;color:#0d9488;">▼</div>
+          <div style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:8px;padding:9px 12px;font-weight:700;">5. 管理员点"发放" → 已发放 PAID<br><span style="font-weight:400;color:#134e4a;">记录 paid_at / paid_by，写操作日志 COMMISSION_PAY</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#94a3b8;font-size:18px;margin:8px 0;">▼</div>
+
+    <!-- ④ 数据表 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:#475569;letter-spacing:1px;margin-bottom:10px;">③ 涉及的数据表</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:13px;">
+        <span style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;">sales_order<br><small>订单·快照率·sales_id</small></span>
+        <span style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;">finance_record<br><small>SALE/SALE_REFUND 实收口径</small></span>
+        <span style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;font-weight:700;">commission_record<br><small>导购月度提成</small></span>
+        <span style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:6px;padding:6px 10px;">processing_order<br><small>工费·金匠·快照率</small></span>
+        <span style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:6px;padding:6px 10px;">processing_item<br><small>加工项目提成率</small></span>
+        <span style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:6px;padding:6px 10px;font-weight:700;">processing_commission<br><small>PENDING/PAID</small></span>
+        <span style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;">sys_config<br><small>默认销售提成率</small></span>
+        <span style="background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px;padding:6px 10px;">commission_rule<br><small>规则预留</small></span>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#94a3b8;font-size:18px;margin:8px 0;">▼</div>
+
+    <!-- ⑤ 展示与同步 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:#475569;letter-spacing:1px;margin-bottom:10px;">④ 展示、统计与全端同步</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <div style="flex:1;min-width:280px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;font-size:13.5px;">
+          <b>管理端网页（admin-web）</b><br>
+          <span style="color:#166534;">· 提成页：规则表、月度提成明细、<b>重新核算</b>、<b>导出工资表 Excel</b><br>
+          · 加工管理：加工提成列表/筛选、生成、发放、待发/已发汇总、按金匠统计<br>
+          · 报表：提成总额、员工销售排行</span>
+        </div>
+        <div style="flex:1;min-width:280px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;font-size:13.5px;">
+          <b>手机端（mobile H5）</b><br>
+          <span style="color:#166534;">· 导购：个人业绩 / 我的销售提成（仅本人）<br>
+          · 金匠：我的加工单与加工提成（仅本人）<br>
+          · 管理员/店长：查看全员业绩与提成</span>
+        </div>
+      </div>
+      <div style="margin-top:10px;background:#0f172a;color:#fff;border-radius:8px;padding:9px 12px;font-size:13.5px;text-align:center;">
+        每次核算 / 生成 / 发放后，后端经 WebSocket 广播 <b>COMMISSION_UPDATED</b> 与 <b>REPORT_UPDATED</b>，管理端、收银端、手机端自动刷新（轮询兜底）
+      </div>
+    </div>
+
+    <!-- 口径与权限说明 -->
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;font-size:12.8px;">
+      <div style="flex:1;min-width:300px;background:#fff;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 12px;color:#475569;">
+        <b style="color:#b45309;">销售提成口径</b>：按"月"重算，基数为财务流水<b>实收</b>（优惠结清按实收、退款自动冲减）；未结清的部分收款单不参与；改了规则点"重新核算"即整月重建，可反复执行。
+      </div>
+      <div style="flex:1;min-width:300px;background:#fff;border-left:4px solid #14b8a6;border-radius:6px;padding:10px 12px;color:#475569;">
+        <b style="color:#0f766e;">加工提成口径</b>：基数是<b>工费</b>而非金价，完工后手动"生成"、再手动"发放"，全程留状态与操作日志；项目率在开单时快照，事后调价不影响旧单。
+      </div>
+      <div style="flex:1;min-width:300px;background:#fff;border-left:4px solid #64748b;border-radius:6px;padding:10px 12px;color:#475569;">
+        <b>权限</b>：规则配置、重新核算、生成与发放仅 <b>ADMIN / MANAGER</b>；普通员工只能查看本人数据。<b>待建设</b>：commission_rule 阶梯/分类条件、回收提成目前仅可配置、未参与核算。
+      </div>
+    </div>
+    <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:12px;">依据仓库当前代码（CommissionLedger / CommissionController / ProcessingController / PayController / Commission.vue 等）整理 · 2026-09</div>
+  </div>
+</div>
+</html>

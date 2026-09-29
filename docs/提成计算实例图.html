@@ -1,0 +1,112 @@
+<html style="margin:0;padding:0;">
+<title>提成计算实例图 · 打金店管理系统</title>
+<div style="width:100%;box-sizing:border-box;background:#f8fafc;font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;color:#0f172a;padding:24px 18px;">
+  <div style="max-width:1180px;margin:0 auto;">
+    <div style="text-align:center;margin-bottom:6px;">
+      <div style="font-size:22px;font-weight:700;">提成怎么算 · 实例图（示例数据）</div>
+      <div style="font-size:14px;color:#64748b;margin-top:6px;">左边销售提成给导购（按月），右边加工提成给金匠（按单），数字均为演示</div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;">
+
+      <!-- ============ 销售提成 ============ -->
+      <div style="flex:1;min-width:360px;border:2px solid #f59e0b;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="background:#b45309;color:#fff;padding:10px 14px;font-weight:700;font-size:15px;">销售提成 · 导购小王 · 2026年9月 · 提成率 1%</div>
+        <div style="background:#fffbeb;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;flex:1;">
+
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;">
+            <b>第①单（已结清 · 优惠结清）</b>
+            <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:13px;">
+              <tr><td style="color:#78350f;padding:2px 0;">顾客应付</td><td style="text-align:right;text-decoration:line-through;color:#94a3b8;">¥19,890</td></tr>
+              <tr><td style="color:#78350f;padding:2px 0;">讲价优惠</td><td style="text-align:right;color:#dc2626;">−¥90</td></tr>
+              <tr><td style="color:#78350f;padding:2px 0;"><b>实收（微信）</b></td><td style="text-align:right;"><b>¥19,800</b></td></tr>
+            </table>
+            <div style="margin-top:6px;color:#92400e;font-size:12.5px;">结算时锁定提成率快照 1% → 提成 = 19,800 × 1% = <b>¥198.00</b></div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;">
+            <b>第②单（已结清 · 后发生退款）</b>
+            <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:13px;">
+              <tr><td style="color:#78350f;padding:2px 0;">收款</td><td style="text-align:right;">¥8,600</td></tr>
+              <tr><td style="color:#78350f;padding:2px 0;">售后退款</td><td style="text-align:right;color:#dc2626;">−¥300</td></tr>
+              <tr><td style="color:#78350f;padding:2px 0;"><b>净实收</b></td><td style="text-align:right;"><b>¥8,300</b></td></tr>
+            </table>
+            <div style="margin-top:6px;color:#92400e;font-size:12.5px;">退款自动冲减 → 提成 = 8,300 × 1% = <b>¥83.00</b></div>
+          </div>
+
+          <div style="background:#fff;border:1px dashed #94a3b8;border-radius:8px;padding:10px 12px;">
+            <b>第③单（只收了定金，未结清）</b>
+            <div style="margin-top:4px;color:#64748b;font-size:12.5px;">标价 ¥12,000，仅收定金 ¥500 → <b>本月不计提成</b>，等结清当月再算</div>
+          </div>
+
+          <div style="text-align:center;color:#d97706;font-size:16px;">▼ 月底系统按财务流水自动重算</div>
+
+          <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;">
+            <div style="font-weight:700;margin-bottom:6px;">commission_record（9月台账一行）</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr style="background:#fde68a;"><td style="padding:4px 6px;">导购</td><td style="padding:4px 6px;">月份</td><td style="padding:4px 6px;text-align:right;">销售基数(实收)</td><td style="padding:4px 6px;text-align:right;">提成</td></tr>
+              <tr><td style="padding:4px 6px;">小王</td><td style="padding:4px 6px;">2026-09</td><td style="padding:4px 6px;text-align:right;">¥28,100</td><td style="padding:4px 6px;text-align:right;font-weight:700;color:#b45309;">¥281.00</td></tr>
+            </table>
+            <div style="margin-top:6px;font-size:12.5px;color:#78350f;">198.00 + 83.00 = <b>281.00</b>（基数 = 19,800 + 8,300 = 28,100）</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 加工提成 ============ -->
+      <div style="flex:1;min-width:360px;border:2px solid #14b8a6;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="background:#0f766e;color:#fff;padding:10px 14px;font-weight:700;font-size:15px;">加工提成 · 金匠老李 · 按单算（基数=工费）</div>
+        <div style="background:#f0fdfa;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;flex:1;">
+
+          <div style="background:#fff;border:1px solid #5eead4;border-radius:8px;padding:10px 12px;">
+            <b>单 JG…01 · 手镯加工（已取货）</b>
+            <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:13px;">
+              <tr><td style="color:#134e4a;padding:2px 0;">工费</td><td style="text-align:right;">¥200</td></tr>
+              <tr><td style="color:#134e4a;padding:2px 0;">项目提成率（饰品加工）</td><td style="text-align:right;">10%</td></tr>
+              <tr><td style="color:#134e4a;padding:2px 0;"><b>提成</b></td><td style="text-align:right;"><b>200 × 10% = ¥20.00</b></td></tr>
+            </table>
+            <div style="margin-top:6px;font-size:12.5px;">
+              <span style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:4px;padding:1px 6px;">完工→生成：待发放</span>
+              <span style="margin:0 4px;color:#0d9488;">→</span>
+              <span style="background:#bbf7d0;border:1px solid #22c55e;border-radius:4px;padding:1px 6px;">店长点发放：已发放</span>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #5eead4;border-radius:8px;padding:10px 12px;">
+            <b>单 JG…02 · 焊接维修（已完工）</b>
+            <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:13px;">
+              <tr><td style="color:#134e4a;padding:2px 0;">工费</td><td style="text-align:right;">¥50</td></tr>
+              <tr><td style="color:#134e4a;padding:2px 0;">项目提成率（维修类）</td><td style="text-align:right;">15%</td></tr>
+              <tr><td style="color:#134e4a;padding:2px 0;"><b>提成</b></td><td style="text-align:right;"><b>50 × 15% = ¥7.50</b></td></tr>
+            </table>
+            <div style="margin-top:6px;font-size:12.5px;"><span style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:4px;padding:1px 6px;">完工→生成：待发放 PENDING</span></div>
+          </div>
+
+          <div style="background:#fff;border:1px dashed #94a3b8;border-radius:8px;padding:10px 12px;">
+            <b>单 JG…03 · 还在加工中</b>
+            <div style="margin-top:4px;color:#64748b;font-size:12.5px;">未完工 → 不生成提成；同一单点两次"生成"也不会重复算</div>
+          </div>
+
+          <div style="text-align:center;color:#0d9488;font-size:16px;">▼ 加工提成汇总</div>
+
+          <div style="background:#ccfbf1;border:1px solid #14b8a6;border-radius:8px;padding:10px 12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr><td style="padding:3px 0;">提成总额</td><td style="text-align:right;font-weight:700;">¥27.50</td></tr>
+              <tr><td style="padding:3px 0;color:#15803d;">已发放 PAID</td><td style="text-align:right;color:#15803d;">¥20.00</td></tr>
+              <tr><td style="padding:3px 0;color:#b45309;">待发放 PENDING</td><td style="text-align:right;color:#b45309;">¥7.50</td></tr>
+            </table>
+            <div style="margin-top:6px;font-size:12.5px;color:#134e4a;">发放时记录发放人、发放时间，并写操作日志</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部规则条 -->
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;">
+      <div style="flex:1;min-width:240px;background:#fff;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 12px;color:#475569;"><b style="color:#b45309;">销售提成</b>：只认<b>已结清</b>订单的<b>实收</b>；讲价按实收、退款自动减、定金单不算；提成率在结账那一刻锁死。</div>
+      <div style="flex:1;min-width:240px;background:#fff;border-left:4px solid #14b8a6;border-radius:6px;padding:10px 12px;color:#475569;"><b style="color:#0f766e;">加工提成</b>：按<b>工费</b>乘项目比例，和金价无关；完工才生成，店长手动发放，一单一人只算一次。</div>
+      <div style="flex:1;min-width:240px;background:#fff;border-left:4px solid #64748b;border-radius:6px;padding:10px 12px;color:#475569;"><b>谁能操作</b>：核算、生成、发放只有<b>管理员/店长</b>；导购和金匠在手机端只能看到自己的数。</div>
+    </div>
+    <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:12px;">图中人物、单据与金额均为示例数据，用于说明计算口径</div>
+  </div>
+</div>
+</html>
