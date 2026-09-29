@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import printModule from '../electron/print.cjs'
+import { buildReceiptPreview } from './escpos'
 
 const { printHtml, receiptHtml } = printModule
 
@@ -9,6 +10,19 @@ describe('Electron print pipeline', () => {
     expect(html).toContain('size:58mm auto')
     expect(html).toContain('测试门店')
     expect(html).toContain('足金手镯')
+  })
+
+  it('prints original due, discount, cumulative received and remaining amounts', () => {
+    const model = { paperWidth: 58, originalDue: 200, settlementDiscount: 20,
+      payable: 180, actualPaid: 180, remaining: 0, payMethod: '现金 ¥180.00' }
+    const text = buildReceiptPreview(model)
+    expect(text).toContain('原应收: ¥200.00')
+    expect(text).toContain('优惠: -¥20.00')
+    expect(text).toContain('实收: ¥180.00')
+    expect(text).toContain('现金 ¥180.00')
+    const html = receiptHtml(model)
+    expect(html).toContain('¥180.00')
+    expect(buildReceiptPreview({ ...model, settlementDiscount: 0, payable: 200, actualPaid: 40, remaining: 160 })).toContain('待收: ¥160.00')
   })
 
   it('shows the print host and sends a non-silent system print job', async () => {

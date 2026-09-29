@@ -7,7 +7,11 @@ function receiptEscPos(model = {}) {
   const width = model.paperWidth === 58 ? 32 : 48
   const lines = [model.storeName || '打金店', '销售小票', `单号: ${model.billNo || '-'}`, `时间: ${new Date().toLocaleString('zh-CN')}`, '-'.repeat(width)]
   ;(model.items || []).forEach(item => lines.push(`${item.name} x${item.qty || 1}`, `  ${item.detail || ''}  ¥${Number(item.amount || 0).toFixed(2)}`))
-  lines.push('-'.repeat(width), `合计: ¥${Number(model.total || 0).toFixed(2)}`, `抵扣: -¥${Number(model.deduct || 0).toFixed(2)}`, `应收: ¥${Number(model.payable || 0).toFixed(2)}`, `支付: ${model.payMethod || '-'}`, '', '谢谢惠顾', '')
+  lines.push('-'.repeat(width), `合计: ¥${Number(model.total || 0).toFixed(2)}`, `抵扣: -¥${Number(model.deduct || 0).toFixed(2)}`, `原应收: ¥${Number(model.originalDue ?? model.payable ?? 0).toFixed(2)}`)
+  if (Number(model.settlementDiscount || 0) > 0) lines.push(`优惠: -¥${Number(model.settlementDiscount).toFixed(2)}`)
+  lines.push(`应收: ¥${Number(model.payable || 0).toFixed(2)}`, `实收: ¥${Number(model.actualPaid ?? model.payable ?? 0).toFixed(2)}`)
+  if (Number(model.remaining || 0) > 0) lines.push(`待收: ¥${Number(model.remaining).toFixed(2)}`)
+  lines.push(`支付: ${model.payMethod || '-'}`, '', '谢谢惠顾', '')
   const data = Buffer.concat([Buffer.from(ESC + '@' + ESC + 'a' + '\x01'), ...lines.map(line => Buffer.concat([enc(line), Buffer.from('\n')])), Buffer.from(GS + 'V' + '\x00')])
   return { bytes: data.toString('base64'), text: lines.join('\n'), paperWidth: width }
 }
@@ -17,7 +21,12 @@ function openDrawerEscPos() { return Buffer.from(ESC + 'p' + '\x00\x19\xfa', 'bi
 function receiptHtml(model = {}) {
   const width = Number(model.paperWidth) === 80 ? 80 : 58
   const rows = (model.items || []).map(item => `<div class="item"><div>${escapeHtml(item.name)} ×${Number(item.qty || 1)}</div><div class="detail">${escapeHtml(item.detail || '')}<span>¥${Number(item.amount || 0).toFixed(2)}</span></div></div>`).join('')
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:${width}mm auto;margin:0}*{box-sizing:border-box}body{width:${width}mm;margin:0;padding:4mm 3mm;font-family:"Microsoft YaHei",Arial,sans-serif;font-size:11px;color:#111}.center{text-align:center}.title{font-size:16px;font-weight:700;margin-bottom:3mm}.muted{color:#555}.line{border-top:1px dashed #555;margin:3mm 0}.item{margin:2mm 0}.detail{color:#555;font-size:10px;display:flex;justify-content:space-between;gap:4mm}.total{display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-top:2mm}.footer{text-align:center;margin-top:5mm}</style></head><body><div class="center title">${escapeHtml(model.storeName || '打金店')}</div><div class="center muted">销售小票</div><div>单号：${escapeHtml(model.billNo || '-')}</div><div>时间：${escapeHtml(new Date().toLocaleString('zh-CN'))}</div><div class="line"></div>${rows}<div class="line"></div><div class="total"><span>合计</span><span>¥${Number(model.total || 0).toFixed(2)}</span></div><div class="total"><span>旧金抵扣</span><span>-¥${Number(model.deduct || 0).toFixed(2)}</span></div><div class="total"><span>应收</span><span>¥${Number(model.payable || 0).toFixed(2)}</span></div><div>支付：${escapeHtml(model.payMethod || '-')}</div><div class="footer">谢谢惠顾</div></body></html>`
+  const originalDue = Number(model.originalDue ?? model.payable ?? 0).toFixed(2)
+  const discount = Number(model.settlementDiscount || 0)
+  const discountRow = discount > 0 ? `<div class="total"><span>优惠</span><span>-¥${discount.toFixed(2)}</span></div>` : ''
+  const remaining = Number(model.remaining || 0)
+  const remainingRow = remaining > 0 ? `<div class="total"><span>待收</span><span>¥${remaining.toFixed(2)}</span></div>` : ''
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:${width}mm auto;margin:0}*{box-sizing:border-box}body{width:${width}mm;margin:0;padding:4mm 3mm;font-family:"Microsoft YaHei",Arial,sans-serif;font-size:11px;color:#111}.center{text-align:center}.title{font-size:16px;font-weight:700;margin-bottom:3mm}.muted{color:#555}.line{border-top:1px dashed #555;margin:3mm 0}.item{margin:2mm 0}.detail{color:#555;font-size:10px;display:flex;justify-content:space-between;gap:4mm}.total{display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-top:2mm}.footer{text-align:center;margin-top:5mm}</style></head><body><div class="center title">${escapeHtml(model.storeName || '打金店')}</div><div class="center muted">销售小票</div><div>单号：${escapeHtml(model.billNo || '-')}</div><div>时间：${escapeHtml(new Date().toLocaleString('zh-CN'))}</div><div class="line"></div>${rows}<div class="line"></div><div class="total"><span>合计</span><span>¥${Number(model.total || 0).toFixed(2)}</span></div><div class="total"><span>旧金抵扣</span><span>-¥${Number(model.deduct || 0).toFixed(2)}</span></div><div class="total"><span>原应收</span><span>¥${originalDue}</span></div>${discountRow}<div class="total"><span>应收</span><span>¥${Number(model.payable || 0).toFixed(2)}</span></div><div class="total"><span>实收</span><span>¥${Number(model.actualPaid ?? model.payable ?? 0).toFixed(2)}</span></div>${remainingRow}<div>支付：${escapeHtml(model.payMethod || '-')}</div><div class="footer">谢谢惠顾</div></body></html>`
 }
 
 async function printHtml(parent, html, options = {}, BrowserWindowClass) {
