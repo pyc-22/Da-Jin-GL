@@ -6,6 +6,7 @@ import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -21,12 +22,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PayControllerInventoryTests {
+    @Test
+    void cashierNegotiatedSaleSettlesAndNotifiesManagers() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(request)).thenReturn(1L);
+        when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "CASHIER")).setSubject("2"));
+        when(db.one(contains("select * from sales_order"), anyMap())).thenReturn(Map.of(
+                "order_id", 77L, "store_id", 1L, "status", 0, "order_no", "XS-77",
+                "total_amount", new BigDecimal("140.00"), "discount", BigDecimal.ONE,
+                "labor_fee", BigDecimal.ZERO, "old_material_deduct", BigDecimal.ZERO,
+                "pay_amount", BigDecimal.ZERO, "settlement_discount", BigDecimal.ZERO));
+        when(db.list(contains("join sys_role"), anyMap())).thenReturn(List.of(Map.of("user_id", 1L)));
+        when(jdbc.queryForObject(contains("pay_channel"), anyMap(), eq(Integer.class))).thenReturn(1);
+        when(jdbc.update(contains("update sales_order"), any(MapSqlParameterSource.class))).thenReturn(1);
+        PayController controller = new PayController(db, mock(SyncWebSocketHandler.class),
+                mock(ShiftService.class), mock(OldMaterialLedgerService.class), new ObjectMapper());
+
+        ApiResponse<?> response = controller.pay(Map.of(
+                "orderId", 77L, "clientRequestId", "bargain-77", "amount", 120,
+                "settlementMode", "DISCOUNT", "settlementDiscountReason", "顾客议价",
+                "payMethod", "CASH"), request);
+
+        Map<?, ?> result = (Map<?, ?>) response.data();
+        assertEquals(1, result.get("status"));
+        assertEquals(new BigDecimal("120.00"), result.get("actualPaid"));
+        assertEquals(new BigDecimal("20.00"), result.get("settlementDiscount"));
+        var parameters = org.mockito.ArgumentCaptor.forClass(MapSqlParameterSource.class);
+        verify(jdbc).update(contains("'NOTIFICATION'"), parameters.capture());
+        assertEquals(1L, parameters.getValue().getValue("uid"));
+        assertTrue(String.valueOf(parameters.getValue().getValue("content")).contains("XS-77"));
+    }
+
     @Test
     void zeroPayableOrderDoesNotCreateZeroAmountPaymentLine() {
         PayController controller = new PayController(mock(DbSupport.class), mock(SyncWebSocketHandler.class),
@@ -91,7 +127,10 @@ class PayControllerInventoryTests {
         when(db.jdbc()).thenReturn(jdbc);
         when(db.store(request)).thenReturn(1L);
         when(db.one(contains("select * from sales_order"), anyMap())).thenReturn(Map.of(
-                "order_id", 77L, "status", 1, "order_no", "XS-77"));
+                "order_id", 77L, "status", 1, "order_no", "XS-77",
+                "total_amount", new BigDecimal("100.00"), "discount", BigDecimal.ONE,
+                "labor_fee", BigDecimal.ZERO, "old_material_deduct", BigDecimal.ZERO,
+                "pay_amount", new BigDecimal("100.00"), "settlement_discount", BigDecimal.ZERO));
         when(db.list(contains("from operation_log"), anyMap())).thenReturn(List.of(Map.of("log_id", 12L)));
         PayController controller = new PayController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class), new ObjectMapper());

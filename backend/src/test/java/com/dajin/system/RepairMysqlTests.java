@@ -95,6 +95,65 @@ class RepairMysqlTests {
     BigDecimal balance() { return jdbc.queryForObject("select balance from member where member_id=1", BigDecimal.class); }
     int inventory() { return jdbc.queryForObject("select stock from goods where goods_id=1", Integer.class); }
 
+    @Test void partialPaymentThenRemainingPaymentSettlesExactlyOnce() {
+        long id = create("partial-sale");
+        Map<?,?> first = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "partial-40", "amount", 40,
+                "settlementMode", "PARTIAL", "payMethod", "CASH"), request).data();
+        assertEquals(0, first.get("status"));
+        assertEquals(new BigDecimal("40.00"), first.get("actualPaid"));
+        assertEquals(new BigDecimal("60.00"), first.get("remaining"));
+        assertEquals(1, inventory());
+        assertEquals(0, jdbc.queryForObject("select count(*) from stock_out where type='SALE'", Integer.class));
+        Map<?,?> replay = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "partial-40", "amount", 40,
+                "settlementMode", "PARTIAL", "payMethod", "CASH"), request).data();
+        assertEquals(true, replay.get("idempotentReplay"));
+        assertEquals(new BigDecimal("40.00"), replay.get("actualPaid"));
+        assertEquals(1, jdbc.queryForObject("select count(*) from finance_record where category='SALE'", Integer.class));
+        Map<?,?> last = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "remaining-60", "amount", 60,
+                "settlementMode", "FULL", "payMethod", "CASH"), request).data();
+        assertEquals(1, last.get("status"));
+        assertEquals(new BigDecimal("100.00"), last.get("actualPaid"));
+        assertEquals(new BigDecimal("0.00"), last.get("remaining"));
+        assertEquals(0, inventory());
+        assertEquals(new BigDecimal("100.00"), jdbc.queryForObject("select sum(amount) from finance_record where category='SALE'", BigDecimal.class));
+    }
+
+    @Test void cashierNegotiatedPriceSettlesWithoutApprovalAndNotifiesManagersOnce() {
+        jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code) values(2,1,'Manager','MANAGER'),(3,1,'Cashier','CASHIER')");
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(2,1,'cashier','test','Cashier',3),(3,1,'manager','test','Manager',2)");
+        request.setAttribute("claims", Jwts.claims(Map.of("role", "CASHIER", "storeId", 1L)).setSubject("2"));
+        long id = create("negotiated-sale");
+
+        Map<String, Object> payment = Map.of("orderId", id, "clientRequestId", "negotiated-pay", "amount", 80,
+                "settlementMode", "DISCOUNT", "settlementDiscountReason", "顾客议价", "payMethod", "CASH");
+        Map<?, ?> result = (Map<?, ?>) payments.pay(payment, request).data();
+        assertEquals(1, result.get("status"));
+        assertEquals(new BigDecimal("80.00"), result.get("actualPaid"));
+        assertEquals(new BigDecimal("20.00"), result.get("settlementDiscount"));
+        assertEquals(0, jdbc.queryForObject("select count(*) from approval where biz_id=?", Integer.class, id));
+        assertEquals(new BigDecimal("80.00"), jdbc.queryForObject("select sum(amount) from finance_record where category='SALE'", BigDecimal.class));
+        assertEquals(2, jdbc.queryForObject("select count(*) from operation_log where module='NOTIFICATION' and action='BARGAIN'", Integer.class));
+        assertEquals(true, ((Map<?, ?>) payments.pay(payment, request).data()).get("idempotentReplay"));
+        assertEquals(2, jdbc.queryForObject("select count(*) from operation_log where module='NOTIFICATION' and action='BARGAIN'", Integer.class));
+    }
+
+    @Test void paidPendingOrderNeedsRefundApprovalWithoutRestockingUnshippedGoods() {
+        jdbc.update("insert into goods_piece(store_id,goods_id,piece_no) values(1,1,'PIECE1')");
+        long id = create("partial-refund");
+        payments.pay(Map.of("orderId", id, "clientRequestId", "refund-pay-40", "amount", 40,
+                "settlementMode", "PARTIAL", "payMethod", "CASH"), request);
+        BusinessException error = assertThrows(BusinessException.class, () -> orders.cancel(id, Map.of(), request));
+        assertEquals(409110, error.getCode());
+        assertEquals(1, inventory());
+        assertEquals(2, jdbc.queryForObject("select status from goods_piece where piece_no='PIECE1'", Integer.class));
+        refund(id);
+        assertEquals(5, jdbc.queryForObject("select status from sales_order where order_id=?", Integer.class, id));
+        assertEquals(1, inventory());
+        assertEquals(1, jdbc.queryForObject("select status from goods_piece where piece_no='PIECE1'", Integer.class));
+        assertEquals(0, jdbc.queryForObject("select count(*) from stock_in where type='SALE_REFUND'", Integer.class));
+        assertEquals(new BigDecimal("40.00"), jdbc.queryForObject("select sum(amount) from finance_record where category='SALE_REFUND'", BigDecimal.class));
+    }
+
     @Test void aggregateOnlyStockCanPayExactlyOnceAndRefund() {
         long id = create("sale-1");
         assertEquals(1, inventory());
@@ -232,6 +291,31 @@ class RepairMysqlTests {
         jdbc.update("update processing_order set status='COMPLETED' where processing_order_id=?",secondId);
         assertEquals(409717,assertThrows(BusinessException.class,()->controller.pay(secondId,Map.of("clientRequestId","group-2","paymentType","BALANCE","payMethod","DOUYIN_GROUP","amount",180,"voucherNo","DY-123"),request)).getCode());
         assertEquals(0,jdbc.queryForObject("select count(*) from processing_payment where processing_order_id=?",Integer.class,secondId));
+    }
+
+    @Test void cashierProcessingNegotiationSettlesAndNotifiesWithoutApproval() {
+        jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code) values(2,1,'Manager','MANAGER'),(3,1,'Cashier','CASHIER')");
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(2,1,'cashier','test','Cashier',3),(3,1,'manager','test','Manager',2)");
+        request.setAttribute("claims", Jwts.claims(Map.of("role", "CASHIER", "storeId", 1L)).setSubject("2"));
+        jdbc.update("insert into processing_category(category_id,store_id,name,category_code) values(1,1,'Processing','PROC')");
+        jdbc.update("insert into processing_item(item_id,store_id,category_id,name,item_code,labor_fee) values(1,1,1,'Service','PIECE',200)");
+        var controller=transactional(new com.dajin.system.processing.ProcessingController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
+        var order=(Map<?,?>)controller.createOrder(Map.of("processingItemId",1,"customerName","Test","customerPhone","13800000000","quantity",1),request).data();
+        long id=((Number)order.get("processing_order_id")).longValue();
+        jdbc.update("update processing_order set status='COMPLETED' where processing_order_id=?", id);
+        Map<String,Object> payment=Map.of("clientRequestId","processing-bargain","paymentType","BALANCE","payMethod","CASH","amount",180,"settlementMode","DISCOUNT","settlementDiscountReason","顾客议价");
+        controller.pay(id,payment,request);
+        assertEquals(true, ((Map<?,?>)controller.pay(id,payment,request).data()).get("idempotentReplay"));
+
+        var settled=jdbc.queryForMap("select original_due_amount,promotion_discount,due_amount,paid_amount,promotion_channel from processing_order where processing_order_id=?",id);
+        assertEquals(new BigDecimal("200.00"),settled.get("original_due_amount"));
+        assertEquals(new BigDecimal("20.00"),settled.get("promotion_discount"));
+        assertEquals(new BigDecimal("180.00"),settled.get("due_amount"));
+        assertEquals(new BigDecimal("180.00"),settled.get("paid_amount"));
+        assertNull(settled.get("promotion_channel"));
+        assertEquals(new BigDecimal("180.00"),jdbc.queryForObject("select sum(amount) from finance_record where category='PROCESSING_FEE'",BigDecimal.class));
+        assertEquals(0,jdbc.queryForObject("select count(*) from approval where biz_id=?",Integer.class,id));
+        assertEquals(2,jdbc.queryForObject("select count(*) from operation_log where module='NOTIFICATION' and action='BARGAIN'",Integer.class));
     }
 
     @Test void repeatedProcessingGoldReturnsHaveSeparateLedgerEntries() {

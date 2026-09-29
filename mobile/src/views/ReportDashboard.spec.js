@@ -5,6 +5,8 @@ import ReportDashboard from './ReportDashboard.vue'
 
 const mocks = vi.hoisted(() => ({
   reportGold: vi.fn(),
+  reportOverview: vi.fn(),
+  reportSales: vi.fn(),
   reportEmployee: vi.fn(),
   route: { params: { kind: 'gold' } },
   push: vi.fn()
@@ -13,6 +15,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../api/request.js', () => ({
   api: {
     reportGold: mocks.reportGold,
+    reportOverview: mocks.reportOverview,
+    reportSales: mocks.reportSales,
     reportEmployee: mocks.reportEmployee,
     systemTarget: vi.fn().mockResolvedValue({ monthlySalesTarget: 0 })
   }
@@ -32,6 +36,8 @@ describe('ReportDashboard', () => {
       salesWeight: [{ day: '2026-09-17', weight: 3.2 }],
       distribution: [{ price_bucket: 500, weight: 3.2 }]
     })
+    mocks.reportOverview.mockReset().mockResolvedValue({ summary: {}, trend: [], categories: [], employees: [], records: [] })
+    mocks.reportSales.mockReset().mockResolvedValue({ summary: {}, records: [] })
     mocks.reportEmployee.mockReset()
   })
 
@@ -85,5 +91,47 @@ describe('ReportDashboard', () => {
     expect(wrapper.get('.detail-drawer').text()).toContain('素金')
     await wrapper.get('.detail-drawer .modal-close').trigger('click')
     expect(wrapper.find('.detail-drawer').exists()).toBe(false)
+  })
+
+  it('shows actual settlement amounts and payment method in sales details', async () => {
+    mocks.route.params.kind = 'sales'
+    mocks.reportOverview.mockResolvedValue({
+      summary: { actual_paid: 180, sales_amount: 180, item_count: 1, gold_weight: 1.2, avg_order: 180 },
+      categories: [],
+      employees: [],
+      records: []
+    })
+    mocks.reportSales.mockResolvedValue({
+      summary: { actual_paid: 180, sales_amount: 180, item_count: 1, gold_weight: 1.2, avg_order: 180 },
+      records: [{
+        order_id: 12,
+        order_no: 'XS20260928001',
+        goods_name: '团购加工饰品',
+        original_amount: 200,
+        settlement_discount: 20,
+        discounted_amount: 180,
+        actual_paid: 180,
+        remaining_amount: 0,
+        settlement_discount_reason: '抖音团购',
+        pay_method: 'DOUTUAN',
+        employee_name: '销售员工甲',
+        amount: 180,
+        quantity: 1,
+        weight: 1.2,
+        date: '2026-09-28 10:00'
+      }]
+    })
+    const wrapper = mount(ReportDashboard)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('销售实收')
+    expect(wrapper.text()).toContain('¥180.00')
+    await wrapper.get('.report-row-button').trigger('click')
+    const drawer = wrapper.get('.detail-drawer')
+    expect(drawer.text()).toContain('¥200.00')
+    expect(drawer.text()).toContain('¥20.00')
+    expect(drawer.text()).toContain('¥180.00')
+    expect(drawer.text()).toContain('¥0.00')
+    expect(drawer.text()).toContain('抖音团购')
   })
 })

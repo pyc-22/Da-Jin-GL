@@ -25,6 +25,7 @@ const EDITABLE_CONFIG_KEYS = new Set([
   'discount_threshold',
   'recycle_approval_limit',
   'default_commission_rate',
+  'processing_sales_commission_rate',
   'gold_metal_types',
   'processing_loss_permille',
   'monthly_sales_target',

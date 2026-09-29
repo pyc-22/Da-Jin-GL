@@ -12,6 +12,8 @@ final class ProcessingWarrantyHtml {
     static String build(Map<String, Object> o, String storeName) {
         String billNo = esc(String.valueOf(o.get("order_no")));
         String date = LocalDate.now().toString().replace("-", "/");
+        String salesName = o.get("sales_name") == null ? "无导购（散客）" : String.valueOf(o.get("sales_name"));
+        String craftsmanName = o.get("craftsman_name") == null ? "暂未分配" : String.valueOf(o.get("craftsman_name"));
         BigDecimal due = dec(o.get("due_amount"));
         BigDecimal paid = dec(o.get("paid_amount"));
         BigDecimal tail = due.subtract(paid).max(BigDecimal.ZERO);
@@ -29,7 +31,9 @@ final class ProcessingWarrantyHtml {
                 + "<p class=\"biz\">主营业务：金银加工 ｜ 零损耗 ｜ 黄金回收 ｜ 私人定制 ｜ 珠宝零售</p>"
                 + "<div class=\"meta\"><span>单据编号：<b>" + billNo + "</b></span><span>日期：<b>" + date + "</b></span>"
                 + "<span>客户姓名：<b>" + esc(String.valueOf(o.getOrDefault("customer_name", "-"))) + "</b></span>"
-                + "<span>客户电话：<b>" + esc(String.valueOf(o.getOrDefault("customer_phone", "-"))) + "</b></span></div>"
+                + "<span>客户电话：<b>" + esc(String.valueOf(o.getOrDefault("customer_phone", "-"))) + "</b></span>"
+                + "<span>导购（销售）：<b>" + esc(salesName) + "</b></span>"
+                + "<span>加工师傅：<b>" + esc(craftsmanName) + "</b></span></div>"
                 + "<table><thead><tr><th>加工项目</th><th>来料</th><th>成品克重</th><th>补金</th><th class=\"num\">工费</th></tr></thead><tbody><tr><td>"
                 + esc(String.valueOf(o.getOrDefault("item_name_snapshot", "-"))) + " × " + esc(String.valueOf(o.getOrDefault("quantity", "1")))
                 + "</td><td>" + laoliao + "</td><td>" + chengpin + "</td><td>" + bujin + "</td><td class=\"num\">¥" + dec(o.get("labor_fee")).toPlainString() + "</td></tr></tbody></table>"

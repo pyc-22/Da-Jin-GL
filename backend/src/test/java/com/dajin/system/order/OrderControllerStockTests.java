@@ -115,9 +115,9 @@ class OrderControllerStockTests {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(db.jdbc()).thenReturn(jdbc);
         when(db.store(request)).thenReturn(1L);
-        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order where order_id=:id"),
+        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order o where o.order_id=:id"),
                 org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(Map.of(
-                "order_id", 88L, "order_no", "XS-88", "status", 0)));
+                "order_id", 88L, "order_no", "XS-88", "status", 0, "actual_paid", BigDecimal.ZERO)));
         OrderController controller = new OrderController(db, ws, new ObjectMapper());
 
         controller.cancel(88L, Map.of("reason", "客户取消"), request);
@@ -134,14 +134,34 @@ class OrderControllerStockTests {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(db.jdbc()).thenReturn(jdbc);
         when(db.store(request)).thenReturn(1L);
-        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order where order_id=:id"),
+        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order o where o.order_id=:id"),
                 org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(Map.of(
-                "order_id", 89L, "order_no", "XS-89", "status", 4)));
+                "order_id", 89L, "order_no", "XS-89", "status", 4, "actual_paid", BigDecimal.ZERO)));
         OrderController controller = new OrderController(db, mock(SyncWebSocketHandler.class), new ObjectMapper());
 
         ApiResponse<?> result = controller.cancel(89L, Map.of("reason", "重复点击"), request);
 
         assertEquals(200, result.code());
+        verify(jdbc, never()).update(org.mockito.ArgumentMatchers.contains("goods_piece set status=1"),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    void partiallyPaidPendingOrderRequiresRefundInsteadOfDirectCancellation() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(request)).thenReturn(1L);
+        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order o where o.order_id=:id"),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(Map.of(
+                "order_id", 90L, "order_no", "XS-90", "status", 0, "actual_paid", new BigDecimal("40.00"))));
+        OrderController controller = new OrderController(db, mock(SyncWebSocketHandler.class), new ObjectMapper());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> controller.cancel(90L, Map.of(), request));
+
+        assertEquals(409110, error.getCode());
         verify(jdbc, never()).update(org.mockito.ArgumentMatchers.contains("goods_piece set status=1"),
                 org.mockito.ArgumentMatchers.anyMap());
     }

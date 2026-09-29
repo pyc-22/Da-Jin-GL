@@ -4,6 +4,7 @@ import com.dajin.system.common.*;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.*;
 import javax.servlet.http.HttpServletRequest;
@@ -42,12 +43,47 @@ class ProcessingPaymentTests {
                 "payMethod", "DOUYIN_GROUP", "amount", 130, "voucherNo", "DY-123"), f.request);
 
         ArgumentCaptor<SqlParameterSource> orderParams = ArgumentCaptor.forClass(SqlParameterSource.class);
-        verify(f.jdbc).update(contains("original_due_amount=due_amount"), orderParams.capture());
+        verify(f.jdbc).update(contains("original_due_amount=:originalDue"), orderParams.capture());
         assertEquals(new BigDecimal("20.00"), orderParams.getValue().getValue("discount"));
         assertEquals("DY-123", orderParams.getValue().getValue("voucher"));
         ArgumentCaptor<SqlParameterSource> financeParams = ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(f.jdbc).update(contains("insert into finance_record"), financeParams.capture());
         assertEquals(new BigDecimal("130.00"), financeParams.getValue().getValue("amount"));
+        verify(f.jdbc, never()).update(contains("'NOTIFICATION'"), any(SqlParameterSource.class));
+    }
+
+    @Test
+    void cashierNegotiatesOrdinaryBalanceAndNotifiesManagers() {
+        Fixture f = fixture("COMPLETED", 200, 0);
+        when(f.request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "CASHIER")).setSubject("2"));
+        when(f.db.list(contains("join sys_role"), anyMap())).thenReturn(List.of(Map.of("user_id", 1L)));
+
+        f.controller.pay(7L, Map.of("clientRequestId", "bargain-7", "paymentType", "BALANCE",
+                "payMethod", "CASH", "amount", 180, "settlementMode", "DISCOUNT",
+                "settlementDiscountReason", "顾客议价"), f.request);
+
+        ArgumentCaptor<SqlParameterSource> orderParams = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("original_due_amount=:originalDue"), orderParams.capture());
+        assertEquals(new BigDecimal("20.00"), orderParams.getValue().getValue("discount"));
+        assertEquals(null, orderParams.getValue().getValue("methodOrNull"));
+        ArgumentCaptor<SqlParameterSource> financeParams = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("insert into finance_record"), financeParams.capture());
+        assertEquals(new BigDecimal("180.00"), financeParams.getValue().getValue("amount"));
+        ArgumentCaptor<SqlParameterSource> notificationParams = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("'NOTIFICATION'"), notificationParams.capture());
+        assertEquals(1L, notificationParams.getValue().getValue("uid"));
+        assertTrue(String.valueOf(notificationParams.getValue().getValue("content")).contains("JG-7"));
+    }
+
+    @Test
+    void depositCannotUseNegotiatedSettlement() {
+        Fixture f = fixture("PENDING", 200, 0);
+        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.pay(7L, Map.of(
+                "clientRequestId", "deposit-bargain", "paymentType", "DEPOSIT", "payMethod", "CASH",
+                "amount", 180, "settlementMode", "DISCOUNT", "settlementDiscountReason", "顾客议价"), f.request));
+        assertEquals(400717, error.getCode());
+        verify(f.jdbc, never()).update(contains("insert into processing_payment"), any(SqlParameterSource.class));
+        verify(f.jdbc, never()).update(contains("'NOTIFICATION'"), any(SqlParameterSource.class));
     }
 
     @Test

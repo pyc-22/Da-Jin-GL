@@ -2,6 +2,7 @@ package com.dajin.system.order;
 
 import com.dajin.system.common.*;
 import com.dajin.system.config.RequirePermission;
+import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.namedparam.*;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.*;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
+import io.jsonwebtoken.Claims;
 import java.math.*;
 import java.time.*;
 import java.util.*;
@@ -70,12 +72,15 @@ public class OrderController {
         BigDecimal oldMaterialValue = oldMaterialDeduct(q.oldMaterials(), q.oldMaterialDeduct(), r);
         OrderSettlement settlement = OrderSettlement.calculate(total, discount, laborFee, oldMaterialValue);
         String payoutMethod = validatePayoutMethod(q.oldMaterialPayoutMethod(), settlement.excessPayout(), r);
+        Long salesId = q.salesId();
+        if (salesId == null && q.memberId() != null) salesId = memberSales(q.memberId(), db.store(r));
+        requireActiveSales(salesId, db.store(r));
         int status = discount.compareTo(configDecimal(r, "discount_threshold")) < 0 ? 3 : 0;
         // A timestamp suffix alone collides under burst traffic; keep the human-readable date
         // while adding a short random component for the store/order unique key.
         String no = "XS" + LocalDate.now().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
-        MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", no).addValue("m", q.memberId()).addValue("total", total).addValue("discount", discount).addValue("old", settlement.appliedDeduction()).addValue("excess", settlement.excessPayout()).addValue("payoutMethod", payoutMethod).addValue("labor", laborFee).addValue("pay", BigDecimal.ZERO).addValue("method", null).addValue("cashier", userId(r)).addValue("sales", q.salesId()).addValue("approval", null).addValue("status", status).addValue("remark", q.remark()).addValue("client", q.clientRequestId()).addValue("handover", Boolean.TRUE.equals(q.handover()) ? 1 : 0);
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", no).addValue("m", q.memberId()).addValue("total", total).addValue("discount", discount).addValue("old", settlement.appliedDeduction()).addValue("excess", settlement.excessPayout()).addValue("payoutMethod", payoutMethod).addValue("labor", laborFee).addValue("pay", BigDecimal.ZERO).addValue("method", null).addValue("cashier", userId(r)).addValue("sales", salesId).addValue("approval", null).addValue("status", status).addValue("remark", q.remark()).addValue("client", q.clientRequestId()).addValue("handover", Boolean.TRUE.equals(q.handover()) ? 1 : 0);
         db.jdbc().update("insert into sales_order(store_id,order_no,member_id,total_amount,discount,old_material_deduct,old_material_excess,old_material_payout_method,labor_fee,pay_amount,pay_method,cashier_id,sales_id,approval_id,status,remark,client_request_id,handover,create_time,update_time) values(:s,:no,:m,:total,:discount,:old,:excess,:payoutMethod,:labor,:pay,:method,:cashier,:sales,:approval,:status,:remark,:client,:handover,now(),now())", p);
         long id = db.jdbc().queryForObject("select order_id from sales_order where store_id=:s and order_no=:no", p, Long.class);
         for (Item i : q.items()) {
@@ -92,7 +97,7 @@ public class OrderController {
             db.jdbc().update("update sales_order set approval_id=:a where order_id=:id and store_id=:s", Map.of("a", approvalId, "id", id, "s", db.store(r)));
             ws.broadcast("APPROVAL_CREATED", Map.of("storeId", db.store(r), "id", approvalId, "type", "DISCOUNT", "bizId", id));
         }
-        if (q.salesId() != null) ws.broadcast("MOBILE_ORDER_CREATED", Map.of("storeId", db.store(r), "orderId", id, "orderNo", no, "salesId", q.salesId()));
+        if (salesId != null) ws.broadcast("MOBILE_ORDER_CREATED", Map.of("storeId", db.store(r), "orderId", id, "orderNo", no, "salesId", salesId));
         if (Boolean.TRUE.equals(q.handover())) ws.broadcast("ORDER_HANDOVER", Map.of("storeId", db.store(r), "orderId", id, "orderNo", no));
         ws.broadcast("ORDER_CREATED", Map.of("storeId", db.store(r), "orderId", id, "orderNo", no, "status", status));
         ws.broadcast("STOCK_UPDATED", Map.of("storeId", db.store(r), "orderId", id, "action", "RESERVE"));
@@ -178,13 +183,15 @@ public class OrderController {
     }
     @GetMapping("/{id}") public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("id", id).addValue("s", db.store(r));
-        Map<String,Object> order = db.one("select o.*, cashier.real_name cashier_name, sales.real_name sales_name "
+        Map<String,Object> order = db.one("select o.*, " + SalesAmounts.originalDue("o") + " original_due, "
+                + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, "
+                + SalesAmounts.remainingDue("o") + " remaining_due, cashier.real_name cashier_name, sales.real_name sales_name "
                 + "from sales_order o "
                 + "left join sys_user cashier on cashier.user_id=o.cashier_id and cashier.store_id=o.store_id "
                 + "left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id "
                 + "where o.order_id=:id and o.store_id=:s", p);
         List<Map<String,Object>> payments = order == null ? List.of() : db.list(
-                "select pay_method,case when type='EXPENSE' then -amount else amount end as amount,type,category,create_time from finance_record where store_id=:s and related_bill_no=:no order by finance_id",
+                "select pay_method,case when type='EXPENSE' then -amount else amount end as amount,type,category,create_time from finance_record where store_id=:s and related_bill_no=:no and ((type='INCOME' and category='SALE') or (type='EXPENSE' and category='SALE_REFUND')) order by finance_id",
                 new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", order.get("order_no")));
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("order", order);
@@ -193,18 +200,46 @@ public class OrderController {
         result.put("payments", payments);
         return ApiResponse.ok(result);
     }
-    @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("limit", size).addValue("off", (page - 1) * size); return ApiResponse.ok(db.list("select * from sales_order where store_id=:s and (:st is null or status=:st) and (:ho is null or handover=:ho) order by order_id desc limit :limit offset :off", p)); }
+    @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("limit", size).addValue("off", (page - 1) * size); return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, " + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, " + SalesAmounts.remainingDue("o") + " remaining_due, sales.real_name sales_name from sales_order o left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id where o.store_id=:s and (:st is null or o.status=:st) and (:ho is null or o.handover=:ho) order by o.order_id desc limit :limit offset :off", p)); }
+
+    @PutMapping("/{id}/sales")
+    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+    @Transactional
+    public ApiResponse<?> reassignSales(@PathVariable long id, @RequestBody Map<String, Object> body, HttpServletRequest request) {
+        long storeId = db.store(request);
+        Map<String, Object> order = db.one("select * from sales_order where order_id=:id and store_id=:s for update", Map.of("id", id, "s", storeId));
+        Long next = nullableId(body.get("salesId"));
+        requireActiveSales(next, storeId);
+        Long previous = nullableId(order.get("sales_id"));
+        if (Objects.equals(previous, next)) return detail(id, request);
+        int status = ((Number) order.getOrDefault("status", 0)).intValue();
+        if (status == 1 || status == 5) {
+            if (!isAdminOrManager(request)) throw new BusinessException(403706, "已结清销售单仅管理员或店长可以改派导购");
+            String reason = body.get("reason") == null ? "" : String.valueOf(body.get("reason")).trim();
+            if (reason.isBlank()) throw new BusinessException(400734, "结清后改派导购必须填写原因");
+            log(storeId, userId(request), "SALES_REASSIGN", "销售单=" + order.get("order_no") + ",原导购=" + previous + ",新导购=" + next + ",原因=" + reason);
+        } else {
+            log(storeId, userId(request), "SALES_REASSIGN", "销售单=" + order.get("order_no") + ",原导购=" + previous + ",新导购=" + next);
+        }
+        db.jdbc().update("update sales_order set sales_id=:sales,version=version+1,update_time=now() where order_id=:id and store_id=:s", new MapSqlParameterSource().addValue("sales", next).addValue("id", id).addValue("s", storeId));
+        if (status == 1) new com.dajin.system.commission.CommissionLedger(db).rebuildForOrder(storeId, id);
+        Map<String, Object> event = Map.of("storeId", storeId, "orderId", id, "action", "SALES_REASSIGN");
+        ws.broadcast("COMMISSION_UPDATED", event); ws.broadcast("REPORT_UPDATED", event); ws.broadcast("ORDER_UPDATED", event);
+        return detail(id, request);
+    }
     @PostMapping("/{id}/cancel")
     @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true)
     @Transactional
     public ApiResponse<?> cancel(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest r) {
         long storeId = db.store(r);
-        List<Map<String,Object>> rows = db.list("select order_id,order_no,status from sales_order where order_id=:id and store_id=:s for update", Map.of("id", id, "s", storeId));
+        List<Map<String,Object>> rows = db.list("select o.order_id,o.order_no,o.status," + SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:id and o.store_id=:s for update", Map.of("id", id, "s", storeId));
         if (rows.isEmpty()) throw new BusinessException(404108, "销售订单不存在");
         Map<String,Object> order = rows.get(0);
         int status = ((Number) order.get("status")).intValue();
         if (status == 4) return ApiResponse.ok(Map.of("orderId", id, "status", 4, "idempotentReplay", true));
         if (status != 0 && status != 3) throw new BusinessException(409109, "只有待收款或待审批订单可以取消");
+        if (new BigDecimal(String.valueOf(order.get("actual_paid"))).signum() > 0)
+            throw new BusinessException(409110, "订单已有实收，请提交退款审批，不能直接取消");
         db.jdbc().update("update sales_order set status=4,remark=case when :reason='' then remark else concat(coalesce(remark,''),case when remark is null or remark='' then '' else '；' end,'取消原因：',:reason) end,update_time=now(),version=version+1 where order_id=:id and store_id=:s and status in (0,3)",
                 new MapSqlParameterSource().addValue("id", id).addValue("s", storeId).addValue("reason", body == null ? "" : String.valueOf(body.getOrDefault("reason", "")).trim()));
         db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where store_id=:s and sales_order_id=:id and status=2", Map.of("s", storeId, "id", id));
@@ -241,7 +276,7 @@ public class OrderController {
         long storeId = db.store(r);
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("id", id).addValue("s", storeId)
                 .addValue("uid", userId(r)).addValue("reason", body.getOrDefault("reason", "退单申请"));
-        int changed = db.jdbc().update("insert into approval(store_id,type,biz_id,applicant_id,amount,reason,status,create_time) select store_id,'REFUND',order_id,:uid,pay_amount,:reason,1,now() from sales_order where order_id=:id and store_id=:s", p);
+        int changed = db.jdbc().update("insert into approval(store_id,type,biz_id,applicant_id,amount,reason,status,create_time) select o.store_id,'REFUND',o.order_id,:uid," + SalesAmounts.actualPaid("o") + ",:reason,1,now() from sales_order o where o.order_id=:id and o.store_id=:s and (o.status=1 or (o.status=0 and " + SalesAmounts.actualPaid("o") + ">0))", p);
         if (changed == 0) throw new BusinessException(404108, "销售订单不存在");
         long approvalId = db.jdbc().queryForObject("select approval_id from approval where store_id=:s and type='REFUND' and biz_id=:id order by approval_id desc limit 1", p, Long.class);
         ws.broadcast("APPROVAL_CREATED", Map.of("storeId", storeId, "id", approvalId, "approvalId", approvalId, "type", "REFUND", "bizId", id));
@@ -290,6 +325,31 @@ public class OrderController {
         }
     }
     private long userId(HttpServletRequest r) { io.jsonwebtoken.Claims c=(io.jsonwebtoken.Claims)r.getAttribute("claims"); return c == null ? 0L : Long.parseLong(c.getSubject()); }
+    private Long nullableId(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) return null;
+        try { return Long.parseLong(String.valueOf(value)); }
+        catch (NumberFormatException e) { throw new BusinessException(400115, "导购编号格式不正确"); }
+    }
+    private void requireActiveSales(Long id, long storeId) {
+        if (id == null) return;
+        Integer found = db.jdbc().queryForObject("select count(*) from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=:s and u.user_id=:id and u.status=1 and r.status=1 and r.role_code='SALES'", Map.of("s", storeId, "id", id), Integer.class);
+        if (found == null || found == 0) throw new BusinessException(400116, "导购不存在、已禁用或角色不是销售");
+    }
+    private Long memberSales(Long memberId, long storeId) {
+        if (memberId == null) return null;
+        List<Map<String,Object>> rows = db.list("select sales_id from member where member_id=:id and store_id=:s", Map.of("id", memberId, "s", storeId));
+        if (rows.isEmpty()) throw new BusinessException(404116, "会员不存在或不属于当前门店");
+        return nullableId(rows.get(0).get("sales_id"));
+    }
+    private boolean isAdminOrManager(HttpServletRequest request) {
+        Claims claims = (Claims) request.getAttribute("claims");
+        if (claims == null) return false;
+        String role = String.valueOf(claims.get("role"));
+        return "ADMIN".equalsIgnoreCase(role) || "MANAGER".equalsIgnoreCase(role);
+    }
+    private void log(long storeId, long operatorId, String action, String content) {
+        db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:uid,'ORDER',:action,:content,'',now())", Map.of("s", storeId, "uid", operatorId, "action", action, "content", content));
+    }
 
     /** 销售单据（热敏小票版式）：移动端预览 + 收银端待打印共用同一 HTML。 */
     @GetMapping(value = "/{id}/receipt", produces = "text/html;charset=UTF-8")
@@ -316,6 +376,7 @@ public class OrderController {
             List<Map<String, Object>> mem = db.list("select name,phone from member where member_id=:m and store_id=:s", Map.of("m", ((Number) memberIdObj).longValue(), "s", storeId));
             if (!mem.isEmpty()) h.append("<div><span>会员</span><span>").append(escHtml(String.valueOf(mem.get(0).get("name")))).append(" ").append(escHtml(String.valueOf(mem.get(0).getOrDefault("phone", "")))).append("</span></div>");
         }
+        h.append("<div><span>导购</span><span>").append(escHtml(o.get("sales_name") == null ? "无导购（散客）" : String.valueOf(o.get("sales_name")))).append("</span></div>");
         h.append("</div><div class=\"hr\"></div>");
         BigDecimal goodsTotal = BigDecimal.ZERO;
         for (Map<String, Object> it : items) {
@@ -335,8 +396,12 @@ public class OrderController {
         if (excess.signum() > 0) h.append("<div><span>回收返款</span><span>¥").append(excess).append(" · ").append(payMethodCn(String.valueOf(o.get("old_material_payout_method")))).append("</span></div>");
         BigDecimal discount = o.get("discount") == null ? BigDecimal.ONE : new BigDecimal(String.valueOf(o.get("discount")));
         if (discount.compareTo(BigDecimal.ONE) != 0) h.append("<div><span>折扣</span><span>").append(discount.multiply(new BigDecimal("10")).stripTrailingZeros().toPlainString()).append("折</span></div>");
-        h.append("<div class=\"big\"><span>应收</span><span>¥").append(o.getOrDefault("pay_amount", "0")).append("</span></div>");
-        if (payments != null && !payments.isEmpty()) { StringBuilder pm = new StringBuilder(); for (Map<String, Object> pay : payments) { if (!"INCOME".equals(String.valueOf(pay.get("type")))) continue; if (pm.length() > 0) pm.append(" + "); pm.append(payMethodCn(String.valueOf(pay.get("pay_method")))).append(" ¥").append(pay.get("amount")); } if (pm.length() > 0) h.append("<div><span>支付</span><span>").append(escHtml(pm.toString())).append("</span></div>"); }
+        h.append("<div><span>原应收</span><span>¥").append(o.get("original_due")).append("</span></div>");
+        h.append("<div><span>优惠</span><span>-¥").append(o.getOrDefault("settlement_discount", "0")).append("</span></div>");
+        h.append("<div><span>优惠后应收</span><span>¥").append(o.get("discounted_due")).append("</span></div>");
+        h.append("<div class=\"big\"><span>净实收</span><span>¥").append(o.get("actual_paid")).append("</span></div>");
+        h.append("<div><span>待收</span><span>¥").append(o.get("remaining_due")).append("</span></div>");
+        if (payments != null && !payments.isEmpty()) { StringBuilder pm = new StringBuilder(); for (Map<String, Object> pay : payments) { if (pm.length() > 0) pm.append(" + "); boolean refund = "EXPENSE".equals(String.valueOf(pay.get("type"))); pm.append(refund ? "退款 " : "").append(payMethodCn(String.valueOf(pay.get("pay_method")))).append(" ¥").append(pay.get("amount")); } h.append("<div><span>支付流水</span><span>").append(escHtml(pm.toString())).append("</span></div>"); }
         h.append("</div><div class=\"hr\"></div><p class=\"foot\">金饰享门店质保 · 免费清洗抛光<br>谢谢惠顾</p></div></body></html>");
         return h.toString();
     }

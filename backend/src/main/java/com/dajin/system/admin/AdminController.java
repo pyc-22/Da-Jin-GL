@@ -6,6 +6,7 @@ import com.dajin.system.common.DbSupport;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.SyncWebSocketHandler;
+import com.dajin.system.order.SalesAmounts;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,7 +45,7 @@ public class AdminController {
     @GetMapping("/dashboard") @RequirePermission("dashboard:view")
     public ApiResponse<?> dashboard(HttpServletRequest r) {
         MapSqlParameterSource p = p(r);
-        Map<String, Object> kpi = db.one("select coalesce(sum(pay_amount),0) revenue, count(*) order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=curdate() and oi.status=1),0) weight from sales_order o where o.store_id=:s and date(o.create_time)=curdate() and o.status=1", p);
+        Map<String, Object> kpi = db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=curdate() and oi.status=1),0) weight from sales_order o where o.store_id=:s and date(o.create_time)=curdate() and o.status=1", p);
         Number dayGross = db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and date(o.create_time)=curdate() and o.status=1", p, Number.class);
         // 营业额口径与交班合计一致：商品销售 + 加工费收入（毛利/毛利率仍按商品销售算）
         Number processingToday = db.jdbc().queryForObject("select coalesce(sum(amount),0) from finance_record where store_id=:s and type='INCOME' and category='PROCESSING_FEE' and date(create_time)=curdate()", p, Number.class);
@@ -61,7 +62,7 @@ public class AdminController {
             processingByDay.put(String.valueOf(row.get("day")), new BigDecimal(String.valueOf(row.get("amount"))));
         }
         List<Map<String,Object>> trend = new ArrayList<>();
-        for (Map<String,Object> row : db.list("select date(o.create_time) day,coalesce(sum(o.pay_amount),0) amount,count(o.order_id) order_count from sales_order o where o.store_id=:s and o.status=1 and o.create_time>=date_sub(curdate(),interval 6 day) group by date(o.create_time)", p)) {
+        for (Map<String,Object> row : db.list("select date(o.create_time) day,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o where o.store_id=:s and o.status=1 and o.create_time>=date_sub(curdate(),interval 6 day) group by date(o.create_time)", p)) {
             String day = String.valueOf(row.get("day"));
             BigDecimal merged = new BigDecimal(String.valueOf(row.get("amount"))).add(processingByDay.getOrDefault(day, BigDecimal.ZERO));
             row.put("amount", merged);
@@ -72,7 +73,7 @@ public class AdminController {
         }
         trend.sort(Comparator.comparing(a -> String.valueOf(((Map<?,?>) a).get("day"))));
         result.put("trend", trend);
-        result.put("ranking", db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum(o.pay_amount),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and date(o.create_time)>=date_sub(curdate(),interval 6 day) group by o.sales_id,u.real_name order by amount desc limit 10", p));
+        result.put("ranking", db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and date(o.create_time)>=date_sub(curdate(),interval 6 day) group by o.sales_id,u.real_name order by amount desc limit 10", p));
         return ApiResponse.ok(result);
     }
 
@@ -152,7 +153,7 @@ public class AdminController {
     @GetMapping("/approval/history") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("approval:view")
     public ApiResponse<?> approvalHistory(HttpServletRequest r){return ApiResponse.ok(db.list("select * from approval where store_id=:s and status<>1 order by approval_id desc limit 200",p(r)));}
 
-    @GetMapping("/sales") @RequirePermission("order:checkout") public ApiResponse<?> sales(@RequestParam(required=false)String keyword,@RequestParam(required=false)Integer status,HttpServletRequest r){MapSqlParameterSource q=p(r).addValue("k",keyword==null?"%":"%"+keyword+"%").addValue("st",status);return ApiResponse.ok(db.list("select o.*,u.real_name cashier from sales_order o left join sys_user u on u.user_id=o.cashier_id and u.store_id=o.store_id where o.store_id=:s and (o.order_no like :k or coalesce(o.pay_method,'') like :k) and (:st is null or o.status=:st) order by o.order_id desc limit 500",q));}
+    @GetMapping("/sales") @RequirePermission("order:checkout") public ApiResponse<?> sales(@RequestParam(required=false)String keyword,@RequestParam(required=false)Integer status,@RequestParam(required=false)Long salesId,HttpServletRequest r){MapSqlParameterSource q=p(r).addValue("k",keyword==null?"%":"%"+keyword+"%").addValue("st",status).addValue("sales",salesId);return ApiResponse.ok(db.list("select o.*,"+SalesAmounts.originalDue("o")+" original_due,"+SalesAmounts.discountedDue("o")+" discounted_due,"+SalesAmounts.actualPaid("o")+" actual_paid,"+SalesAmounts.remainingDue("o")+" remaining_due,u.real_name cashier,sales.real_name sales_name from sales_order o left join sys_user u on u.user_id=o.cashier_id and u.store_id=o.store_id left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id where o.store_id=:s and (o.order_no like :k or coalesce(o.pay_method,'') like :k) and (:st is null or o.status=:st) and (:sales is null or o.sales_id=:sales) order by o.order_id desc limit 500",q));}
     @GetMapping("/roles") @RequirePermission("staff:manage") public ApiResponse<?> roles(HttpServletRequest r){return ApiResponse.ok(db.list("select * from sys_role where store_id=:s order by role_id",p(r)));}
     @PostMapping("/roles") @RequireRoles({"ADMIN"}) public ApiResponse<?> createRole(@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("insert into sys_role(store_id,role_name,role_code,permissions,status) values(:s,:n,:c,:perm,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("n",q.get("roleName")).addValue("c",q.get("roleCode")).addValue("perm",q.getOrDefault("permissions","[]")));ws.broadcast("ROLE_UPDATED",Map.of("storeId",storeId,"action","CREATE","roleCode",String.valueOf(q.get("roleCode"))));return ApiResponse.ok();}
     @PutMapping("/roles/{id}") @RequireRoles({"ADMIN"}) public ApiResponse<?> updateRole(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("update sys_role set role_name=coalesce(:n,role_name),permissions=coalesce(:perm,permissions),status=coalesce(:status,status),update_time=now() where role_id=:id and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("n",q.get("roleName")).addValue("perm",q.get("permissions")).addValue("status",q.get("status")));ws.broadcast("ROLE_UPDATED",Map.of("storeId",storeId,"action","UPDATE","roleId",id));return ApiResponse.ok();}

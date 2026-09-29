@@ -4,43 +4,73 @@ import com.dajin.system.common.*; import com.dajin.system.config.RequirePermissi
  @PostMapping("/pay") @RequirePermission("order:checkout") @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED) public ApiResponse<?> pay(@RequestBody Map<String,Object> body,HttpServletRequest r){
   String client=String.valueOf(body.getOrDefault("clientRequestId",""));
   if(client.isBlank())throw new BusinessException(400101,"clientRequestId不能为空");
-   Long orderId=null;
-  Object rawOrderId=body.get("orderId");
+  Long orderId=null; Object rawOrderId=body.get("orderId");
   if(rawOrderId instanceof Number n) orderId=n.longValue();
   if(orderId==null && body.get("orderClientRequestId")!=null){
    List<Map<String,Object>> orders=db.list("select order_id from sales_order where store_id=:s and client_request_id=:c limit 1",Map.of("s",db.store(r),"c",String.valueOf(body.get("orderClientRequestId"))));
    if(!orders.isEmpty()) orderId=((Number)orders.get(0).get("order_id")).longValue();
   }
   if(orderId==null) throw new BusinessException(409104,"订单尚未同步，稍后重试支付");
-   Map<String,Object> order=db.one("select * from sales_order where order_id=:o and store_id=:s for update",Map.of("o",orderId,"s",db.store(r)));
-   List<Map<String,Object>> done=db.list("select log_id,content from operation_log where store_id=:s and module='PAY' and client_request_id=:c",Map.of("s",db.store(r),"c",client));
-   if(!done.isEmpty())return ApiResponse.ok(Map.of("orderId",orderId,"recorded",true,"idempotentReplay",true,"thirdPartyCalled",false));
+  long storeId=db.store(r); Map<String,Object> order=db.one("select * from sales_order where order_id=:o and store_id=:s for update",Map.of("o",orderId,"s",storeId));
+  List<Map<String,Object>> done=db.list("select log_id,content from operation_log where store_id=:s and module='PAY' and client_request_id=:c",Map.of("s",storeId,"c",client));
+  if(!done.isEmpty()){
+   BigDecimal due=new BigDecimal(order.get("total_amount").toString()).multiply(new BigDecimal(order.get("discount").toString())).add(new BigDecimal(order.get("labor_fee").toString())).subtract(new BigDecimal(order.get("old_material_deduct").toString())).max(BigDecimal.ZERO).setScale(2,RoundingMode.HALF_UP);
+   BigDecimal paid=decimal(order.get("pay_amount")); BigDecimal discount=decimal(order.get("settlement_discount"));
+   return ApiResponse.ok(Map.of("orderId",orderId,"recorded",true,"idempotentReplay",true,"thirdPartyCalled",false,"status",order.get("status"),"actualPaid",paid,"originalDue",due,"settlementDiscount",discount,"remaining",due.subtract(paid).subtract(discount).max(BigDecimal.ZERO)));
+  }
   int status=((Number)order.get("status")).intValue();
   if(status==3)throw new BusinessException(409101,"订单仍在等待审批");
   if(status==1)throw new BusinessException(409102,"订单已经结算");
   if(status==4)throw new BusinessException(409105,"订单已被驳回，不能收款");
   if(status!=0)throw new BusinessException(409107,"只有待收款订单可以支付");
   BigDecimal expected=new BigDecimal(order.get("total_amount").toString()).multiply(new BigDecimal(order.get("discount").toString())).add(new BigDecimal(order.get("labor_fee").toString())).subtract(new BigDecimal(order.get("old_material_deduct").toString())).max(BigDecimal.ZERO).setScale(2,RoundingMode.HALF_UP);
-  BigDecimal amount=new BigDecimal(body.get("amount").toString()).setScale(2,RoundingMode.HALF_UP);
-  if(expected.compareTo(amount)!=0)throw new BusinessException(400102,"收款金额与订单应收金额不一致");
+  BigDecimal alreadyPaid=decimal(order.get("pay_amount")); BigDecimal remaining=expected.subtract(alreadyPaid).max(BigDecimal.ZERO).setScale(2,RoundingMode.HALF_UP);
+  BigDecimal amount=new BigDecimal(String.valueOf(body.getOrDefault("amount",0))).setScale(2,RoundingMode.HALF_UP);
+  if(amount.signum()<0||amount.compareTo(remaining)>0)throw new BusinessException(409707,"收款金额超过订单未收金额");
+  String settlementMode=String.valueOf(body.getOrDefault("settlementMode","FULL")).trim().toUpperCase(Locale.ROOT);
+  if(!Set.of("FULL","PARTIAL","DISCOUNT").contains(settlementMode))throw new BusinessException(400102,"结算方式不合法");
+  boolean settled=amount.compareTo(remaining)==0;
+  if("FULL".equals(settlementMode)&&!settled)throw new BusinessException(400102,"收款金额与订单未收金额不一致");
+  if("PARTIAL".equals(settlementMode)&&(amount.signum()<=0||settled))throw new BusinessException(400102,"部分收款金额必须小于未收金额");
+   BigDecimal settlementDiscount=BigDecimal.ZERO; String discountReason=null;
+   BigDecimal existingDiscount=decimal(order.get("settlement_discount"));
+   String existingDiscountReason=order.get("settlement_discount_reason") == null ? null : String.valueOf(order.get("settlement_discount_reason"));
+  if("DISCOUNT".equals(settlementMode)){
+   if(amount.signum()<=0||settled)throw new BusinessException(400102,"优惠结清必须实际收款且小于未收金额");
+   discountReason=String.valueOf(body.getOrDefault("settlementDiscountReason","")).trim();
+   if(discountReason.isBlank()||discountReason.length()>200)throw new BusinessException(400108,"优惠结清必须填写原因");
+    settlementDiscount=remaining.subtract(amount).setScale(2,RoundingMode.HALF_UP); settled=true;
+  }
+   BigDecimal finalPaid=alreadyPaid.add(amount).setScale(2,RoundingMode.HALF_UP);
+   BigDecimal totalSettlementDiscount=existingDiscount.add(settlementDiscount).setScale(2,RoundingMode.HALF_UP);
+   String totalDiscountReason=discountReason == null ? existingDiscountReason : discountReason;
   List<PaymentLine> lines=parseLines(body,amount);
-  for(PaymentLine line:lines)PaymentChannelPolicy.requireActiveCollection(db,db.store(r),line.method());
+  for(PaymentLine line:lines)PaymentChannelPolicy.requireActiveCollection(db,storeId,line.method());
   BigDecimal balanceLine=lines.stream().filter(x->"BALANCE".equalsIgnoreCase(x.method())).map(PaymentLine::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
-  if(balanceLine.signum()>0){if(order.get("member_id")==null)throw new BusinessException(400106,"储值支付必须关联会员");int balanceChanged=db.jdbc().update("update member set balance=balance-:b,update_time=now() where member_id=:m and store_id=:s and balance>=:b",new MapSqlParameterSource().addValue("b",balanceLine).addValue("m",order.get("member_id")).addValue("s",db.store(r)));if(balanceChanged==0)throw new BusinessException(409106,"会员储值余额不足");}
+  if(balanceLine.signum()>0){if(order.get("member_id")==null)throw new BusinessException(400106,"储值支付必须关联会员");int balanceChanged=db.jdbc().update("update member set balance=balance-:b,update_time=now() where member_id=:m and store_id=:s and balance>=:b",new MapSqlParameterSource().addValue("b",balanceLine).addValue("m",order.get("member_id")).addValue("s",storeId));if(balanceChanged==0)throw new BusinessException(409106,"会员储值余额不足");}
   String method=lines.isEmpty()?"NO_PAYMENT":lines.stream().map(x->x.method).collect(java.util.stream.Collectors.joining("+"));
-  if(balanceLine.signum()>0)new com.dajin.system.member.MemberBalanceLedger(db).record(db.store(r),order.get("member_id"),balanceLine.negate(),"SALE",String.valueOf(orderId),userId(r));
-  String shiftNo=shifts.current(db.store(r));
-  String oldMaterialPayoutMethod=resolveOldMaterialPayoutMethod(order,body,r);
-  db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'PAY','RECORD',:content,:client,'',now())",new MapSqlParameterSource().addValue("s",db.store(r)).addValue("uid",userId(r)).addValue("content",body.toString()).addValue("client",client));
-  for(PaymentLine line:lines)db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'INCOME','SALE',:a,:m,:no,:uid,'内部收款记录',:shift,now())",new MapSqlParameterSource().addValue("s",db.store(r)).addValue("no",order.get("order_no")).addValue("m",line.method).addValue("a",line.amount).addValue("uid",userId(r)).addValue("shift",shiftNo));
-  recordOldMaterialExcess(order,oldMaterialPayoutMethod,shiftNo,r);
-  consumeOrderInventory(orderId,r);
-  int settled=db.jdbc().update("update sales_order set status=1,pay_amount=:a,pay_method=:m,old_material_payout_method=coalesce(:payoutMethod,old_material_payout_method),shift_no=:shift,paid_time=now(),update_time=now(),version=version+1 where order_id=:o and store_id=:s and status=0",new MapSqlParameterSource().addValue("s",db.store(r)).addValue("o",orderId).addValue("a",amount).addValue("m",method).addValue("payoutMethod",oldMaterialPayoutMethod).addValue("shift",shiftNo));
-  if(settled!=1)throw new BusinessException(409107,"订单状态已变化，请刷新后重试");
-  createPurchaseVisit(orderId,order,amount,r);oldMaterials.activateAndRecord(db.store(r),"ORDER:"+orderId,userId(r));if(order.get("sales_id")!=null)new com.dajin.system.commission.CommissionLedger(db).recordSale(db.store(r),orderId);
-  if(order.get("member_id")!=null){db.jdbc().update("insert into member_consume(store_id,member_id,order_id,amount,consume_time) values(:s,:m,:o,:a,now())",new MapSqlParameterSource().addValue("s",db.store(r)).addValue("m",order.get("member_id")).addValue("o",orderId).addValue("a",amount));db.jdbc().update("update member set total_consume=total_consume+:a,update_time=now() where member_id=:m and store_id=:s",new MapSqlParameterSource().addValue("s",db.store(r)).addValue("m",order.get("member_id")).addValue("a",amount));}
-   wsBroadcast(orderId,amount,order,r);
-  Map<String,Object> result=new LinkedHashMap<>();result.put("orderId",orderId);result.put("recorded",true);result.put("idempotentReplay",false);result.put("thirdPartyCalled",false);result.put("paymentLines",lines);result.put("shiftNo",shiftNo);result.put("oldMaterialExcess",decimal(order.get("old_material_excess")));if(oldMaterialPayoutMethod!=null)result.put("oldMaterialPayoutMethod",oldMaterialPayoutMethod);return ApiResponse.ok(result);
+  if(balanceLine.signum()>0)new com.dajin.system.member.MemberBalanceLedger(db).record(storeId,order.get("member_id"),balanceLine.negate(),"SALE",String.valueOf(orderId)+":"+client,userId(r));
+  String shiftNo=shifts.current(storeId); String oldMaterialPayoutMethod=resolveOldMaterialPayoutMethod(order,body,r);
+  BigDecimal oldExcess=decimal(order.get("old_material_excess"));
+  if(!settled&&oldExcess.signum()>0)throw new BusinessException(400109,"含旧金超额返款的订单必须最终结算");
+  db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'PAY','RECORD',:content,:client,'',now())",new MapSqlParameterSource().addValue("s",storeId).addValue("uid",userId(r)).addValue("content",body.toString()).addValue("client",client));
+   for(PaymentLine line:lines)db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'INCOME','SALE',:a,:m,:no,:uid,:remark,:shift,now())",new MapSqlParameterSource().addValue("s",storeId).addValue("no",order.get("order_no")).addValue("m",line.method).addValue("a",line.amount).addValue("uid",userId(r)).addValue("remark",settlementDiscount.signum()>0?"销售优惠结清："+discountReason:"内部收款记录").addValue("shift",shiftNo));
+  if(settled){recordOldMaterialExcess(order,oldMaterialPayoutMethod,shiftNo,r);consumeOrderInventory(orderId,r);}
+   int changed=db.jdbc().update("update sales_order set status=:status,pay_amount=:paid,pay_method=:m,settlement_discount=:discount,settlement_discount_reason=:reason,old_material_payout_method=coalesce(:payoutMethod,old_material_payout_method),shift_no=:shift,paid_time=case when :status=1 then now() else paid_time end,update_time=now(),version=version+1 where order_id=:o and store_id=:s and status=0",new MapSqlParameterSource().addValue("status",settled?1:0).addValue("paid",finalPaid).addValue("m",method).addValue("discount",totalSettlementDiscount).addValue("reason",totalDiscountReason).addValue("payoutMethod",oldMaterialPayoutMethod).addValue("shift",shiftNo).addValue("o",orderId).addValue("s",storeId));
+  if(changed!=1)throw new BusinessException(409107,"订单状态已变化，请刷新后重试");
+  if(settlementDiscount.signum()>0)notifyNegotiatedSale(storeId,orderId,String.valueOf(order.get("order_no")),expected,finalPaid,settlementDiscount,discountReason);
+  if(settled){createPurchaseVisit(orderId,order,finalPaid,r);oldMaterials.activateAndRecord(storeId,"ORDER:"+orderId,userId(r));if(order.get("sales_id")!=null)new com.dajin.system.commission.CommissionLedger(db).recordSale(storeId,orderId);if(order.get("member_id")!=null){db.jdbc().update("insert into member_consume(store_id,member_id,order_id,amount,consume_time) values(:s,:m,:o,:a,now())",new MapSqlParameterSource().addValue("s",storeId).addValue("m",order.get("member_id")).addValue("o",orderId).addValue("a",finalPaid));db.jdbc().update("update member set total_consume=total_consume+:a,update_time=now() where member_id=:m and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("m",order.get("member_id")).addValue("a",finalPaid));}wsBroadcast(orderId,finalPaid,order,r);}else{ws.broadcast("ORDER_UPDATED",Map.of("storeId",storeId,"orderId",orderId,"amount",amount));ws.broadcast("REPORT_UPDATED",Map.of("storeId",storeId,"orderId",orderId,"action","PARTIAL_PAYMENT"));}
+   Map<String,Object> result=new LinkedHashMap<>();result.put("orderId",orderId);result.put("recorded",true);result.put("idempotentReplay",false);result.put("thirdPartyCalled",false);result.put("paymentLines",lines);result.put("shiftNo",shiftNo);result.put("status",settled?1:0);result.put("actualPaid",finalPaid);result.put("originalDue",expected);result.put("settlementDiscount",totalSettlementDiscount);result.put("remaining",settled?BigDecimal.ZERO:expected.subtract(finalPaid).subtract(totalSettlementDiscount).max(BigDecimal.ZERO));result.put("oldMaterialExcess",oldExcess);if(oldMaterialPayoutMethod!=null)result.put("oldMaterialPayoutMethod",oldMaterialPayoutMethod);return ApiResponse.ok(result);
+ }
+
+ private void notifyNegotiatedSale(long storeId,long orderId,String orderNo,BigDecimal originalDue,BigDecimal actualPaid,BigDecimal discount,String reason){
+  List<Map<String,Object>> receivers=db.list("select u.user_id from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=:s and u.status=1 and r.status=1 and r.role_code in ('ADMIN','MANAGER')",Map.of("s",storeId));
+  String content="议价成交：订单"+orderNo+"，原应收 ¥"+originalDue+"，实收 ¥"+actualPaid+"，议价优惠 ¥"+discount+"；原因："+reason;
+  for(Map<String,Object> receiver:receivers){
+   long uid=((Number)receiver.get("user_id")).longValue();
+   db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'NOTIFICATION','BARGAIN',:content,:client,'',now())",new MapSqlParameterSource().addValue("s",storeId).addValue("uid",uid).addValue("content",content).addValue("client","BARGAIN-"+orderId+"-"+uid));
+  }
+  ws.broadcast("BARGAIN_RECORDED",Map.of("storeId",storeId,"orderId",orderId));
  }
 
  void consumeOrderInventory(long orderId,HttpServletRequest r){
