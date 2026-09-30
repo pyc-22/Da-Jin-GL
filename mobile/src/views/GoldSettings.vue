@@ -4,7 +4,8 @@
       <DesignHeader title="金价设置" subtitle="行情、加价与回收扣减同步至全端" eyebrow="PRICING" :back="true" @back="router.back()">
         <button class="outline" :disabled="loading" aria-label="刷新行情" @click="load">刷新</button>
       </DesignHeader>
-      <p v-if="!auth.can('gold:manage')" class="error permission-note">当前账号没有金价管理权限。</p>
+      <p v-if="!isAdmin" class="error permission-note">仅管理员可查看和修改完整金价配置。</p>
+      <p v-else-if="!auth.can('gold:manage')" class="error permission-note">当前账号没有金价管理权限。</p>
       <template v-else>
         <section class="market-settings-card">
           <div class="market-settings-heading"><div><span class="eyebrow">MARKET</span><h2>行情来源</h2></div><span class="market-live" :class="marketClass">● {{ marketStatusLabel }}</span></div>
@@ -44,7 +45,7 @@ import { api } from '../api/request.js'
 import DesignHeader from '../components/DesignHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 
-const router = useRouter(); const auth = useAuthStore(); const app = useAppStore(); const types = ref([]); const logs = ref([]); const loading = ref(false); const saving = ref(null); const toast = ref(''); const spotPrice = ref(0)
+const router = useRouter(); const auth = useAuthStore(); const app = useAppStore(); const isAdmin = computed(() => auth.role === 'ADMIN'); const types = ref([]); const logs = ref([]); const loading = ref(false); const saving = ref(null); const toast = ref(''); const spotPrice = ref(0)
 const roundingOptions = [{ value: 'NONE', label: '不取整' }, { value: 'TENTH', label: '到角' }, { value: 'YUAN', label: '到元' }, { value: 'TAIL_8', label: '尾数 .8' }, { value: 'TAIL_9', label: '尾数 .9' }]
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const statusText = value => ({ OPEN: '开市', CLOSED: '休市', ERROR: '行情失败·旧价', FROZEN: '异常冻结' }[String(value || '').toUpperCase()] || '待同步')
@@ -59,9 +60,9 @@ const round = (value, rule) => { const n = Number(value || 0); if (rule === 'TEN
 const preview = (row, recycle) => row.pricingMode === 'MANUAL' ? Number(recycle ? row.recyclePrice : row.salePrice) : round(Number(row.basePrice || 0) * Number(row.purityCoefficient || 0) + (recycle ? -Number(row.recycleDeduction || 0) : Number(row.markup || 0)), row.roundingRule)
 function step(row, key, amount) { row[key] = Math.max(0, Math.round((Number(row[key] || 0) + amount) * 100) / 100) }
 function notify(message) { toast.value = message; window.clearTimeout(notify.timer); notify.timer = window.setTimeout(() => { toast.value = '' }, 2600) }
-async function load() { loading.value = true; try { types.value = await api.goldTypesAll() || []; logs.value = await api.goldLogs({ limit: 100 }) || []; const spot = await api.goldSpot().catch(() => null); spotPrice.value = Number(spot?.price || primary.value.basePrice || 0) } catch (e) { notify(e?.message || '金价配置加载失败') } finally { loading.value = false } }
-async function save(row) { const id = row.type_id || row.type_code; saving.value = id; try { await api.updateGoldType(id, { pricingMode: row.pricingMode, baseInstrument: row.baseInstrument, purityCoefficient: Number(row.purityCoefficient), markup: Number(row.markup), recycleDeduction: Number(row.recycleDeduction), roundingRule: row.roundingRule, salePrice: Number(row.salePrice), recyclePrice: Number(row.recyclePrice), resumeAuto: false }); await app.loadGold(); await load(); notify('金价配置已保存并同步全端') } catch (e) { notify(e?.response?.status === 403 ? '当前账号没有金价管理权限' : (e?.message || '保存失败')) } finally { saving.value = null } }
-async function resume(row) { const id = row.type_id || row.type_code; saving.value = id; try { await api.updateGoldType(id, { pricingMode: 'AUTO', resumeAuto: true }); await app.loadGold(); await load(); notify('已恢复自动定价') } catch (e) { notify(e?.response?.status === 403 ? '当前账号没有金价管理权限' : (e?.message || '恢复失败')) } finally { saving.value = null } }
+async function load() { if (!isAdmin.value || !auth.can('gold:manage')) return; loading.value = true; try { types.value = await api.goldTypesAll() || []; logs.value = await api.goldLogs({ limit: 100 }) || []; const spot = await api.goldSpot().catch(() => null); spotPrice.value = Number(spot?.price || primary.value.basePrice || 0) } catch (e) { notify(e?.message || '金价配置加载失败') } finally { loading.value = false } }
+async function save(row) { if (!isAdmin.value || !auth.can('gold:manage')) return notify('仅管理员可修改金价配置'); const id = row.type_id || row.type_code; saving.value = id; try { await api.updateGoldType(id, { pricingMode: row.pricingMode, baseInstrument: row.baseInstrument, purityCoefficient: Number(row.purityCoefficient), markup: Number(row.markup), recycleDeduction: Number(row.recycleDeduction), roundingRule: row.roundingRule, salePrice: Number(row.salePrice), recyclePrice: Number(row.recyclePrice), resumeAuto: false }); await app.loadGold(); await load(); notify('金价配置已保存并同步全端') } catch (e) { notify(e?.response?.status === 403 ? '当前账号没有金价管理权限' : (e?.message || '保存失败')) } finally { saving.value = null } }
+async function resume(row) { if (!isAdmin.value || !auth.can('gold:manage')) return notify('仅管理员可修改金价配置'); const id = row.type_id || row.type_code; saving.value = id; try { await api.updateGoldType(id, { pricingMode: 'AUTO', resumeAuto: true }); await app.loadGold(); await load(); notify('已恢复自动定价') } catch (e) { notify(e?.response?.status === 403 ? '当前账号没有金价管理权限' : (e?.message || '恢复失败')) } finally { saving.value = null } }
 onMounted(load)
 </script>
 

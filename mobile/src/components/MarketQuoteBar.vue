@@ -1,6 +1,6 @@
 <template>
   <section class="market-quote-bar">
-    <div class="market-quote-head">
+    <div v-if="showMeta" class="market-quote-head">
       <span>{{ sourceLabel }}</span>
       <span class="market-status" :class="statusClass">● {{ statusLabel }}</span>
     </div>
@@ -13,7 +13,7 @@
         </em>
       </div>
     </div>
-    <small v-if="!compact" class="market-quote-meta">{{ source }}<template v-if="time"> · {{ time }}</template><template v-if="countdown"> · {{ countdown }}</template></small>
+    <small v-if="showMeta && !compact" class="market-quote-meta">{{ source }}<template v-if="time"> · {{ time }}</template><template v-if="countdown"> · {{ countdown }}</template></small>
   </section>
 </template>
 
@@ -27,7 +27,8 @@ const props = defineProps({
   silverRecycle: { type: Object, default: null },
   sourceLabel: { type: String, default: '实时金银行情' },
   countdown: { type: String, default: '' },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  showMeta: { type: Boolean, default: true }
 })
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const status = computed(() => String(props.gold?.marketStatus || '').toUpperCase())

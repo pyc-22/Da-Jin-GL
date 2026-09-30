@@ -64,7 +64,7 @@ const routes = [
   { path: '/manager/daily', component: DailyReport, meta: { auth: true, permission: 'report:view:all' } },
   { path: '/sales/calc', component: SalesCalculator, meta: { auth: true, permission: 'order:create' } },
   { path: '/sales/recycle', component: RecycleCreate, meta: { auth: true, permission: 'recycle:view' } },
-  { path: '/gold-settings', component: GoldSettings, meta: { auth: true, permission: 'gold:manage' } },
+  { path: '/gold-settings', component: GoldSettings, meta: { auth: true, roles: ['ADMIN'], permission: 'gold:manage' } },
   { path: '/sales/processing-progress', redirect: '/processing' },
   { path: '/sales/birthday', component: BirthdayReminder, meta: { auth: true, permission: 'member:view' } },
   { path: '/:role/:section?', component: RoleHome, meta: { auth: true } },
