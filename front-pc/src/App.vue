@@ -646,7 +646,6 @@ function productGoldPrice(product) {
 }
 function productAmount(product) {
   if (Number(product.price_type) === 1) return Number(product.weight || 0) * productGoldPrice(product)
-  if (Number(product.price_type) === 3) return Number(product.sale_price || 0) * Number(product.weight || 1)
   return Number(product.sale_price || 0)
 }
 function productDetail(product) {
@@ -1699,7 +1698,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
     <div class="app-shell">
     <header class="topbar">
       <div class="brand"><div class="brand-mark"><Gem :size="18" /></div><div><strong>{{ cashier.storeName }}</strong><span>黄金业务工作台</span></div></div>
-      <div class="top-metrics"><div class="metric"><span>足金卖价</span><b>{{ money(goldSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '足金')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '足金')) }}</small></em></div><div class="metric"><span>黄金回收价</span><b>{{ money(recycleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '回收金价')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '回收金价')) }}</small></em></div><div class="metric silver"><span>银卖价</span><b>{{ money(silverSaleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '银')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '银')) }}</small></em></div><div class="metric silver"><span>银回收价</span><b>{{ money(silverRecycleSpot) }}<small>/g</small></b><em>{{ marketLabel(gold.find(x => x.price_type === '银回收价')) }}<small class="market-config">{{ pricingLabel(gold.find(x => x.price_type === '银回收价')) }}</small></em></div></div>
+      <div class="top-metrics"><div class="metric"><span>足金卖价</span><b>{{ money(goldSpot) }}<small>/g</small></b></div><div class="metric"><span>黄金回收价</span><b>{{ money(recycleSpot) }}<small>/g</small></b></div><div class="metric silver"><span>银卖价</span><b>{{ money(silverSaleSpot) }}<small>/g</small></b></div><div class="metric silver"><span>银回收价</span><b>{{ money(silverRecycleSpot) }}<small>/g</small></b></div></div>
       <div class="top-actions"><span class="online-state" :class="{ offline: !online }"><span class="status-dot"></span>{{ online ? (syncing ? '同步中' : '在线') : '离线' }}</span><button class="icon-button" title="消息通知" @click="openNotifications"><Bell :size="18" /><i v-if="noticeBadge">{{ noticeBadge }}</i></button><span class="top-time">{{ currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</span><button class="user-chip" @click="loginDialog"><span class="avatar">{{ cashier.name.slice(0, 1) }}</span>{{ cashier.name }}<ChevronRight :size="14" /></button></div>
     </header>
     <main class="workspace">
