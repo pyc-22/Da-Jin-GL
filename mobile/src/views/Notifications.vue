@@ -8,7 +8,7 @@
       <div v-if="!notices.length" class="empty">暂无消息</div>
     </main>
     <nav class="tabbar">
-      <button v-for="tab in tabs" :key="tab.key" :class="{ active: tab.key === 'notifications' }" @click="openTab(tab.key)"><span>{{ TAB_ICONS[tab.key] || '•' }}</span>{{ tab.label }}</button>
+      <button v-for="tab in tabs" :key="tab.key" :class="{ active: tab.key === 'notifications', 'tabbar-order': tab.key === 'order' }" @click="openTab(tab.key)"><span>{{ TAB_ICONS[tab.key] || '•' }}</span>{{ tab.label }}</button>
     </nav>
   </div>
 </template>
@@ -24,7 +24,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const notices = ref([])
 const isManager = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
-const TAB_ICONS = { dashboard: '⌂', home: '⌂', report: '↗', performance: '↗', member: '👤', members: '👤', notifications: '●', profile: '⚙' }
+const TAB_ICONS = { dashboard: '⌂', home: '⌂', report: '↗', performance: '↗', member: '👤', members: '👤', order: '＋', notifications: '●', profile: '⚙' }
 const tabs = computed(() => tabsForRole(auth.role, auth.permissions))
 
 const actionLabel = value => ({
@@ -47,6 +47,7 @@ const fmtTime = value => {
 function openTab(key) {
   if (key === 'notifications') return
   if (key === 'dashboard' || key === 'home') return router.push(isManager.value ? '/manager/dashboard' : '/sales/home')
+  if (key === 'order') return router.push(isManager.value ? '/manager/order' : '/sales/order')
   if (key === 'report' || key === 'performance') return router.push('/report')
   if (key === 'member' || key === 'members') return router.push(isManager.value ? '/manager/member' : '/sales/members')
   if (key === 'profile') return router.push(isManager.value ? '/manager/profile' : '/sales/profile')

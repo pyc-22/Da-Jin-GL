@@ -138,6 +138,7 @@ export const api = {
   ,processingHandover: (id) => http.post(`/api/processing/orders/${id}/handover`)
   ,processingItems: (params = {}) => http.get('/api/processing/items', { params })
   ,processingCraftsmen: () => http.get('/api/processing/craftsmen')
+  ,processingSalespeople: () => http.get('/api/processing/salespeople')
   ,goldSpot: () => http.get('/api/gold-price/spot')
   ,goldTypesAll: () => http.get('/api/gold-price/types/all')
   ,goldLogs: (params = {}) => http.get('/api/gold-price/logs', { params })

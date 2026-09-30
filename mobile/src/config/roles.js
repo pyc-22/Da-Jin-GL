@@ -2,6 +2,7 @@ const TAB_PRESETS = {
   MANAGER: [
     { key: 'dashboard', label: '首页', permission: 'dashboard:view' },
     { key: 'report', label: '报表', permission: 'report:view' },
+    { key: 'order', label: '开单', permission: 'order:create' },
     { key: 'member', label: '会员', permission: 'member:view' },
     { key: 'notifications', label: '消息', permission: 'notification:view' },
     { key: 'profile', label: '我的' }
@@ -9,6 +10,7 @@ const TAB_PRESETS = {
   SALES: [
     { key: 'home', label: '首页', permission: 'dashboard:view' },
     { key: 'performance', label: '报表', permission: 'report:view' },
+    { key: 'order', label: '开单', permission: 'order:create' },
     { key: 'members', label: '会员', permission: 'member:view' },
     { key: 'notifications', label: '消息', permission: 'notification:view' },
     { key: 'profile', label: '我的' }

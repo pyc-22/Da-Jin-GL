@@ -6,7 +6,7 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles/app.css'), 'utf8')
 
 describe('mobile layout safeguards', () => {
   it('reserves space for the fixed bottom navigation and safe area', () => {
-    expect(css).toContain('.shell{min-height:100vh;padding-bottom:calc(120px + env(safe-area-inset-bottom))')
+    expect(css).toContain('.shell{min-height:100vh;min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom))')
     expect(css).toContain('.report-page{padding-bottom:calc(128px + env(safe-area-inset-bottom))')
   })
 
@@ -19,6 +19,6 @@ describe('mobile layout safeguards', () => {
   })
 
   it('keeps normal vertical scrolling on the page axis', () => {
-    expect(css).toContain('.shell{min-height:100vh;padding-bottom:calc(120px + env(safe-area-inset-bottom));overflow-x:clip;touch-action:pan-y}')
+    expect(css).toContain('.shell{min-height:100vh;min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom));overflow-x:clip;touch-action:pan-y}')
   })
 })

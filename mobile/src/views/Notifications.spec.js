@@ -18,7 +18,8 @@ describe('Notifications navigation', () => {
   it('keeps the role tab bar visible and localizes read notifications', async () => {
     const wrapper = mount(Notifications)
     await flushPromises()
-    expect(wrapper.findAll('.tabbar button')).toHaveLength(5)
+    expect(wrapper.findAll('.tabbar button')).toHaveLength(6)
+    expect(wrapper.get('.tabbar button:nth-child(3)').text()).toContain('开单')
     expect(wrapper.get('.tabbar button.active').text()).toContain('消息')
     expect(wrapper.text()).toContain('通知')
     expect(wrapper.text()).not.toContain('READ')
@@ -29,5 +30,12 @@ describe('Notifications navigation', () => {
     await flushPromises()
     await wrapper.findAll('.tabbar button')[0].trigger('click')
     expect(mocks.push).toHaveBeenCalledWith('/manager/dashboard')
+  })
+
+  it('opens the order page from the raised center tab', async () => {
+    const wrapper = mount(Notifications)
+    await flushPromises()
+    await wrapper.find('.tabbar-order').trigger('click')
+    expect(mocks.push).toHaveBeenCalledWith('/manager/order')
   })
 })
