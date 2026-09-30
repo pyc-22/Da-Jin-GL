@@ -189,68 +189,45 @@ describe('cashier mounted checkout and processing flows', () => {
     expect(requestOrQueue).not.toHaveBeenCalled()
   })
 
-  it('keeps a partial sale in todo and collects only the remaining amount', async () => {
-    let paid = 0
+  it('settles a sale from entered actual receipt and does not offer partial collection', async () => {
     requestOrQueue.mockImplementation(async (path, options) => {
       if (path === '/api/order/create') return { orderId: 42, orderNo: 'SALE-42', status: 0 }
-      const body = options
-      expect(body.amount).toBe(paid ? 60 : 40)
-      paid += body.amount
-      pendingSales = paid < 100 ? [{ ...pending, actual_paid: paid, remaining_due: 100 - paid, discounted_due: 100 }] : []
-      return { status: paid < 100 ? 0 : 1, actualPaid: paid, remaining: 100 - paid }
+      expect(options.amount).toBe(90)
+      expect(options.settlementMode).toBe('FULL')
+      return { status: 1, actualPaid: 90, originalDue: 100, settlementDiscount: 10, remaining: 0 }
     })
-    const base = requestHandler
-    requestHandler = (path, options) => path === '/api/order/42'
-      ? { order: pendingSales[0], payments: [{ pay_method: 'CASH', amount: 40 }], items: [{ goods_id: 1, item_name: product.name, qty: 1, unit_price: 100, subtotal: 100 }] }
-      : base(path, options)
     await start()
     await openSale()
-    await button('部分收款', '[role="dialog"] button').trigger('click')
-    await wrapper.get('.payment-input input').setValue('40')
-    await button('确认部分收款', '[role="dialog"] button').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('.receipt-preview').text()).toContain('实收: ¥40.00')
-    expect(wrapper.get('.receipt-preview').text()).toContain('待收: ¥60.00')
-    await button('稍后处理', '[role="dialog"] button').trigger('click')
-    await openTodo()
-    await button('待收款', '.todo-tabs button').trigger('click')
-    expect(wrapper.get('tbody').text()).toContain('60.00')
-    expect(wrapper.find('tbody .danger-text').exists()).toBe(false)
-    await button('收款', 'tbody button').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('.payment-total').text()).toContain('60.00')
+    expect(wrapper.findAll('[role="dialog"] button').some(node => node.text().includes('部分收款'))).toBe(false)
+    expect(wrapper.findAll('[role="dialog"] button').some(node => node.text().includes('议价结清'))).toBe(false)
     await wrapper.get('.payment-method').trigger('click')
-    await wrapper.get('.payment-input input').setValue('61')
-    expect(wrapper.get('.dialog-actions .primary-button').element.disabled).toBe(true)
-    await wrapper.get('.payment-input input').setValue('60')
+    await wrapper.get('.payment-input input').setValue('90')
     await button('确认收款', '[role="dialog"] button').trigger('click')
     await flushPromises()
-    expect(wrapper.get('.receipt-preview').text()).toContain('实收: ¥100.00')
-    expect(wrapper.get('.receipt-preview').text()).toContain('现金 ¥40.00 + 现金 ¥60.00')
-    expect(wrapper.get('.receipt-preview').text()).not.toContain('待收:')
+    const call = requestOrQueue.mock.calls.find(([path]) => path === '/api/pay/pay')
+    expect(call[1]).toMatchObject({ amount: 90, settlementMode: 'FULL' })
+    expect(wrapper.get('.receipt-preview').text()).toContain('实收: ¥90.00')
+    expect(wrapper.get('.receipt-preview').text()).toContain('优惠: -¥10.00')
   })
 
-  it('lets a cashier settle a negotiated price and records the actual payment without approval', async () => {
+  it('sends a deep sale discount to approval without printing or recording payment', async () => {
     localStorage.setItem('dajin_user', JSON.stringify({ real_name: '收银员', role_code: 'CASHIER' }))
-    const base = requestHandler
-    requestHandler = (path, options) => path === '/api/pay/pay'
-      ? { status: 1, actualPaid: 80, originalDue: 100, settlementDiscount: 20, remaining: 0 }
-      : base(path, options)
+    requestOrQueue.mockImplementation(async (path, options) => path === '/api/pay/pay'
+      ? { approvalRequired: true, approvalId: 91, status: 0, actualPaid: 80, originalDue: 100, settlementDiscount: 20 }
+      : path === '/api/order/create' ? { orderId: 42, orderNo: 'SALE-42', status: 0 } : { status: 1 })
     await start()
     await openSale()
-    await button('议价结清', '[role="dialog"] button').trigger('click')
-    expect(wrapper.get('.dialog-actions .primary-button').element.disabled).toBe(true)
-    expect(wrapper.get('[role="dialog"]').text()).not.toContain('议价优惠')
+    await wrapper.get('.payment-method').trigger('click')
     await wrapper.get('.payment-input input').setValue('80')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('议价优惠')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('优惠')
     expect(wrapper.get('[role="dialog"]').text()).toContain('20.00')
-    await button('确认议价收款', '[role="dialog"] button').trigger('click')
+    await button('确认收款', '[role="dialog"] button').trigger('click')
     await flushPromises()
-    const payCall = request.mock.calls.find(([path]) => path === '/api/pay/pay')
-    expect(JSON.parse(payCall[1].body)).toMatchObject({ amount: 80, settlementMode: 'DISCOUNT', settlementDiscountReason: '顾客议价' })
-    expect(requestOrQueue.mock.calls.filter(([path]) => path === '/api/pay/pay')).toHaveLength(0)
-    expect(wrapper.get('.receipt-preview').text()).toContain('实收: ¥80.00')
-    expect(wrapper.get('.receipt-preview').text()).toContain('优惠: -¥20.00')
+    const payCall = requestOrQueue.mock.calls.find(([path]) => path === '/api/pay/pay')
+    expect(payCall[1]).toMatchObject({ amount: 80, settlementMode: 'FULL' })
+    expect(requestOrQueue.mock.calls.filter(([path]) => path === '/api/pay/pay')).toHaveLength(1)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('优惠审批已提交')
+    expect(wrapper.find('.receipt-preview').exists()).toBe(false)
   })
 
   it('moves a confirmed/printed processing order to the processing list and preserves it on refresh failure', async () => {
@@ -281,7 +258,7 @@ describe('cashier mounted checkout and processing flows', () => {
     const dialog = wrapper.get('[role="dialog"]')
     expect(dialog.text()).not.toContain('议价结清')
     await dialog.get('input[type="number"]').setValue('30')
-    await button('确认收款', '[role="dialog"] button').trigger('click')
+    await button('确认收定金', '[role="dialog"] button').trigger('click')
     await flushPromises()
     expect(request).toHaveBeenCalledWith('/api/processing/orders/7/payments', expect.objectContaining({
       method: 'POST', body: expect.stringContaining('"paymentType":"DEPOSIT"')
@@ -297,8 +274,8 @@ describe('cashier mounted checkout and processing flows', () => {
     await openTodo()
     await button('收定金', 'tbody button').trigger('click')
     await wrapper.get('[role="dialog"] input[type="number"]').setValue('101')
-    await button('确认收款', '[role="dialog"] button').trigger('click')
-    expect(ElMessage.warning).toHaveBeenCalled()
+    const submit = button('确认收定金', '[role="dialog"] button')
+    expect(submit.element.disabled).toBe(true)
     expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/payments')).toHaveLength(0)
   })
 
@@ -324,13 +301,13 @@ describe('cashier mounted checkout and processing flows', () => {
     await dialog.get('input[type="number"]').setValue('180')
     await dialog.get('input[maxlength="100"]').setValue('DY-123')
     expect(dialog.text()).toContain('20.00')
-    await button('确认收款', '[role="dialog"] button').trigger('click')
+    await button('确认实收', '[role="dialog"] button').trigger('click')
     await flushPromises()
     const call = request.mock.calls.find(([path]) => path === '/api/processing/orders/7/payments')
     expect(JSON.parse(call[1].body)).toMatchObject({ paymentType: 'BALANCE', payMethod: 'DOUYIN_GROUP', amount: 180, voucherNo: 'DY-123' })
   })
 
-  it('lets a cashier negotiate an ordinary processing balance without changing group payment', async () => {
+  it('submits an ordinary processing discount as a full actual-receipt request', async () => {
     localStorage.setItem('dajin_user', JSON.stringify({ real_name: '收银员', role_code: 'CASHIER' }))
     handovers = [{ ...processing, status: 'COMPLETED', due_amount: 200 }]
     const base = requestHandler
@@ -339,15 +316,12 @@ describe('cashier mounted checkout and processing flows', () => {
     await openTodo()
     await button('待取货', '.todo-tabs button').trigger('click')
     await button('收尾款', 'tbody button').trigger('click')
-    await button('议价结清', '[role="dialog"] button').trigger('click')
-    expect(wrapper.get('.dialog-actions .primary-button').element.disabled).toBe(true)
-    expect(wrapper.get('[role="dialog"]').text()).not.toContain('议价优惠')
     await wrapper.get('[role="dialog"] input[type="number"]').setValue('180')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('议价优惠 ¥20.00')
-    await button('确认议价收款', '[role="dialog"] button').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('优惠 ¥20.00')
+    await button('确认实收', '[role="dialog"] button').trigger('click')
     await flushPromises()
     const call = request.mock.calls.find(([path]) => path === '/api/processing/orders/7/payments')
-    expect(JSON.parse(call[1].body)).toMatchObject({ paymentType: 'BALANCE', payMethod: 'CASH', amount: 180, settlementMode: 'DISCOUNT', settlementDiscountReason: '顾客议价' })
+    expect(JSON.parse(call[1].body)).toMatchObject({ paymentType: 'BALANCE', payMethod: 'CASH', amount: 180, settlementMode: 'FULL' })
   })
 
   it('does not offer a second group redemption on a promoted processing order', async () => {

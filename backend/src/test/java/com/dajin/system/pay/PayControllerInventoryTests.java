@@ -64,6 +64,34 @@ class PayControllerInventoryTests {
     }
 
     @Test
+    void deepSaleDiscountCreatesApprovalBeforeAnyCollection() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(request)).thenReturn(1L);
+        when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "CASHIER")).setSubject("2"));
+        when(db.one(contains("select * from sales_order"), anyMap())).thenReturn(Map.of(
+                "order_id", 78L, "store_id", 1L, "status", 0, "order_no", "XS-78",
+                "total_amount", new BigDecimal("100.00"), "discount", BigDecimal.ONE,
+                "labor_fee", BigDecimal.ZERO, "old_material_deduct", BigDecimal.ZERO,
+                "pay_amount", BigDecimal.ZERO, "settlement_discount", BigDecimal.ZERO));
+        when(jdbc.queryForObject(contains("pay_channel"), anyMap(), eq(Integer.class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("select approval_id from approval"), anyMap(), eq(Long.class))).thenReturn(18L);
+        PayController controller = new PayController(db, mock(SyncWebSocketHandler.class),
+                mock(ShiftService.class), mock(OldMaterialLedgerService.class), new ObjectMapper());
+
+        Map<?, ?> result = (Map<?, ?>) controller.pay(Map.of(
+                "orderId", 78L, "clientRequestId", "deep-78", "amount", 80,
+                "settlementMode", "FULL", "payMethod", "CASH"), request).data();
+
+        assertEquals(true, result.get("approvalRequired"));
+        assertEquals(18L, result.get("approvalId"));
+        verify(jdbc, never()).update(contains("insert into finance_record"), any(MapSqlParameterSource.class));
+        verify(jdbc, never()).update(contains("update sales_order set status"), any(MapSqlParameterSource.class));
+    }
+
+    @Test
     void zeroPayableOrderDoesNotCreateZeroAmountPaymentLine() {
         PayController controller = new PayController(mock(DbSupport.class), mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class), new ObjectMapper());

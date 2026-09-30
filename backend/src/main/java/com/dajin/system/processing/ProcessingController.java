@@ -789,7 +789,9 @@ public class ProcessingController {
         BigDecimal remaining = due.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         boolean groupPayment = PaymentChannelPolicy.isGroupChannel(payMethod);
         String settlementMode = String.valueOf(body.getOrDefault("settlementMode", "FULL")).trim().toUpperCase(Locale.ROOT);
-        if (!Set.of("FULL", "PARTIAL", "DISCOUNT").contains(settlementMode)) throw new BusinessException(400718, "结算方式不合法");
+        boolean depositPayment = "DEPOSIT".equals(paymentType);
+        if (!Set.of("FULL", "DISCOUNT").contains(settlementMode) && !(depositPayment && "PARTIAL".equals(settlementMode)))
+            throw new BusinessException(400718, "结算方式不合法，加工尾款只能一次结清");
         String voucherNo = null;
         BigDecimal discount = BigDecimal.ZERO;
         if (groupPayment) {
@@ -806,24 +808,31 @@ public class ProcessingController {
             throw new BusinessException(400724, "普通收款不能填写团购核销单号");
         }
         if (amount.compareTo(remaining) > 0) throw new BusinessException(409707, "收款金额超过加工单未收金额");
-        if ("BALANCE".equals(paymentType) && !groupPayment) {
-            if ("FULL".equals(settlementMode) && amount.compareTo(remaining) != 0) throw new BusinessException(400717, "尾款金额应等于剩余应收金额");
-            if ("PARTIAL".equals(settlementMode) && amount.compareTo(remaining) >= 0) throw new BusinessException(400717, "部分收款金额必须小于剩余应收金额");
-            if ("DISCOUNT".equals(settlementMode)) {
-                if (amount.compareTo(remaining) >= 0) throw new BusinessException(400717, "优惠结清实收必须小于剩余应收金额");
-                String reason = optionalText(body, "settlementDiscountReason");
-                if (reason == null || reason.isBlank() || reason.length() > 200) throw new BusinessException(400108, "优惠结清必须填写原因");
-                discount = remaining.subtract(amount).setScale(2, RoundingMode.HALF_UP);
-            }
-        }
+        if ("BALANCE".equals(paymentType) && !groupPayment && amount.compareTo(remaining) < 0)
+            discount = remaining.subtract(amount).setScale(2, RoundingMode.HALF_UP);
         if ("DISCOUNT".equals(settlementMode) && !groupPayment && !"BALANCE".equals(paymentType))
             throw new BusinessException(400717, "只有尾款可以使用优惠结清");
-        String promotionReason = null;
-        if (discount.signum() > 0) promotionReason = optionalText(body, "settlementDiscountReason");
+        String promotionReason = discount.signum() > 0 ? optionalText(body, "settlementDiscountReason") : null;
+        if (discount.signum() > 0 && (promotionReason == null || promotionReason.isBlank())) promotionReason = "顾客优惠";
+        if (promotionReason != null && promotionReason.length() > 200) throw new BusinessException(400108, "优惠原因不能超过200字");
         BigDecimal originalDue = order.get("original_due_amount") == null ? due : decimal(order.get("original_due_amount"));
         BigDecimal existingDiscount = decimal(order.get("promotion_discount"));
         if (discount.signum() > 0 && existingDiscount.signum() > 0)
             throw new BusinessException(400724, "该加工单已经存在优惠记录，不能重复优惠");
+        BigDecimal finalPaid = paid.add(amount).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal threshold = paymentApprovalThreshold(storeId);
+        boolean belowThreshold = "BALANCE".equals(paymentType) && !groupPayment && originalDue.signum() > 0
+                && finalPaid.compareTo(originalDue.multiply(threshold).setScale(2, RoundingMode.HALF_UP)) < 0;
+        if (belowThreshold) {
+            Map<String,Object> previous = latestPaymentApproval(storeId, id, "PROCESSING_PAYMENT_DISCOUNT");
+            if (previous != null && number(previous.get("status")) == 1)
+                return ApiResponse.ok(paymentApprovalResult(id, originalDue, finalPaid, discount, ((Number) previous.get("approval_id")).longValue()));
+            boolean approved = previous != null && number(previous.get("status")) == 3 && approvedPaymentMatches(previous, finalPaid);
+            if (!approved) {
+                long approvalId = createPaymentApproval(storeId, id, "PROCESSING_PAYMENT_DISCOUNT", amount, originalDue, finalPaid, discount, promotionReason, request);
+                return ApiResponse.ok(paymentApprovalResult(id, originalDue, finalPaid, discount, approvalId));
+            }
+        }
         if ("BALANCE".equals(payMethod)) {
             if (order.get("member_id") == null) throw new BusinessException(400106, "储值支付必须关联会员");
             int debited = db.jdbc().update("update member set balance=balance-:amount,update_time=now() where member_id=:member and store_id=:s and balance>=:amount",
@@ -849,7 +858,7 @@ public class ProcessingController {
         } catch (DuplicateKeyException e) {
             throw new BusinessException(409717, "团购核销单号已用于其他加工单");
         }
-        if ("DISCOUNT".equals(settlementMode) && !groupPayment)
+        if (discount.signum() > 0 && !groupPayment)
             notifyNegotiatedPayment(storeId, id, String.valueOf(order.get("order_no")), originalDue, paid.add(amount), discount, promotionReason);
         log(storeId, operator, "ORDER_PAYMENT", "加工单=" + order.get("order_no") + "," + paymentType + "=" + amount + (discount.signum() > 0 ? ",优惠=" + discount + ",原因=" + promotionReason : ""));
         Map<String, Object> result = orderDetail(id, storeId, request); broadcast("PROCESSING_ORDER_UPDATED", processingOrderEvent(result, "PAYMENT"));
@@ -1087,6 +1096,51 @@ public class ProcessingController {
         return unit;
     }
     private String trimToEmpty(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
+    private BigDecimal paymentApprovalThreshold(long storeId) {
+        try {
+            String value = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key='discount_threshold' and enabled=1", Map.of("s", storeId), String.class);
+            BigDecimal threshold = new BigDecimal(value);
+            if (threshold.signum() > 0 && threshold.compareTo(BigDecimal.ONE) <= 0) return threshold;
+        } catch (Exception ignored) { }
+        return new BigDecimal("0.85");
+    }
+    private List<Map<String,Object>> paymentApprovals(long storeId, long orderId, String type) {
+        return db.list("select approval_id,status,reason from approval where store_id=:s and type=:type and biz_id=:biz order by approval_id desc limit 1 for update", Map.of("s", storeId, "type", type, "biz", orderId));
+    }
+    private Map<String,Object> latestPaymentApproval(long storeId, long orderId, String type) {
+        List<Map<String,Object>> rows = paymentApprovals(storeId, orderId, type);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+    private boolean approvedPaymentMatches(Map<String,Object> approval, BigDecimal actualPaid) {
+        try {
+            Map<?,?> data = JSON.readValue(String.valueOf(approval.get("reason")), Map.class);
+            return actualPaid.compareTo(new BigDecimal(String.valueOf(data.get("actualPaid")))) == 0;
+        } catch (Exception ignored) { return false; }
+    }
+    private long createPaymentApproval(long storeId, long orderId, String type, BigDecimal amount, BigDecimal originalDue,
+                                       BigDecimal actualPaid, BigDecimal discount, String reason, HttpServletRequest request) {
+        Map<String,Object> data = new LinkedHashMap<>();
+        data.put("kind", "PAYMENT_DISCOUNT"); data.put("orderId", orderId); data.put("originalDue", originalDue);
+        data.put("actualPaid", actualPaid); data.put("discount", discount);
+        data.put("discountRate", originalDue.signum() == 0 ? BigDecimal.ONE : actualPaid.divide(originalDue, 6, RoundingMode.HALF_UP));
+        data.put("reason", reason == null || reason.isBlank() ? "顾客优惠" : reason);
+        final String serialized;
+        try { serialized = JSON.writeValueAsString(data); } catch (Exception e) { throw new BusinessException(500102, "优惠审批信息生成失败"); }
+        db.jdbc().update("insert into approval(store_id,type,biz_id,applicant_id,amount,reason,status,create_time) values(:s,:type,:biz,:uid,:amount,:reason,1,now())",
+                new MapSqlParameterSource().addValue("s", storeId).addValue("type", type).addValue("biz", orderId)
+                        .addValue("uid", userId(request)).addValue("amount", amount).addValue("reason", serialized));
+        long approvalId = db.jdbc().queryForObject("select approval_id from approval where store_id=:s and type=:type and biz_id=:biz order by approval_id desc limit 1",
+                Map.of("s", storeId, "type", type, "biz", orderId), Long.class);
+        broadcast("APPROVAL_CREATED", Map.of("storeId", storeId, "id", approvalId, "approvalId", approvalId, "type", type, "bizId", orderId));
+        return approvalId;
+    }
+    private Map<String,Object> paymentApprovalResult(long orderId, BigDecimal originalDue, BigDecimal actualPaid, BigDecimal discount, long approvalId) {
+        Map<String,Object> result = new LinkedHashMap<>(); result.put("processingOrderId", orderId); result.put("recorded", false);
+        result.put("approvalRequired", true); result.put("approvalId", approvalId); result.put("status", "PENDING");
+        result.put("actualPaid", actualPaid); result.put("originalDue", originalDue); result.put("settlementDiscount", discount); result.put("remaining", BigDecimal.ZERO);
+        return result;
+    }
+    private int number(Object value) { try { return value == null ? 0 : new BigDecimal(String.valueOf(value)).intValue(); } catch (Exception ignored) { return 0; } }
     private void ensureUnique(String table, String field, String value, long currentId, long storeId, String message) {
         String idField = "processing_category".equals(table) ? "category_id" : "item_id";
         int found = db.jdbc().queryForObject("select count(*) from " + table + " where store_id=:s and " + field + "=:value and " + idField + "<>:id", Map.of("s", storeId, "value", value, "id", currentId), Integer.class);

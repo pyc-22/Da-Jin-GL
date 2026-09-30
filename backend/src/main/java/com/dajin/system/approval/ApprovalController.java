@@ -50,6 +50,13 @@ public class ApprovalController {
         if ("REFUND".equals(approval.get("type"))) {
             result.put("order",db.one("select * from sales_order where order_id=:id and store_id=:s",Map.of("id",approval.get("biz_id"),"s",db.store(r))));
         }
+        if ("SALE_PAYMENT_DISCOUNT".equals(approval.get("type"))) {
+            result.put("order", db.one("select * from sales_order where order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
+            result.put("payment", parsePaymentReason(approval.get("reason")));
+        } else if ("PROCESSING_PAYMENT_DISCOUNT".equals(approval.get("type"))) {
+            result.put("processingOrder", db.one("select * from processing_order where processing_order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
+            result.put("payment", parsePaymentReason(approval.get("reason")));
+        }
         if ("STOCK_CHECK".equals(approval.get("type"))) {
             Map<String,Object> check = db.one("select sc.*,u.real_name operator_name,case when sc.scope_type='STORE' then st.store_name "
                     + "when sc.scope_type in ('CATEGORY_L1','CATEGORY_L2') then c.name when sc.scope_type='GOODS' then g.name else '自定义商品' end scope_name "
@@ -120,6 +127,14 @@ public class ApprovalController {
             ws.broadcast("ORDER_UPDATED", decidedEvent);
             if (status != 3) ws.broadcast("STOCK_UPDATED", decidedEvent);
         }
+        if ("SALE_PAYMENT_DISCOUNT".equals(type)) {
+            ws.broadcast("ORDER_UPDATED", decidedEvent);
+            ws.broadcast("REPORT_UPDATED", decidedEvent);
+        }
+        if ("PROCESSING_PAYMENT_DISCOUNT".equals(type)) {
+            ws.broadcast("PROCESSING_ORDER_UPDATED", decidedEvent);
+            ws.broadcast("REPORT_UPDATED", decidedEvent);
+        }
         if ("RECYCLE".equals(type)) {
             ws.broadcast("RECYCLE_UPDATED", decidedEvent);
             ws.broadcast("OLD_MATERIAL_UPDATED", decidedEvent);
@@ -142,6 +157,11 @@ public class ApprovalController {
         result.put("status", status);
         result.put("remark", q == null ? null : q.get("remark"));
         return ApiResponse.ok(result);
+    }
+
+    private Map<String,Object> parsePaymentReason(Object raw) {
+        try { return objectMapper.readValue(String.valueOf(raw), new TypeReference<Map<String,Object>>() {}); }
+        catch (Exception ignored) { return Map.of("reason", raw == null ? "" : String.valueOf(raw)); }
     }
 
     private void decideStockCheck(long checkId, int status, String remark, HttpServletRequest r) {

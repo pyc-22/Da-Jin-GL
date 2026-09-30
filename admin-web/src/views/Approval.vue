@@ -14,6 +14,8 @@ const detail = ref(null)
 const typeOptions = [
   { value: 'ALL', label: '全部' },
   { value: 'DISCOUNT', label: '价格审批' },
+  { value: 'SALE_PAYMENT_DISCOUNT', label: '成品优惠审批' },
+  { value: 'PROCESSING_PAYMENT_DISCOUNT', label: '加工优惠审批' },
   { value: 'REFUND', label: '退货审批' },
   { value: 'RECYCLE', label: '回收审批' },
   { value: 'STOCK_CHECK', label: '盘点审批' }
@@ -77,7 +79,7 @@ onMounted(load)
           <el-table-column label="类型"><template #default="scope">{{ typeLabel(scope.row.type) }}</template></el-table-column>
           <el-table-column prop="biz_id" label="关联单据"/>
           <el-table-column label="金额"><template #default="scope">{{ formatMoney(scope.row.amount) }}</template></el-table-column>
-          <el-table-column label="申请原因"><template #default="scope">{{ formatApprovalReason(scope.row) }}</template></el-table-column>
+      <el-table-column label="申请原因"><template #default="scope">{{ formatApprovalReason(scope.row) }}</template></el-table-column>
           <el-table-column label="申请时间" min-width="180"><template #default="scope">{{ formatTime(scope.row.create_time) }}</template></el-table-column>
           <el-table-column label="操作" width="190"><template #default="scope"><el-button v-if="auth.can('approval:view')" link @click="showDetail(scope.row)">详情</el-button><el-button v-if="auth.can('approval:handle')" link type="success" @click="approve(scope.row.approval_id)">通过</el-button><el-button v-if="auth.can('approval:handle')" link type="danger" @click="reject(scope.row.approval_id)">驳回</el-button></template></el-table-column>
         </el-table>
@@ -121,6 +123,16 @@ onMounted(load)
         <el-table-column label="数量差异"><template #default="scope">{{ scope.row.difference ?? (Number(scope.row.actual || 0) - Number(scope.row.stock || 0)) }}</template></el-table-column>
         <el-table-column label="金额差异"><template #default="scope">{{ formatMoney(scope.row.differenceAmount || 0) }}</template></el-table-column>
       </el-table>
+    </template>
+    <template v-if="['SALE_PAYMENT_DISCOUNT', 'PROCESSING_PAYMENT_DISCOUNT'].includes(detail?.approval?.type)">
+      <el-divider content-position="left">优惠收款明细</el-divider>
+      <el-descriptions :column="2" border style="margin-bottom: 16px">
+        <el-descriptions-item label="原应收">{{ formatMoney(detail.payment?.originalDue) }}</el-descriptions-item>
+        <el-descriptions-item label="本次/累计实收">{{ formatMoney(detail.payment?.actualPaid) }}</el-descriptions-item>
+        <el-descriptions-item label="优惠金额">{{ formatMoney(detail.payment?.discount) }}</el-descriptions-item>
+        <el-descriptions-item label="实际折扣">{{ detail.payment?.discountRate == null ? '-' : `${(Number(detail.payment.discountRate) * 100).toFixed(2)}折` }}</el-descriptions-item>
+        <el-descriptions-item label="收款原因" :span="2">{{ detail.payment?.reason || '顾客优惠' }}</el-descriptions-item>
+      </el-descriptions>
     </template>
     <template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-if="detail?.approval?.status === 1 && auth.can('approval:handle')" type="success" @click="approve(detail.approval.approval_id)">通过</el-button><el-button v-if="detail?.approval?.status === 1 && auth.can('approval:handle')" type="danger" @click="reject(detail.approval.approval_id)">驳回</el-button></template>
   </el-dialog>

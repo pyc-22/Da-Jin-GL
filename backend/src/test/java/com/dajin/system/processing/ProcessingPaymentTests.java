@@ -87,11 +87,25 @@ class ProcessingPaymentTests {
     }
 
     @Test
-    void ordinaryBalanceStillRequiresFullOutstandingAmount() {
+    void compliantProcessingDiscountSettlesFromActualReceipt() {
         Fixture f = fixture("COMPLETED", 200, 0);
-        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.pay(7L, Map.of(
-                "clientRequestId", "cash-7", "paymentType", "BALANCE", "payMethod", "CASH", "amount", 180), f.request));
-        assertEquals(400717, error.getCode());
+        f.controller.pay(7L, Map.of("clientRequestId", "cash-7", "paymentType", "BALANCE", "payMethod", "CASH", "amount", 180), f.request);
+        ArgumentCaptor<SqlParameterSource> orderParams = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("original_due_amount=:originalDue"), orderParams.capture());
+        assertEquals(new BigDecimal("20.00"), orderParams.getValue().getValue("discount"));
+        ArgumentCaptor<SqlParameterSource> financeParams = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("insert into finance_record"), financeParams.capture());
+        assertEquals(new BigDecimal("180.00"), financeParams.getValue().getValue("amount"));
+    }
+
+    @Test
+    void deepProcessingDiscountCreatesApprovalWithoutPaymentRecord() {
+        Fixture f = fixture("COMPLETED", 200, 0);
+        when(f.jdbc.queryForObject(contains("select approval_id from approval"), anyMap(), eq(Long.class))).thenReturn(55L);
+        Map<?,?> result = (Map<?,?>) f.controller.pay(7L, Map.of("clientRequestId", "cash-deep-7", "paymentType", "BALANCE", "payMethod", "CASH", "amount", 160), f.request).data();
+        assertEquals(true, result.get("approvalRequired"));
+        assertEquals(55L, result.get("approvalId"));
+        verify(f.jdbc, never()).update(contains("insert into processing_payment"), any(SqlParameterSource.class));
         verify(f.jdbc, never()).update(contains("insert into finance_record"), any(SqlParameterSource.class));
     }
 

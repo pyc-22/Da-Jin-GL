@@ -106,7 +106,7 @@ const checkoutSubmitting = ref(false)
 const paymentSubmitting = ref(false)
 const settlementMode = ref('FULL')
 const settlementDiscountReason = ref('')
-const approval = reactive({ required: false, status: '', id: null, message: '' })
+const approval = reactive({ required: false, status: '', id: null, message: '', kind: '' })
 const oldMetals = ref([])
 const oldMetalForm = reactive({ weight: 0, purityChoice: '0.999', customPurity: '', materialType: '足金999', priceType: '回收金价', note: '' })
 const paymentMethods = ref(defaultMethods.map(x => ({ ...x, amount: 0, selected: false })))
@@ -243,22 +243,22 @@ async function confirmProcPay() {
   const amount = Number(procPayAmount.value)
   if (!Number.isFinite(amount) || amount <= 0 || Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001 || amount > remaining) return ElMessage.warning('收款金额须大于0、最多两位小数且不超过未收金额')
   if (procGroupPayment.value && !procVoucherNo.value.trim()) return ElMessage.warning('请输入团购核销单号')
-  if (procPayType.value === 'BALANCE' && procSettlementMode.value === 'DISCOUNT' && !procGroupPayment.value) {
-    if (amount >= remaining) return ElMessage.warning('议价实收须小于剩余应收')
-    if (!procSettlementDiscountReason.value.trim()) return ElMessage.warning('请填写议价原因')
-    if (!online.value) return ElMessage.warning('议价结清需联网，请连接后重试')
-  }
+  if (procPayType.value === 'BALANCE' && amount < remaining && !online.value) return ElMessage.warning('优惠收款需要联网提交审批或记账，请连接后重试')
   procPayBusy.value = true
   try {
-    const body = { paymentType: procPayType.value, payMethod: procPayMethod.value, amount, settlementMode: procPayType.value === 'DEPOSIT' ? 'PARTIAL' : (procGroupPayment.value ? 'FULL' : procSettlementMode.value), ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), ...(procSettlementMode.value === 'DISCOUNT' ? { settlementDiscountReason: procSettlementDiscountReason.value.trim() } : {}), clientRequestId: procPayRequestId.value }
+    const body = { paymentType: procPayType.value, payMethod: procPayMethod.value, amount, settlementMode: procPayType.value === 'DEPOSIT' ? 'PARTIAL' : 'FULL', ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), clientRequestId: procPayRequestId.value }
     const result = await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify(body) })
+    if (result?.approvalRequired) {
+      ElMessage.warning(`优惠低于${Math.round(config.discountThreshold * 100)}折，已提交店长/管理员审批；审批通过后请再次确认收款`)
+      return
+    }
     if (result?.idempotentReplay) {
       const replay = result.replayedPayment || {}
       const replayAmount = replay.amount == null ? amount : Number(replay.amount)
       const replayMethod = replay.pay_method || procPayMethod.value
       ElMessage.warning(`该笔收款已完成：实收 ${money(replayAmount)}，支付方式 ${paymentLabel(replayMethod)}，系统未重复记账`)
     } else {
-      ElMessage.success(`加工单 ${row.order_no} ${procPayType.value === 'DEPOSIT' ? '定金已收取' : procSettlementMode.value === 'PARTIAL' ? '部分收款已记录' : '尾款已收清'}`)
+      ElMessage.success(`加工单 ${row.order_no} ${procPayType.value === 'DEPOSIT' ? '定金已收取' : result?.settlementDiscount > 0 ? '优惠结清' : '尾款已收清'}`)
     }
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '收款失败') } finally { procPayBusy.value = false }
@@ -506,6 +506,7 @@ async function payHandoverOrder(row) {
     oldMaterialPayoutMethod.value = order.old_material_payout_method || 'CASH'
     approval.required = Number(order.status) === 3
     approval.status = approval.required ? '待审批' : ''
+    approval.kind = approval.required ? 'ORDER_DISCOUNT' : ''
     activeDialog.value = 'payment'
   } catch (error) { ElMessage.error(error?.message || '调取订单失败') }
 }
@@ -606,7 +607,7 @@ const paidAmount = computed(() => paymentMethods.value.reduce((sum, p) => sum + 
 const paymentDifferenceCents = computed(() => Math.round(paidAmount.value * 100) - Math.round(paymentDue.value * 100))
 const paymentRemaining = computed(() => Math.max(0, -paymentDifferenceCents.value) / 100)
 const paymentOver = computed(() => Math.max(0, paymentDifferenceCents.value) / 100)
-const paymentBalanced = computed(() => settlementMode.value === 'FULL' ? paymentDifferenceCents.value === 0 : paidAmount.value > 0 && paymentDifferenceCents.value < 0)
+const paymentBalanced = computed(() => paymentDue.value <= 0 || (paidAmount.value > 0 && paymentDifferenceCents.value <= 0))
 const oldMetalPurity = computed(() => parsePurity(oldMetalForm.purityChoice, oldMetalForm.customPurity))
 const recyclePurity = computed(() => parsePurity(recycleForm.purityChoice, recycleForm.customPurity))
 const recycleAmount = computed(() => { const base = Number(recycleForm.weight || 0) * recyclePurity.value * Number(recycleForm.recyclePrice || recycleSpot.value); return Math.max(0, base * (1 - Number(recycleForm.deductLossRate || 0) / 100)) })
@@ -694,9 +695,10 @@ function setDiscount(value) {
   approval.required = false
   approval.status = ''
   approval.id = null
+  approval.kind = ''
   approval.message = discount.value < config.discountThreshold ? `折扣低于${Math.round(config.discountThreshold * 100)}折，需要店长审批` : ''
 }
-function resetCart() { cart.value = []; oldMetals.value = []; tradeOldMetals.value = []; selectedMember.value = null; selectedSalesId.value = lastSalesId(); discount.value = 1; approval.required = false; approval.status = ''; approval.id = null; orderDraft.value = null; settlementMode.value = 'FULL'; settlementDiscountReason.value = ''; oldMaterialPayoutMethod.value = payoutMethods.value[0]?.code || 'CASH'; paymentMethods.value.forEach(p => { p.amount = 0; p.selected = false }) }
+function resetCart() { cart.value = []; oldMetals.value = []; tradeOldMetals.value = []; selectedMember.value = null; selectedSalesId.value = lastSalesId(); discount.value = 1; approval.required = false; approval.status = ''; approval.id = null; approval.message = ''; approval.kind = ''; orderDraft.value = null; settlementMode.value = 'FULL'; settlementDiscountReason.value = ''; oldMaterialPayoutMethod.value = payoutMethods.value[0]?.code || 'CASH'; paymentMethods.value.forEach(p => { p.amount = 0; p.selected = false }) }
 function addOldMetal() {
   if (Number(oldMetalForm.weight) <= 0) return ElMessage.warning('请输入旧金克重')
   const purity = oldMetalPurity.value
@@ -929,9 +931,10 @@ function applyApprovalDecision(approvalId, statusValue) {
   let matched = false
   if (approval.id != null && String(approval.id) === String(approvalId)) {
     approval.status = status
-    approval.required = status !== '已通过'
+    approval.required = status === '待审批'
     matched = true
     if (status === '已通过') activeDialog.value = 'payment'
+    if (status === '已驳回' && approval.kind === 'PAYMENT_DISCOUNT') { approval.message = '优惠审批已驳回，请修改实收金额后重新提交'; activeDialog.value = 'payment' }
   }
   heldOrders.value.forEach(held => {
     if (held.approval?.id != null && String(held.approval.id) === String(approvalId)) {
@@ -1064,7 +1067,7 @@ async function submitOrder() {
     const orderId = result?.orderId ?? result?.order_id ?? result?.id ?? null
     orderDraft.value = { ...body, ...result, id: orderId, orderId, clientRequestId: body.clientRequestId, oldMaterialExcess: result?.oldMaterialExcess ?? oldMaterialExcess.value, billNo: result.orderNo || result.order_no || `LOCAL-${Date.now()}` }
     if (result?.queued) { approval.required = discount.value < config.discountThreshold; approval.status = approval.required ? '待联网同步后审批' : ''; activeDialog.value = approval.required ? 'approval' : 'payment' }
-    else if (result.approvalRequired) { approval.required = true; approval.status = '待审批'; approval.id = result.approvalId || null; activeDialog.value = 'approval' }
+    else if (result.approvalRequired) { approval.required = true; approval.status = '待审批'; approval.id = result.approvalId || null; approval.kind = 'ORDER_DISCOUNT'; activeDialog.value = 'approval' }
     else { approval.required = false; activeDialog.value = 'payment' }
   } catch (error) { if (error.conflict) activeDialog.value = 'conflict'; else ElMessage.error(error.message) }
   finally { checkoutSubmitting.value = false }
@@ -1075,8 +1078,10 @@ async function refreshApproval() {
     const result = await request(`/api/approval/${approval.id}`)
     const statusCode = result?.approval?.status ?? result?.status
     approval.status = Number(statusCode) === 3 ? '已通过' : Number(statusCode) === 4 ? '已驳回' : '待审批'
-    approval.required = approval.status !== '已通过'
+    approval.kind = result?.approval?.type && String(result.approval.type).includes('PAYMENT_DISCOUNT') ? 'PAYMENT_DISCOUNT' : approval.kind
+    approval.required = approval.status === '待审批'
     if (approval.status === '已通过') activeDialog.value = 'payment'
+    if (approval.status === '已驳回' && approval.kind === 'PAYMENT_DISCOUNT') { approval.message = '优惠审批已驳回，请修改实收金额后重新提交'; activeDialog.value = 'payment' }
   } catch (error) { ElMessage.error(error.message) }
 }
 async function confirmPayment() {
@@ -1086,15 +1091,23 @@ async function confirmPayment() {
   if (paymentDue.value > 0 && !paymentMethods.value.length) return ElMessage.warning('当前没有可用的支付方式，请联系管理员启用')
   if (!Number.isFinite(paidAmount.value) || paymentMethods.value.some(p => !Number.isFinite(Number(p.amount)) || Number(p.amount) < 0 || Math.round(Number(p.amount) * 100) !== Number(p.amount) * 100)) return ElMessage.warning('实收金额须为非负数且最多两位小数')
   if (!paymentBalanced.value) return ElMessage.warning(paymentDifferenceCents.value < 0 ? `还差 ${money(paymentRemaining.value)}` : `超收 ${money(paymentOver.value)}，请调整组合支付`)
-  if (settlementMode.value !== 'FULL' && (paidAmount.value <= 0 || paidAmount.value >= paymentDue.value)) return ElMessage.warning('本次实收必须大于0且小于剩余应收')
-  if (settlementMode.value === 'DISCOUNT' && !settlementDiscountReason.value.trim()) return ElMessage.warning('请填写议价原因')
-  if (settlementMode.value === 'DISCOUNT' && (!online.value || orderDraft.value.queued)) return ElMessage.warning('议价结清需联网，请连接后重试')
-  const body = { orderId: orderDraft.value.orderId ?? orderDraft.value.id ?? null, orderClientRequestId: orderDraft.value.clientRequestId, amount: paidAmount.value, settlementMode: settlementMode.value, ...(settlementMode.value === 'DISCOUNT' ? { settlementDiscountReason: settlementDiscountReason.value.trim() } : {}), payMethod: paymentMethodLabel(), oldMaterialPayoutMethod: oldMaterialExcess.value > 0 ? oldMaterialPayoutMethod.value : null, paymentDetails: paymentMethods.value.filter(p => Number(p.amount) > 0).map(p => ({ method: p.code, amount: Number(p.amount).toFixed(2) })), clientRequestId: uuid() }
+  if (paidAmount.value <= 0 && paymentDue.value > 0) return ElMessage.warning('请输入本次实收金额')
+  if (paidAmount.value > paymentDue.value) return ElMessage.warning('实收金额不能超过待收金额')
+  if (paidAmount.value < paymentDue.value && (!online.value || orderDraft.value.queued)) return ElMessage.warning('优惠收款需要联网提交审批或记账，请连接后重试')
+  const body = { orderId: orderDraft.value.orderId ?? orderDraft.value.id ?? null, orderClientRequestId: orderDraft.value.clientRequestId, amount: paidAmount.value, settlementMode: 'FULL', payMethod: paymentMethodLabel(), oldMaterialPayoutMethod: oldMaterialExcess.value > 0 ? oldMaterialPayoutMethod.value : null, paymentDetails: paymentMethods.value.filter(p => Number(p.amount) > 0).map(p => ({ method: p.code, amount: Number(p.amount).toFixed(2) })), clientRequestId: uuid() }
   paymentSubmitting.value = true
   try {
-    const result = settlementMode.value === 'DISCOUNT'
-      ? await request('/api/pay/pay', { method: 'POST', body: JSON.stringify(body) })
-      : orderDraft.value.queued ? (await enqueueWithId('/api/pay/pay', body, body.clientRequestId), { queued: true }) : await requestOrQueue('/api/pay/pay', body, { backendAvailable: online.value })
+    const result = orderDraft.value.queued ? (await enqueueWithId('/api/pay/pay', body, body.clientRequestId), { queued: true }) : await requestOrQueue('/api/pay/pay', body, { backendAvailable: online.value })
+    if (result?.approvalRequired) {
+      approval.required = true
+      approval.status = '待店长/管理员审批'
+      approval.id = result.approvalId || null
+      approval.kind = 'PAYMENT_DISCOUNT'
+      approval.message = `本次原应收 ${money(result.originalDue ?? paymentDue.value)}，实收 ${money(result.actualPaid ?? paidAmount.value)}，优惠 ${money(result.settlementDiscount ?? Math.max(0, paymentDue.value - paidAmount.value))}，低于${Math.round(config.discountThreshold * 100)}折，审批通过后请再次确认收款`
+      activeDialog.value = 'approval'
+      ElMessage.warning(`优惠低于${Math.round(config.discountThreshold * 100)}折，已提交审批；审批通过后请再次确认收款`)
+      return
+    }
     const previousPaid = Number(orderDraft.value.actualPaid ?? orderDraft.value.actual_paid ?? orderDraft.value.payAmount ?? 0)
     const newPayments = result?.idempotentReplay ? [] : body.paymentDetails.map(line => ({ pay_method: line.method, amount: line.amount }))
     orderDraft.value = { ...orderDraft.value, ...result, status: result?.status ?? orderDraft.value.status, payAmount: result?.actualPaid ?? previousPaid + paidAmount.value, actualPaid: result?.actualPaid ?? previousPaid + paidAmount.value, payMethod: paymentMethodLabel(), remaining: result?.remaining ?? Math.max(0, paymentDue.value - paidAmount.value), paymentHistory: [...(orderDraft.value.paymentHistory || []), ...newPayments] }
@@ -1102,7 +1115,7 @@ async function confirmPayment() {
     await window.dajin?.print?.log?.({ billNo: orderDraft.value.billNo, printType: 'receipt', copies: 1, isReprint: 0 })
     printPreview.value = { type: 'receipt', text: buildReceiptPreview(receiptModel()), html: '' }
     activeDialog.value = 'print'
-    ElMessage.success(result?.queued ? '网络离线，已保存到本地队列' : Number(orderDraft.value.status) === 0 ? '部分收款已记录，剩余金额可在前台待办继续收取' : '结算完成')
+    ElMessage.success(result?.queued ? '网络离线，已保存到本地队列' : Number(result?.settlementDiscount || 0) > 0 ? `优惠结清，实收 ${money(result.actualPaid)}` : '结算完成')
   } catch (error) { if (error.conflict) activeDialog.value = 'conflict'; else ElMessage.error(error.message) }
   finally { paymentSubmitting.value = false }
 }
@@ -1750,30 +1763,23 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
       </div>
       <div v-else-if="activeDialog === 'memberSelect'" class="dialog-body"><label class="search-box dialog-search"><Search :size="16" /><input v-model="memberKeyword" placeholder="搜索会员姓名或手机号" @input="searchMembersRemote" /></label><div class="member-pick-list"><button v-for="member in memberPickList" :key="member.id" class="member-pick" @click="selectOrderMember(member)"><span class="avatar warm">{{ member.name?.slice(0, 1) }}</span><span><b>{{ member.name }}</b><small>{{ member.phone }} · 归属导购 {{ salesName(member.sales_id) }} · 储值 {{ money(member.balance) }}</small></span><Check v-if="selectedMember?.id === member.id" :size="16" /></button><div v-if="!members.length" class="empty-dialog">暂无本地会员，联网后可同步会员档案</div></div><div class="dialog-actions"><button class="secondary-button" @click="selectOrderMember(null)">暂不选择</button><button class="text-button" @click="closeDialog(); createMember()"><Plus :size="14" />快速登记新会员</button></div></div>
       <div v-else-if="activeDialog === 'payment'" class="dialog-body">
-        <div class="payment-total"><span>本单原应收</span><strong>{{ money(payable) }}</strong><small>本次待收 {{ money(paymentDue) }}</small><small v-if="oldDeduct">旧金估值 {{ money(oldDeduct) }}，本单抵扣 {{ money(appliedOldDeduct) }}</small></div>
-        <div class="settlement-modes" role="group" aria-label="结算方式">
-          <button type="button" :class="{ selected: settlementMode === 'FULL' }" @click="settlementMode = 'FULL'; paymentMethods.forEach(p => { p.amount = 0; p.selected = false }); if (paymentMethods[0]) activatePaymentMethod(paymentMethods[0], paymentDue)">全额收款</button>
-          <button type="button" :class="{ selected: settlementMode === 'PARTIAL' }" @click="settlementMode = 'PARTIAL'; paymentMethods.forEach(p => { p.amount = 0; p.selected = false }); if (paymentMethods[0]) activatePaymentMethod(paymentMethods[0], Math.min(paymentDue, 0.01))">部分收款</button>
-          <button type="button" :class="{ selected: settlementMode === 'DISCOUNT' }" @click="settlementMode = 'DISCOUNT'; settlementDiscountReason = '顾客议价'; paymentMethods.forEach(p => { p.amount = 0; p.selected = false }); if (paymentMethods[0]) activatePaymentMethod(paymentMethods[0], 0)">议价结清</button>
-        </div>
-        <label v-if="settlementMode === 'DISCOUNT'" class="discount-reason">议价原因<input v-model.trim="settlementDiscountReason" maxlength="200" placeholder="填写议价原因" /></label>
+         <div class="payment-total"><span>本单应收</span><strong>{{ money(payable) }}</strong><small>本次实收可直接输入，低于{{ Math.round(config.discountThreshold * 100) }}折的优惠需要店长/管理员审批</small><small v-if="oldDeduct">旧金估值 {{ money(oldDeduct) }}，本单抵扣 {{ money(appliedOldDeduct) }}</small></div>
         <div v-if="oldMaterialExcess" class="excess-payout-card compact">
           <div><span>需向客户支付回收款</span><strong>{{ money(oldMaterialExcess) }}</strong></div>
           <label>返款方式<select v-model="oldMaterialPayoutMethod"><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
         </div>
         <template v-if="paymentDue > 0 && paymentMethods.length">
           <div class="payment-methods"><button v-for="method in paymentMethods" :key="method.code" class="payment-method" :class="{ selected: method.selected }" @click="togglePaymentMethod(method, paymentRemaining)"><component :is="method.icon" :size="19" /><span>{{ method.name }}</span><b v-if="method.selected">{{ money(method.amount) }}</b></button></div>
-          <div class="combination-tools"><span>组合支付</span><button class="text-button" @click="applyEvenPayment">{{ settlementMode === 'FULL' ? '均分剩余金额' : '平均分配本次实收' }}</button><button v-for="method in paymentMethods.filter(p => !p.selected)" :key="method.code" class="text-button" @click="distributePayment(method)"><Plus :size="13" />{{ method.name }}</button></div>
+           <div class="combination-tools"><span>组合支付</span><button class="text-button" @click="applyEvenPayment">均分应收</button><button v-for="method in paymentMethods.filter(p => !p.selected)" :key="method.code" class="text-button" @click="distributePayment(method)"><Plus :size="13" />{{ method.name }}</button></div>
           <div v-for="method in paymentInputMethods(paymentMethods)" :key="method.code" class="payment-input"><span>{{ method.name }}</span><input v-model.number="method.amount" type="number" min="0" :max="paymentDue" step="0.01" /><button class="icon-button quiet" @click="togglePaymentMethod(method, 0)"><X :size="14" /></button></div>
           <div class="payment-balance" :class="{ done: paymentBalanced, over: paymentDifferenceCents > 0 }"><span>本次实收</span><strong>{{ money(paidAmount) }}</strong></div>
-          <div v-if="settlementMode === 'DISCOUNT' && paidAmount > 0" class="payment-adjustment"><span>议价优惠</span><strong>{{ money(Math.max(0, paymentDue - paidAmount)) }}</strong></div>
-          <small v-if="settlementMode === 'PARTIAL'">收款后待收 {{ money(Math.max(0, paymentDue - paidAmount)) }}</small>
-          <small v-else-if="settlementMode === 'FULL' && paymentDifferenceCents < 0">还差 {{ money(paymentRemaining) }}</small>
-          <small v-else-if="settlementMode === 'DISCOUNT'">本次收款后直接结清，并通知管理员</small>
+           <div v-if="paidAmount > 0 && paidAmount < paymentDue" class="payment-adjustment"><span>优惠</span><strong>{{ money(Math.max(0, paymentDue - paidAmount)) }}</strong></div>
+           <small v-if="paymentDifferenceCents < 0">还差 {{ money(paymentRemaining) }}</small>
+           <small v-else-if="paidAmount > 0 && paidAmount < paymentDue">本次实收后直接结清；低于{{ Math.round(config.discountThreshold * 100) }}折会转入审批</small>
         </template>
         <div v-else-if="paymentDue > 0" class="warning-note"><ShieldAlert :size="16" />当前没有可用的支付方式，请联系管理员在系统设置中启用。</div>
         <div v-else class="settings-note"><Check :size="16" /><span>本单无需向客户收款，确认后完成销售出库并登记旧金回收返款。</span></div>
-        <div class="dialog-actions"><button class="secondary-button" :disabled="paymentSubmitting" @click="closeDialog">返回订单</button><button class="primary-button" :disabled="!paymentBalanced || paymentSubmitting || (paymentDue > 0 && paidAmount <= 0) || (settlementMode === 'PARTIAL' && paidAmount >= paymentDue) || (settlementMode === 'DISCOUNT' && (!settlementDiscountReason.trim() || paidAmount >= paymentDue || !online || orderDraft?.queued))" @click="confirmPayment"><Check :size="16" />{{ paymentSubmitting ? '正在结算' : settlementMode === 'PARTIAL' ? '确认部分收款' : settlementMode === 'DISCOUNT' ? '确认议价收款' : oldMaterialExcess ? '确认返款并结算' : '确认收款' }}</button></div>
+         <div class="dialog-actions"><button class="secondary-button" :disabled="paymentSubmitting" @click="closeDialog">返回订单</button><button class="primary-button" :disabled="!paymentBalanced || paymentSubmitting || (paymentDue > 0 && paidAmount <= 0)" @click="confirmPayment"><Check :size="16" />{{ paymentSubmitting ? '正在结算' : oldMaterialExcess ? '确认返款并结算' : '确认收款' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'print'" class="dialog-body print-dialog">
         <template v-if="printPreview.type === 'shift'">
@@ -1806,7 +1812,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
       </div>
       <div v-else-if="activeDialog === 'recycle'" class="dialog-body"><div class="form-grid"><label>旧料类型<select v-model="recycleForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>克重 (g)<input v-model.number="recycleForm.weight" type="number" step="0.001" min="0" /></label><label>成色<select v-model="recycleForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="recycleForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="recycleForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label><label>扣损比例 (%)<input v-model.number="recycleForm.deductLossRate" type="number" min="0" max="99" step="0.01" /></label><label>回收金价<input v-model.number="recycleForm.recyclePrice" type="number" min="0" step="0.01" /></label><label>支付方式<select v-model="recycleForm.payMethod"><option v-if="!payoutMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label></div><div class="calculation-card"><span>回收金额</span><strong>{{ money(recycleAmount) }}</strong><small>{{ recycleForm.weight || 0 }}g × {{ purityText(recyclePurity) }} × {{ money(recycleForm.recyclePrice || recycleSpot) }} × (1 - {{ recycleForm.deductLossRate || 0 }}%)</small></div><div v-if="recycleAmount > config.recycleLimit" class="warning-note"><ShieldAlert :size="16" />超过 {{ money(config.recycleLimit) }}，提交后需店长审批</div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="saveRecycle"><Check :size="16" />保存回收单</button></div></div>
       <div v-else-if="activeDialog === 'tradein'" class="dialog-body"><div class="form-grid"><label>旧金信息<input v-model="tradeForm.oldMaterialInfo" placeholder="如：足金手镯 20g" /></label><label v-if="!tradeOldMetals.length">旧金估值<input v-model.number="tradeForm.oldValue" type="number" min="0" step="0.01" /></label><label>新商品信息<input v-model="tradeForm.newGoodsInfo" placeholder="商品名称 / 条码" /></label><label>新商品金额<input v-model.number="tradeForm.newValue" type="number" min="0" step="0.01" /></label></div><div class="subsection-title">旧料明细（可添加多件）</div><div class="form-grid"><label>旧料类型<select v-model="tradeOldForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>克重 (g)<input v-model.number="tradeOldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<select v-model="tradeOldForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="tradeOldForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="tradeOldForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label></div><button class="secondary-button full" @click="addTradeOldMetal"><Plus :size="16" />加入旧料</button><div class="old-metal-list"><div v-for="metal in tradeOldMetals" :key="metal.id" class="old-metal-row"><div><b>{{ Number(metal.weight).toFixed(3) }}g · {{ purityText(metal.purity) }}</b><small>{{ metal.materialType }}</small></div><strong>{{ money(Number(metal.weight) * Number(metal.purity) * recycleSpot) }}</strong><button class="icon-button quiet" @click="removeTradeOldMetal(metal)"><Trash2 :size="15" /></button></div><div v-if="!tradeOldMetals.length" class="empty-dialog">暂无旧料明细</div></div><div class="dialog-total"><span>旧金估值</span><strong>{{ money(tradeOldMetals.length ? tradeOldTotal : tradeForm.oldValue) }}</strong></div><div class="calculation-card" :class="(Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0))) < 0 ? 'negative' : ''"><span>{{ (Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0))) >= 0 ? '预计补差价' : '预计回收款' }}</span><strong>{{ money(Math.abs(Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0)))) }}</strong><small>新商品金额 {{ money(tradeForm.newValue) }} - 旧金估值 {{ money(tradeOldMetals.length ? tradeOldTotal : tradeForm.oldValue) }}</small></div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="saveTradeIn"><Check :size="16" />选择商品开单</button></div></div>
-      <div v-else-if="activeDialog === 'approval'" class="dialog-body"><div class="approval-detail"><div class="approval-icon"><ShieldAlert :size="26" /></div><h3>折扣审批已提交</h3><p>本单折扣 {{ Math.round(discount * 100) }} 折，低于配置阈值 {{ Math.round(config.discountThreshold * 100) }} 折。店长通过审批后，才能继续结算。</p><div class="approval-state"><Clock3 :size="16" />{{ approval.status || '待审批' }}</div></div><div class="dialog-actions"><button class="secondary-button" @click="holdCurrentOrder"><Archive :size="16" />挂起并开新单</button><button class="text-button" @click="closeDialog">稍后处理</button><button class="primary-button" @click="refreshApproval"><RefreshCw :size="16" />刷新审批状态</button></div></div>
+      <div v-else-if="activeDialog === 'approval'" class="dialog-body"><div class="approval-detail"><div class="approval-icon"><ShieldAlert :size="26" /></div><h3>优惠审批已提交</h3><p>{{ approval.message || `本单折扣低于配置阈值${Math.round(config.discountThreshold * 100)}折，店长/管理员通过审批后才能继续结算。` }}</p><div class="approval-state"><Clock3 :size="16" />{{ approval.status || '待审批' }}</div></div><div class="dialog-actions"><button class="secondary-button" @click="holdCurrentOrder"><Archive :size="16" />挂起并开新单</button><button class="text-button" @click="closeDialog">稍后处理</button><button class="primary-button" @click="refreshApproval"><RefreshCw :size="16" />刷新审批状态</button></div></div>
       <div v-else-if="activeDialog === 'notifications'" class="dialog-body"><div v-if="!notifications.length" class="empty-dialog">暂无通知，每天 8:30/12:30/16:30/19:30 自动生成超期与库存提醒</div><div v-for="n in notifications" :class="['old-metal-row', { 'danger-text': n.action === 'REMIND' }]" :key="n.notification_id"><div><b>{{ n.content }}</b><small>{{ String(n.create_time || '').replace('T', ' ').slice(0, 16) }} · {{ n.action === 'REMIND' ? '未读' : '已读' }}</small></div></div></div>
       <div v-else-if="activeDialog === 'conflict'" class="dialog-body conflict-dialog"><div class="approval-detail"><div class="approval-icon danger"><ShieldAlert :size="26" /></div><h3>发现数据冲突</h3><p>请选择每条冲突保留的版本。系统不会静默覆盖库存或金额数据。</p></div><div v-if="!conflictRows.length" class="empty-dialog">当前没有待处理冲突</div><div v-for="row in conflictRows" :key="row.id || row.client_request_id" class="conflict-card"><div class="conflict-card-head"><b>{{ row.path }}</b><small>{{ row.reason || '版本校验失败' }}</small></div><table class="conflict-table"><thead><tr><th>字段</th><th>本地版本</th><th>云端版本</th></tr></thead><tbody><tr v-for="field in conflictFields(row)" :key="field.key" :class="{ changed: field.changed }"><td>{{ field.key }}</td><td>{{ typeof field.local === 'object' ? JSON.stringify(field.local) : (field.local ?? '-') }}</td><td>{{ typeof field.cloud === 'object' ? JSON.stringify(field.cloud) : (field.cloud ?? '-') }}</td></tr></tbody></table><div class="conflict-actions"><button class="secondary-button" @click="resolveConflict(row, 'CLOUD')"><Cloud :size="15" />保留云端</button><button class="primary-button" @click="resolveConflict(row, 'LOCAL')"><Upload :size="15" />保留本地并重试</button></div></div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">稍后处理</button><button class="text-button" @click="loadConflicts"><RefreshCw :size="14" />刷新冲突</button></div></div>
       <div v-else-if="activeDialog === 'settings'" class="dialog-body"><div class="form-grid"><label>后端 API 地址<input v-model.trim="apiEndpoint" placeholder="https://admin.xinchengjinjiang.com" /></label><label>热敏纸宽度<select v-model.number="printSettings.paperWidth"><option :value="58">58mm</option><option :value="80">80mm</option></select></label><label>打印机名称<select v-model="printSettings.deviceName"><option value="">系统默认打印机</option><option v-for="printer in printers" :key="printer.name || printer.deviceName" :value="printer.name || printer.deviceName">{{ printer.displayName || printer.name || printer.deviceName }}</option></select></label><label class="checkbox-label"><input v-model="printSettings.silent" type="checkbox" />静默打印（系统打印队列）</label></div><div class="settings-note"><Monitor :size="17" /><span>云端地址：<button class="text-button" @click="apiEndpoint = 'https://admin.xinchengjinjiang.com'">admin.xinchengjinjiang.com</button></span></div><div class="dialog-actions"><button class="primary-button" @click="saveSettings"><Check :size="16" />保存设置</button></div></div>
@@ -1835,14 +1841,13 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
       <div v-else-if="activeDialog === 'procPay'" class="dialog-body">
         <h3 style="margin:0 0 6px">{{ procPayType === 'DEPOSIT' ? '收定金' : '收尾款' }} · {{ procManage?.order_no || '' }}</h3>
         <p class="muted" style="margin:0 0 10px">应收 {{ money(procManage?.due_amount) }} · 已收 {{ money(procManage?.paid_amount) }} · 未收 <b>{{ money(processingOutstanding(procManage)) }}</b></p>
-        <div v-if="procPayType === 'BALANCE' && !procGroupPayment" class="settlement-modes" role="group" aria-label="结算方式"><button type="button" :class="{ selected: procSettlementMode === 'FULL' }" @click="procSettlementMode = 'FULL'; procPayAmount = processingOutstanding(procManage)">全额收款</button><button type="button" :class="{ selected: procSettlementMode === 'PARTIAL' }" @click="procSettlementMode = 'PARTIAL'; procPayAmount = Math.min(processingOutstanding(procManage), 0.01)">部分收款</button><button type="button" :class="{ selected: procSettlementMode === 'DISCOUNT' }" @click="procSettlementMode = 'DISCOUNT'; procSettlementDiscountReason = '顾客议价'; procPayAmount = 0">议价结清</button></div>
+         <p v-if="procPayType === 'BALANCE' && !procGroupPayment" class="settings-note"><Receipt :size="16" />直接输入本次实收；低于{{ Math.round(config.discountThreshold * 100) }}折的优惠需要店长/管理员审批。</p>
         <label v-if="procPayType === 'DEPOSIT'">本次定金<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label>
-        <label v-else-if="!procGroupPayment">本次实收<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label>
-        <p v-if="procPayType === 'BALANCE' && procSettlementMode === 'DISCOUNT' && !procGroupPayment && Number(procPayAmount) > 0" class="muted" style="margin:0">议价优惠 {{ money(procPayDiscount) }}</p>
+         <label v-else-if="!procGroupPayment">本次实收<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label>
+         <p v-if="procPayType === 'BALANCE' && !procGroupPayment && Number(procPayAmount) > 0 && Number(procPayAmount) < processingOutstanding(procManage)" class="muted" style="margin:0">优惠 {{ money(procPayDiscount) }}</p>
         <label>支付方式<select v-model="procPayMethod" @change="changeProcPayMethod"><option v-if="!procPayMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in procPayMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
         <template v-if="procGroupPayment"><label>本次实收<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label><label>团购核销单号<input v-model.trim="procVoucherNo" maxlength="100" placeholder="输入平台核销单号" /></label><p class="muted" style="margin:0">团购优惠 {{ money(procPayDiscount) }} · 本次收款后结清</p></template>
-        <label v-if="procSettlementMode === 'DISCOUNT' && procPayType === 'BALANCE' && !procGroupPayment">议价原因<input v-model.trim="procSettlementDiscountReason" maxlength="200" placeholder="填写议价原因" /></label>
-        <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy || (procPayType === 'BALANCE' && procSettlementMode === 'PARTIAL' && procPayAmount >= processingOutstanding(procManage)) || (procPayType === 'BALANCE' && procSettlementMode === 'DISCOUNT' && (!procSettlementDiscountReason.trim() || !Number(procPayAmount) || procPayAmount >= processingOutstanding(procManage) || !online))" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '收款中...' : procPayType === 'BALANCE' && procSettlementMode === 'PARTIAL' ? '确认部分收款' : procPayType === 'BALANCE' && procSettlementMode === 'DISCOUNT' ? '确认议价收款' : '确认收款' }}</button></div>
+         <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy || !Number(procPayAmount) || procPayAmount > processingOutstanding(procManage)" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '收款中...' : procPayType === 'DEPOSIT' ? '确认收定金' : '确认实收' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；可重复登记修正。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>
       <div v-else-if="activeDialog === 'procWeigh'" class="dialog-body"><h3 style="margin:0 0 6px">称重损耗登记 · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">损耗 = 来料折重 + 补金 − 成品折重 − 回收屑，超约定值自动预警。</p><label>成品实重 (g)<input v-model.number="procWeighForm.finishedWeight" type="number" min="0.001" step="0.001" /></label><label>成品成色（可选，0~1）<input v-model.number="procWeighForm.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>回收屑 (g，可选)<input v-model.number="procWeighForm.recoveredWeight" type="number" min="0" step="0.001" /></label><label>备注<textarea v-model.trim="procWeighForm.note" rows="2" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcWeigh"><Check :size="16" />确认登记</button></div></div>
