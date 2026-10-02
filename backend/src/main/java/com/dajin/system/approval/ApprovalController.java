@@ -253,14 +253,15 @@ public class ApprovalController {
             throw new BusinessException(409112,"请确认已按原渠道收回超额旧金返款后再审批退款");
         BigDecimal refund = new BigDecimal(String.valueOf(order.get("actual_paid")));
         if (refund.signum() < 0 || (status == 0 && refund.signum() == 0)) throw new BusinessException(400213, "订单实付金额不合法");
-        if (status == 1) for (Map<String,Object> item : db.list("select order_item_id,goods_id,qty from sales_order_item where order_id=:o and store_id=:s and goods_id is not null order by goods_id,order_item_id", Map.of("o", orderId, "s", storeId))) {
+        if (status == 1) for (Map<String,Object> item : db.list("select i.order_item_id,i.goods_id,i.qty,i.weight,g.price_type from sales_order_item i join goods g on g.goods_id=i.goods_id and g.store_id=i.store_id where i.order_id=:o and i.store_id=:s and i.goods_id is not null order by i.goods_id,i.order_item_id", Map.of("o", orderId, "s", storeId))) {
+            BigDecimal inventoryQuantity = com.dajin.system.stock.GoodsInventoryUnit.quantity(item.get("price_type"), item.get("weight"), item.get("qty"));
             db.jdbc().update("update goods set stock=stock+:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s",
-                    new MapSqlParameterSource().addValue("qty", item.get("qty")).addValue("g", item.get("goods_id")).addValue("s", storeId));
-            int pieceQty = (int) Math.round(new BigDecimal(String.valueOf(item.get("qty"))).doubleValue());
-            if (pieceQty > 0) db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where piece_id in (select piece_id from (select piece_id from goods_piece where store_id=:s and goods_id=:g and sales_order_id=:o and status=0 order by piece_id desc limit :qty) t)",
+                    new MapSqlParameterSource().addValue("qty", inventoryQuantity).addValue("g", item.get("goods_id")).addValue("s", storeId));
+            int pieceQty = inventoryQuantity.intValue();
+            if (!com.dajin.system.stock.GoodsInventoryUnit.isGramPriced(item.get("price_type")) && pieceQty > 0) db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where piece_id in (select piece_id from (select piece_id from goods_piece where store_id=:s and goods_id=:g and sales_order_id=:o and status=0 order by piece_id desc limit :qty) t)",
                     new MapSqlParameterSource().addValue("s", storeId).addValue("g", item.get("goods_id")).addValue("o", orderId).addValue("qty", pieceQty));
             db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:no,'SALE_REFUND',:g,:qty,0,:uid,now())",
-                    new MapSqlParameterSource().addValue("s",storeId).addValue("no","REFUND-"+item.get("order_item_id")).addValue("g",item.get("goods_id")).addValue("qty",item.get("qty")).addValue("uid",userId(r)));
+                    new MapSqlParameterSource().addValue("s",storeId).addValue("no","REFUND-"+item.get("order_item_id")).addValue("g",item.get("goods_id")).addValue("qty",inventoryQuantity).addValue("uid",userId(r)));
         }
         if (status == 0) {
             db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where store_id=:s and sales_order_id=:o and status=2", Map.of("s", storeId, "o", orderId));

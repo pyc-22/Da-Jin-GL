@@ -197,7 +197,7 @@ watch(()=>app.eventVersion,()=>{if(['STOCK_UPDATED','STOCK_IN_COMPLETED','OLD_MA
   </el-radio-group>
   <el-form v-if="manualMode==='existing'" label-width="90px">
     <el-form-item label="商品" required><el-select v-model="manualForm.goodsId" filterable><el-option v-for="g in goods" :key="g.goods_id" :value="g.goods_id" :label="goodsLabel(g)"/></el-select><div v-if="selectedManualGoods" class="category-confirm">归属分类：<b>{{ selectedManualGoods.parent_category || '未设置一级分类' }}</b><span> / </span><b>{{ selectedManualGoods.category || '未设置二级分类' }}</b><small>手动入库只增加该货品库存，不会改变分类</small></div></el-form-item>
-    <el-form-item label="数量" required><el-input-number v-model="manualForm.qty" :min=".001" :precision="3"/></el-form-item>
+    <el-form-item :label="Number(selectedManualGoods?.price_type)===1 ? '克重(g)' : '数量'" required><el-input-number v-model="manualForm.qty" :min=".001" :precision="3"/></el-form-item>
     <el-form-item v-if="manualDirection==='IN'" label="成本价"><el-input-number v-model="manualForm.cost" :min="0" :precision="2"/></el-form-item>
     <el-form-item v-else label="出库原因"><el-select v-model="manualForm.reason"><el-option label="损耗" value="损耗"/><el-option label="赠品" value="赠品"/><el-option label="样品" value="样品"/><el-option label="其他" value="其他"/></el-select></el-form-item>
     <el-form-item label="备注" :required="manualDirection==='IN'"><el-input v-model="manualForm.remark" type="textarea" placeholder="说明调整原因"/></el-form-item>
@@ -211,8 +211,8 @@ watch(()=>app.eventVersion,()=>{if(['STOCK_UPDATED','STOCK_IN_COMPLETED','OLD_MA
     <el-form-item v-if="Number(createForm.priceType)===1" label="贵金属类型"><el-select v-model="createForm.goldType" style="width:100%"><el-option v-for="t in goldTypes" :key="t.type_id||t.type_name" :value="t.type_name" :label="t.type_name"/></el-select></el-form-item>
     <el-form-item label="克重(g)"><el-input-number v-model="createForm.weight" :min="0" :precision="3" style="width:100%"/></el-form-item>
     <el-form-item label="成本价" required><el-input-number v-model="createForm.costPrice" :min="0" :precision="2" style="width:100%"/></el-form-item>
-    <el-form-item label="售价" required><el-input-number v-model="createForm.salePrice" :min="0" :precision="2" style="width:100%"/></el-form-item>
-    <el-form-item label="入库数量" required><el-input-number v-model="createForm.qty" :min="0.001" :precision="3" style="width:100%"/></el-form-item>
+    <el-form-item label="售价" required><el-input-number v-model="createForm.salePrice" :min="0" :precision="2" style="width:100%"/><span v-if="Number(createForm.priceType)===1" class="muted">按克货品填 0，开单时使用当前足金卖价</span></el-form-item>
+    <el-form-item :label="Number(createForm.priceType)===1 ? '库存克重(g)' : '入库数量'" required><el-input-number v-model="createForm.qty" :min="0.001" :precision="3" style="width:100%"/></el-form-item>
     <el-form-item label="备注"><el-input v-model="createForm.remark" type="textarea" placeholder="例如采购到货"/></el-form-item>
   </el-form>
   <div v-if="manualDirection==='IN'" class="manual-photo-field">

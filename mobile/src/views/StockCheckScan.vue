@@ -38,6 +38,7 @@ import { scopedStorage } from '../utils/storage.js'
 import { parseInboundScanPayload } from '../utils/inboundIdentity.js'
 import ScanCodeButton from '../components/ScanCodeButton.vue'
 import StockCheckItemCard from '../components/StockCheckItemCard.vue'
+import { isGramPriced } from '../utils/inventoryUnit.js'
 
 const router = useRouter()
 const meta = ref({})
@@ -108,13 +109,15 @@ async function handleScan(raw) {
       } catch { notify('未找到该条码商品') }
       return
     }
-    item.actual = Number((Number(item.actual || 0) + 1).toFixed(3))
+    const increment = isGramPriced(item) ? Number(item.weight || 0) : 1
+    if (isGramPriced(item) && increment <= 0) { notify('按克商品缺少档案克重，请手动输入实盘克重'); return }
+    item.actual = Number((Number(item.actual || 0) + increment).toFixed(3))
     item.counted = true
     filter.value = 'counted'
     keyword.value = ''
     persist()
     feedback()
-    notify(`${item.name} 实盘数 ${number(item.actual)}${pieceNo ? ` · ${pieceNo}` : ''}`)
+    notify(`${item.name} 实盘${isGramPriced(item) ? '克重' : '数'} ${number(item.actual)}${isGramPriced(item) ? 'g' : '件'}${pieceNo ? ` · ${pieceNo}` : ''}`)
     if (typeof uni !== 'undefined' && uni.scanCode) nextTick(() => scanButton.value?.scan())
   } finally { busy.value = false }
 }

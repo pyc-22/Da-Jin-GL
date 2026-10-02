@@ -344,7 +344,7 @@ public class ProcessingController {
                 + "where o.store_id=:s and (:keyword is null or o.order_no like :keyword or o.customer_name like :keyword or o.customer_phone like :keyword) "
                 + "and (:status is null or o.status=:status) and (:craftsman is null or o.craftsman_id=:craftsman) and (:sales is null or o.sales_id=:sales) "
                 + "and (:memberId is null or o.member_id=:memberId) "
-                + (sales ? "and o.created_by=:uid " : "")
+                + (sales ? "and (o.created_by=:uid or o.sales_id=:uid) " : "")
                 + "and (:start is null or date(o.create_time)>=:start) and (:end is null or date(o.create_time)<=:end) order by o.processing_order_id desc limit 500";
         return ApiResponse.ok(db.list(sql, p));
     }
@@ -353,9 +353,7 @@ public class ProcessingController {
     @RequirePermission(value = {"processing:view", "order:checkout"}, anyOf = true)
     public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest request) {
         Map<String, Object> order = orderDetail(id, store(request), request);
-        Object ownerValue = order.get("created_by");
-        long ownerId = ownerValue instanceof Number ? ((Number) ownerValue).longValue() : 0L;
-        if (isSales(request) && userId(request) != ownerId) {
+        if (isSales(request) && !salesCanView(order, userId(request))) {
             throw new BusinessException(403403, "无权查看该加工订单");
         }
         return ApiResponse.ok(order);
@@ -366,13 +364,26 @@ public class ProcessingController {
     public ApiResponse<?> notifyPickup(@PathVariable long id, HttpServletRequest request) {
         long storeId = store(request);
         Map<String, Object> order = orderDetail(id, storeId, request);
+        if (isSales(request) && !salesCanView(order, userId(request))) {
+            throw new BusinessException(403403, "无权通知该加工订单");
+        }
+        Object salesValue = order.get("sales_id");
         Object creatorValue = order.get("created_by");
-        long recipient = creatorValue instanceof Number ? ((Number) creatorValue).longValue() : userId(request);
+        long recipient = salesValue instanceof Number ? ((Number) salesValue).longValue()
+                : creatorValue instanceof Number ? ((Number) creatorValue).longValue() : userId(request);
         db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:uid,'NOTIFICATION','PROCESSING_READY',:content,'',now())",
                 new MapSqlParameterSource().addValue("s", storeId).addValue("uid", recipient)
                         .addValue("content", "加工单 " + order.get("order_no") + " 已完成，可通知客户取货"));
         broadcast("PROCESSING_PICKUP_NOTIFY", processingOrderEvent(order, "NOTIFY_PICKUP"));
         return ApiResponse.ok(Map.of("notified", true));
+    }
+
+    private boolean salesCanView(Map<String, Object> order, long userId) {
+        return matchesUser(order.get("created_by"), userId) || matchesUser(order.get("sales_id"), userId);
+    }
+
+    private boolean matchesUser(Object value, long userId) {
+        return value instanceof Number && ((Number) value).longValue() == userId;
     }
 
     /** 补金登记（成品反推）：加工中/待取货可登记或修正，按差额退补金料库存，金额并入应收。 */
@@ -1008,8 +1019,16 @@ public class ProcessingController {
         return rows.isEmpty() ? null : decimal(rows.get(0).get("price"));
     }
 
+    /**
+     * Finds the internal store-material record without requiring it to be a sellable product.
+     *
+     * "足金用料" is consumed by processing, not sold from the cashier catalog. A manually
+     * created inventory item therefore commonly remains status=0 (库存待上架). Older data can
+     * also contain the zero-stock row that was auto-created on the first failed attempt, so a
+     * caller that needs stock must select a row with enough stock explicitly.
+     */
     private long goldMaterialId(long storeId) {
-        List<Map<String, Object>> goodsRows = db.list("select goods_id from goods where store_id=:s and name='足金用料' and status=1 order by goods_id limit 1", Map.of("s", storeId));
+        List<Map<String, Object>> goodsRows = db.list("select goods_id from goods where store_id=:s and name='足金用料' order by case when status=1 then 0 else 1 end, case when stock>0 then 0 else 1 end, stock desc, goods_id limit 1", Map.of("s", storeId));
         if (!goodsRows.isEmpty()) return ((Number) goodsRows.get(0).get("goods_id")).longValue();
         List<Map<String, Object>> roots = db.list("select category_id from goods_category where store_id=:s and level=1 and status=1 order by sort,category_id limit 1", Map.of("s", storeId));
         if (roots.isEmpty()) throw new BusinessException(400723, "缺少商品分类，无法建档金料");
@@ -1018,9 +1037,16 @@ public class ProcessingController {
         return db.jdbc().queryForObject("select goods_id from goods where store_id=:s and barcode=:barcode", new MapSqlParameterSource().addValue("s", storeId).addValue("barcode", "GOLD-MAT-" + storeId), Long.class);
     }
 
+    private long goldMaterialIdWithStock(long storeId, BigDecimal weight) {
+        List<Map<String, Object>> goodsRows = db.list("select goods_id from goods where store_id=:s and name='足金用料' and stock>=:w order by case when status=1 then 0 else 1 end, stock desc, goods_id limit 1",
+                new MapSqlParameterSource().addValue("s", storeId).addValue("w", weight));
+        if (!goodsRows.isEmpty()) return ((Number) goodsRows.get(0).get("goods_id")).longValue();
+        throw new BusinessException(409710, "金料库存不足，请先对「足金用料」入库 " + weight + " 克后再开单");
+    }
+
     /** 店供金料：扣减"足金用料"商品库存并生成出库流水，保证金料账实一致。 */
     private void deductGoldMaterial(long storeId, long orderId, String orderNo, BigDecimal weight, long operatorId) {
-        long goodsId = goldMaterialId(storeId);
+        long goodsId = goldMaterialIdWithStock(storeId, weight);
         int changed = db.jdbc().update("update goods set stock=stock-:w,version=version+1,update_time=now() where goods_id=:g and store_id=:s and stock>=:w",
                 new MapSqlParameterSource().addValue("w", weight).addValue("g", goodsId).addValue("s", storeId));
         if (changed == 0) throw new BusinessException(409710, "金料库存不足，请先对「足金用料」入库 " + weight + " 克后再开单");
@@ -1036,7 +1062,7 @@ public class ProcessingController {
     /** 按差额调整金料库存：正数领用出库，负数退料入库；流水单号带序号防重。 */
     private void adjustGoldMaterial(long storeId, String orderNo, BigDecimal delta, long operatorId) {
         if (delta.signum() == 0) return;
-        long goodsId = goldMaterialId(storeId);
+        long goodsId = delta.signum() > 0 ? goldMaterialIdWithStock(storeId, delta) : goldMaterialId(storeId);
         int seq = db.jdbc().queryForObject(delta.signum() > 0
                 ? "select count(*) from stock_out where store_id=:s and bill_no like :prefix"
                 : "select count(*) from stock_in where store_id=:s and bill_no like :prefix",

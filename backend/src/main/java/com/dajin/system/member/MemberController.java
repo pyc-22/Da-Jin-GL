@@ -62,7 +62,7 @@ public class MemberController {
         String birthday = blankToNull(q.birthday());
         validateBirthday(birthday);
         MapSqlParameterSource p=new MapSqlParameterSource().addValue("id",id).addValue("s",db.store(r)).addValue("n",q.name()).addValue("phone",q.phone()).addValue("tags",q.tags()).addValue("birthday",birthday).addValue("gender",q.gender()).addValue("sid",q.salesId()).addValue("source",q.source());
-        int changed=db.jdbc().update("update member set name=:n,phone=:phone,tags=:tags,birthday=:birthday,gender=:gender,sales_id=coalesce(:sid,sales_id),source=coalesce(:source,source),update_time=now() where member_id=:id and store_id=:s",p);
+        int changed=db.jdbc().update("update member set name=:n,phone=:phone,tags=:tags,birthday=:birthday,gender=:gender,sales_id=:sid,source=coalesce(:source,source),update_time=now() where member_id=:id and store_id=:s",p);
         if(changed==0) throw new BusinessException(404301,"会员不存在");
         broadcastMemberUpdated(db.store(r), "UPDATE", id);
         return ApiResponse.ok();

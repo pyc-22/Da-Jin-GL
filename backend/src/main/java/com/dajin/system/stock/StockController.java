@@ -253,6 +253,7 @@ public class StockController {
             if (costPrice == null) {
                 costPrice = db.jdbc().queryForObject("select coalesce(cost_price,0) from goods where goods_id=:goods and store_id=:s", Map.of("goods", goodsId, "s", storeId), BigDecimal.class);
             }
+            Integer priceType = db.jdbc().queryForObject("select price_type from goods where goods_id=:goods and store_id=:s", Map.of("goods", goodsId, "s", storeId), Integer.class);
             MapSqlParameterSource p = new MapSqlParameterSource().addValue("inbound", inboundId).addValue("s", storeId).addValue("goods", goodsId)
                     .addValue("barcode", item.get("barcode")).addValue("name", item.get("name")).addValue("category", nullableInboundId(item.get("categoryId")))
                     .addValue("weight", item.get("goldWeight")).addValue("price", item.get("labelPrice")).addValue("certificateNo", item.get("certificateNo")).addValue("quantity", item.get("quantity"))
@@ -264,7 +265,7 @@ public class StockController {
                 List<?> pieceImages = item.get("pieceImages") instanceof List<?> pl ? pl : List.of();
                 @SuppressWarnings("unchecked") List<String> pieceNos = (List<String>) item.getOrDefault("pieceNos", List.of());
                 int pieceQty = item.get("quantity") == null ? 1 : (int) Math.round(new BigDecimal(String.valueOf(item.get("quantity"))).doubleValue());
-                for (int i = 0; i < pieceQty; i++) {
+                if (!GoodsInventoryUnit.isGramPriced(priceType)) for (int i = 0; i < pieceQty; i++) {
                     String pieceImage = i < pieceImages.size() && pieceImages.get(i) != null ? String.valueOf(pieceImages.get(i)).trim() : "";
                     if (pieceImage.startsWith("data:")) pieceImage = "";
                     String pieceNo = i < pieceNos.size() ? pieceNos.get(i) : generatedPieceNo(barcodeForPiece, inboundId, i + 1);
@@ -277,12 +278,13 @@ public class StockController {
                         throw new BusinessException(409233, "单件码已登记，不可重复入库: " + pieceNo);
                     }
                 }
-                int changed = db.jdbc().update("update goods set stock=stock+:quantity,version=version+1,update_time=now() where goods_id=:goods and store_id=:s", p);
+                BigDecimal inventoryQuantity = GoodsInventoryUnit.quantity(priceType, item.get("goldWeight"), item.get("quantity"));
+                int changed = db.jdbc().update("update goods set stock=stock+:inventoryQuantity,version=version+1,update_time=now() where goods_id=:goods and store_id=:s", p.addValue("inventoryQuantity", inventoryQuantity));
                 if (changed == 0) throw new BusinessException(404224, "库存货品不存在");
                 if (!"[]".equals(String.valueOf(p.getValue("images")))) {
                     db.jdbc().update("update goods set images=:images,version=version+1,update_time=now() where goods_id=:goods and store_id=:s", p);
                 }
-                MapSqlParameterSource flow = new MapSqlParameterSource().addValue("s", storeId).addValue("no", inboundNo + "-" + (++line)).addValue("type", "INBOUND_" + inboundType).addValue("g", goodsId).addValue("qty", item.get("quantity")).addValue("cost", costPrice).addValue("operator", operatorId);
+                MapSqlParameterSource flow = new MapSqlParameterSource().addValue("s", storeId).addValue("no", inboundNo + "-" + (++line)).addValue("type", "INBOUND_" + inboundType).addValue("g", goodsId).addValue("qty", inventoryQuantity).addValue("cost", costPrice).addValue("operator", operatorId);
                 db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:no,:type,:g,:qty,:cost,:operator,now())", flow);
             }
         }
@@ -526,6 +528,7 @@ public class StockController {
         // expectedVersion 缺省时跳过乐观锁（兼容旧弹窗），传了才校验，避免"库存已变化"误拦
         boolean checkVersion = q.get("expectedVersion") != null && !String.valueOf(q.get("expectedVersion")).isBlank();
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("no", billNo).addValue("type", q.getOrDefault("reason", type)).addValue("g", q.get("goodsId")).addValue("qty", qty).addValue("cost", cost).addValue("operator", operatorId).addValue("version", q.get("expectedVersion"));
+        Integer priceType = db.jdbc().queryForObject("select price_type from goods where goods_id=:g and store_id=:s", p, Integer.class);
         if (type.equals("OUT")) {
             BigDecimal value = db.jdbc().queryForObject("select coalesce(cost_price,0)*:qty from goods where goods_id=:g and store_id=:s", p, BigDecimal.class);
             BigDecimal limit = configNumber(storeId, "stock_out_approval_limit", BigDecimal.valueOf(10000));
@@ -556,10 +559,10 @@ public class StockController {
         }
         if (type.equals("OUT")) {
             new InventoryAvailability(db).removePieces(storeId,q.get("goodsId"),qty,pieceNo);
-        } else if (!pieceNo.isBlank()) {
+        } else if (!GoodsInventoryUnit.isGramPriced(priceType) && !pieceNo.isBlank()) {
             try { db.jdbc().update("insert into goods_piece(store_id,goods_id,piece_no,status,create_time) values(:s,:g,:pieceNo,1,now())", p.addValue("pieceNo", pieceNo)); }
             catch (DuplicateKeyException e) { throw new BusinessException(409233, "单件码已登记，不可重复入库: " + pieceNo); }
-        } else if (qty.stripTrailingZeros().scale() <= 0) {
+        } else if (!GoodsInventoryUnit.isGramPriced(priceType) && qty.stripTrailingZeros().scale() <= 0) {
             for (int i = 1; i <= qty.intValue(); i++) db.jdbc().update("insert into goods_piece(store_id,goods_id,piece_no,status,create_time) values(:s,:g,:pieceNo,1,now())", p.addValue("pieceNo", generatedManualPieceNo(billNo, i)));
         }
         db.jdbc().update(type.equals("IN") ? "insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:no,:type,:g,:qty,:cost,:operator,now())" : "insert into stock_out(store_id,bill_no,type,goods_id,qty,reason,operator_id,create_time) values(:s,:no,:type,:g,:qty,:type,:operator,now())", p);
@@ -941,7 +944,7 @@ public class StockController {
     private List<Map<String,Object>> scopedGoods(long storeId, String scopeType, Long scopeId) {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("scope", scopeType).addValue("scopeId", scopeId);
         return db.list("select g.goods_id,g.barcode,g.name,c.category_id,c.name category,c.parent_id parent_category_id,"
-                + "pc.name parent_category,g.stock,g.weight,g.sale_price,g.cost_price,g.images "
+                + "pc.name parent_category,g.stock,g.weight,g.price_type,g.sale_price,g.cost_price,g.images "
                 + "from goods g left join goods_category c on c.category_id=g.category_id and c.store_id=g.store_id "
                 + "left join goods_category pc on pc.category_id=c.parent_id and pc.store_id=c.store_id "
                 + "where g.store_id=:s and ("
@@ -966,7 +969,7 @@ public class StockController {
         if ("CUSTOM".equals(scopeType)) {
             MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("ids", actualByGoods.keySet());
             goods = db.list("select g.goods_id,g.barcode,g.name,c.category_id,c.name category,c.parent_id parent_category_id,"
-                    + "pc.name parent_category,g.stock,g.cost_price from goods g "
+                    + "pc.name parent_category,g.stock,g.weight,g.price_type,g.cost_price from goods g "
                     + "left join goods_category c on c.category_id=g.category_id and c.store_id=g.store_id "
                     + "left join goods_category pc on pc.category_id=c.parent_id and pc.store_id=c.store_id "
                     + "where g.store_id=:s and g.goods_id in (:ids) order by g.goods_id", p);
@@ -993,6 +996,8 @@ public class StockController {
             row.put("categoryId", goodsRow.get("category_id"));
             row.put("categoryName", goodsRow.get("category"));
             row.put("parentCategoryName", goodsRow.get("parent_category"));
+            row.put("priceType", goodsRow.get("price_type"));
+            row.put("weight", goodsRow.get("weight"));
             row.put("stock", stock);
             row.put("stockSnapshot", stock);
             row.put("actual", actual);

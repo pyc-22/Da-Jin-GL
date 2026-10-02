@@ -25,7 +25,7 @@
         </div>
         <div class="detail-info">
           <div class="rank-row"><span>分类</span><b>{{ goods.category || '—' }}</b></div>
-          <div class="rank-row"><span>库存</span><b>{{ goods.stock }}</b></div>
+          <div class="rank-row"><span>库存</span><b>{{ inventoryText(goods) }}</b></div>
           <div class="rank-row"><span>计价方式</span><b>{{ goods.price_type === 1 ? '按克计价' : '一口价' }}</b></div>
           <div class="rank-row"><span>金种</span><b>{{ goods.gold_type || '—' }}</b></div>
           <div class="rank-row"><span>状态</span><b :class="goods.status === 1 ? 'ok' : 'error'">{{ goods.status === 1 ? '在售' : '下架' }}</b></div>
@@ -56,6 +56,7 @@ import { normalizeGoodsImageUrl } from '../utils/goodsImages.js'
 import { useAppStore } from '../stores/app.js'
 import { useAuthStore } from '../stores/auth.js'
 import { uploadImage } from '../api/upload.js'
+import { inventoryText } from '../utils/inventoryUnit.js'
 const route = useRoute()
 const router = useRouter()
 const app = useAppStore()

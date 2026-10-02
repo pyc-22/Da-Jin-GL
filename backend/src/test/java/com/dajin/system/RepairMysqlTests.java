@@ -257,6 +257,20 @@ class RepairMysqlTests {
         assertEquals(new BigDecimal("200.00"),jdbc.queryForObject("select labor_fee from processing_order",BigDecimal.class));
     }
 
+    @Test void processingUsesInventoryOnlyGoldMaterialAndConfiguredPrice() {
+        jdbc.update("insert into processing_category(category_id,store_id,name,category_code) values(1,1,'Processing','PROC')");
+        jdbc.update("insert into processing_item(item_id,store_id,category_id,name,item_code,labor_fee,pricing_unit) values(1,1,1,'Gold service','GOLD',20,'按件')");
+        jdbc.update("insert into gold_price(store_id,price_type,price,sale_price,recycle_price,date,operator_id) values(1,'足金',612,612,578,current_date,1)");
+        jdbc.update("insert into goods(goods_id,store_id,barcode,name,category_id,price_type,stock,cost_price,sale_price,status) values(10,1,'GOLD-MATERIAL-10','足金用料',1,1,151,0,0,0)");
+
+        var controller=transactional(new com.dajin.system.processing.ProcessingController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
+        var order=(Map<?,?>)controller.createOrder(Map.of("processingItemId",1,"customerName","Test","customerPhone","13800000000","quantity",1,"storeGoldWeight",5,"storeGoldPrice",0),request).data();
+
+        assertEquals(new BigDecimal("146.000"),jdbc.queryForObject("select stock from goods where goods_id=10",BigDecimal.class));
+        assertEquals(new BigDecimal("612.00"),jdbc.queryForObject("select store_gold_price from processing_order where processing_order_id=?",BigDecimal.class,order.get("processing_order_id")));
+        assertEquals(10L,jdbc.queryForObject("select store_gold_goods_id from processing_order where processing_order_id=?",Long.class,order.get("processing_order_id")));
+    }
+
     @Test void processingGroupPaymentSettlesActualAmountWithoutCreatingArrears() {
         var migration = new com.dajin.system.config.SchemaCompatibilityMigration(jdbc);
         migration.run();

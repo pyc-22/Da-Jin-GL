@@ -13,7 +13,7 @@
         <section v-if="data.remark || data.decision_remark" class="check-remarks"><p v-if="data.remark"><span>盘点备注</span>{{ data.remark }}</p><p v-if="data.decision_remark"><span>{{ Number(data.status) === 4 ? '驳回原因' : '审批备注' }}</span><b :class="{ error: Number(data.status) === 4 }">{{ data.decision_remark }}</b></p></section>
         <div class="filter-tabs"><button :class="{ active: detailFilter === 'all' }" @click="detailFilter = 'all'">全部</button><button :class="{ active: detailFilter === 'different' }" @click="detailFilter = 'different'">只看差异</button></div>
         <div v-if="!visibleItems.length" class="empty">没有差异商品</div>
-        <article v-for="item in visibleItems" v-else :key="item.goodsId" class="check-detail-item"><div><b>{{ item.name || `商品 ${item.goodsId}` }}</b><small>{{ item.barcode || '-' }} · {{ item.parentCategoryName || '' }} {{ item.categoryName || '' }}</small></div><div class="check-detail-numbers"><span>系统 {{ number(item.stockSnapshot ?? item.stock) }}</span><span>实盘 {{ number(item.actual) }}</span><strong :class="diffClass(item.difference ?? Number(item.actual || 0) - Number(item.stock || 0))">{{ signed(item.difference ?? Number(item.actual || 0) - Number(item.stock || 0)) }}</strong></div></article>
+        <article v-for="item in visibleItems" v-else :key="item.goodsId" class="check-detail-item"><div><b>{{ item.name || `商品 ${item.goodsId}` }}</b><small>{{ item.barcode || '-' }} · {{ item.parentCategoryName || '' }} {{ item.categoryName || '' }}</small></div><div class="check-detail-numbers"><span>系统 {{ number(item.stockSnapshot ?? item.stock) }}{{ unit(item) }}</span><span>实盘 {{ number(item.actual) }}{{ unit(item) }}</span><strong :class="diffClass(item.difference ?? Number(item.actual || 0) - Number(item.stock || 0))">{{ signed(item.difference ?? Number(item.actual || 0) - Number(item.stock || 0)) }}{{ unit(item) }}</strong></div></article>
       </template>
     </main>
   </div>
@@ -23,6 +23,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/request.js'
+import { isGramPriced } from '../utils/inventoryUnit.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +36,7 @@ const statusLabel = value => ({ 1: '待审批', 3: '已通过', 4: '已驳回' }
 const statusClass = value => Number(value) === 3 ? 'check-status approved' : Number(value) === 4 ? 'check-status rejected' : 'check-status pending'
 const scopeLabel = value => ({ STORE: '全店商品', CATEGORY_L1: '一级分类', CATEGORY_L2: '二级分类', GOODS: '指定商品', CUSTOM: '自定义商品' }[value] || '盘点')
 const number = value => Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+const unit = item => isGramPriced(item) ? 'g' : '件'
 const signed = value => `${Number(value) > 0 ? '+' : ''}${number(value)}`
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const diffClass = value => Number(value) > 0 ? 'check-profit' : Number(value) < 0 ? 'check-loss' : 'check-even'

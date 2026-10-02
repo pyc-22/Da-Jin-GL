@@ -27,6 +27,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("goods", "gold_type", "VARCHAR(50) NULL DEFAULT '足金' AFTER price_type");
         addColumn("goods", "certificate_no", "VARCHAR(64) NULL AFTER gold_type");
         normalizeGoodsStock();
+        migrateGramInventoryUnits();
         addColumn("goods_category", "category_code", "VARCHAR(50) NULL AFTER name");
         addColumn("goods_category", "level", "TINYINT NULL DEFAULT 1 AFTER parent_id");
         addColumn("old_material", "direction", "TINYINT NOT NULL DEFAULT 1 AFTER status");
@@ -498,6 +499,15 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
     private void normalizeGoodsStock() {
         Integer count = jdbc.queryForObject("select count(*) from information_schema.columns where table_schema=database() and table_name='goods' and column_name='stock' and data_type<>'decimal'", Integer.class);
         if (count != null && count > 0) jdbc.execute("alter table goods modify column stock decimal(12,3) not null default 0");
+    }
+
+    /** Converts legacy gram-priced stock counts into the canonical gram unit once. */
+    private void migrateGramInventoryUnits() {
+        Integer done = jdbc.queryForObject("select count(*) from sys_config where store_id=1 and config_key='gram_inventory_unit_v1'", Integer.class);
+        if (done != null && done > 0) return;
+        jdbc.update("update goods set stock=round(stock*weight,3) where price_type=1 and weight>0");
+        jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
+                + "values(1,'SYSTEM','gram_inventory_unit_v1','1','按克商品库存已统一为克重（一次性迁移标记）',100,1)");
     }
     private void addIndex(String table, String index, String fields, boolean unique) {
         Integer count = jdbc.queryForObject("select count(*) from information_schema.statistics where table_schema=database() and table_name=? and index_name=?", Integer.class, table, index);

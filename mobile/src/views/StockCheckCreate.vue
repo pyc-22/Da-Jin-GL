@@ -23,8 +23,8 @@
         <template v-if="form.scopeType === 'GOODS'">
           <label class="form-label">指定商品</label>
           <div class="search check-goods-search"><input v-model.trim="goodsKeyword" placeholder="输入条码或商品名称" @keyup.enter="searchGoods"/><button @click="searchGoods">查询</button></div>
-          <div v-if="selectedGoods" class="selected-check-goods"><span><b>{{ selectedGoods.name }}</b><small>{{ selectedGoods.barcode }} · 系统库存 {{ selectedGoods.stock }}</small></span><button aria-label="移除商品" @click="clearSelectedGoods">×</button></div>
-          <template v-else><button v-for="goods in goodsResults" :key="goods.goods_id" class="check-goods-option" @click="chooseGoods(goods)"><span><b>{{ goods.name }}</b><small>{{ goods.barcode }} · {{ goods.category || '未分类' }}</small></span><strong>库存 {{ goods.stock }}</strong></button></template>
+          <div v-if="selectedGoods" class="selected-check-goods"><span><b>{{ selectedGoods.name }}</b><small>{{ selectedGoods.barcode }} · 系统库存 {{ inventoryText(selectedGoods) }}</small></span><button aria-label="移除商品" @click="clearSelectedGoods">×</button></div>
+          <template v-else><button v-for="goods in goodsResults" :key="goods.goods_id" class="check-goods-option" @click="chooseGoods(goods)"><span><b>{{ goods.name }}</b><small>{{ goods.barcode }} · {{ goods.category || '未分类' }}</small></span><strong>库存 {{ inventoryText(goods) }}</strong></button></template>
         </template>
 
         <label class="form-label">盘点门店<input :value="storeName" disabled /></label>
@@ -43,8 +43,10 @@ import { useRouter } from 'vue-router'
 import { api } from '../api/request.js'
 import { useAuthStore } from '../stores/auth.js'
 import { scopedStorage } from '../utils/storage.js'
-const pageCache = scopedStorage(), setStorage = pageCache.set
+import { inventoryText } from '../utils/inventoryUnit.js'
 
+const pageCache = scopedStorage()
+const setStorage = pageCache.set
 const router = useRouter()
 const auth = useAuthStore()
 const scopeOptions = [
@@ -73,6 +75,7 @@ function selectScope(value) {
   goodsResults.value = []
   error.value = ''
 }
+
 async function searchGoods() {
   if (!goodsKeyword.value) { error.value = '请输入商品条码或名称'; return }
   try {
@@ -98,6 +101,8 @@ function normalizeItem(goods) {
     category: goods.category || '',
     parentCategory: goods.parent_category || '',
     systemStock: Number(goods.stock || 0),
+    priceType: Number(goods.price_type ?? goods.priceType ?? 2),
+    weight: Number(goods.weight || 0),
     actual: 0,
     counted: false,
     images: goods.images || [],

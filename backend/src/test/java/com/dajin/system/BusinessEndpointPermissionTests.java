@@ -1,0 +1,31 @@
+package com.dajin.system;
+
+import com.dajin.system.config.RequirePermission;
+import com.dajin.system.recycle.RecycleController;
+import com.dajin.system.shift.ShiftController;
+import org.junit.jupiter.api.Test;
+
+import javax.servlet.http.HttpServletRequest;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+
+class BusinessEndpointPermissionTests {
+    @Test
+    void recycleEndpointsRequireRecyclePermission() throws Exception {
+        assertPermission(RecycleController.class.getMethod("create", java.util.Map.class, HttpServletRequest.class), "recycle:view");
+        assertPermission(RecycleController.class.getMethod("list", HttpServletRequest.class), "recycle:view");
+    }
+
+    @Test
+    void shiftEndpointsRequireShiftConfirmationPermission() throws Exception {
+        assertPermission(ShiftController.class.getMethod("info", HttpServletRequest.class), "shift:confirm");
+        assertPermission(ShiftController.class.getMethod("confirm", java.util.Map.class, HttpServletRequest.class), "shift:confirm");
+    }
+
+    private void assertPermission(Method method, String expected) {
+        RequirePermission annotation = method.getAnnotation(RequirePermission.class);
+        assertArrayEquals(new String[]{expected}, annotation.value(), method.toString());
+    }
+}

@@ -1,6 +1,7 @@
 package com.dajin.system.shift;
 
 import com.dajin.system.common.*;
+import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,7 @@ public class ShiftController {
     public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws) { this.db = db; this.shifts = shifts; this.ws = ws; }
 
     @GetMapping("/info")
+    @RequirePermission("shift:confirm")
     public ApiResponse<?> info(HttpServletRequest r) {
         long storeId = db.store(r);
         String shiftNo = shifts.current(storeId);
@@ -38,6 +40,7 @@ public class ShiftController {
     }
 
     @PostMapping("/confirm")
+    @RequirePermission("shift:confirm")
     @Transactional
     public ApiResponse<?> confirm(@RequestBody Map<String,Object> q, HttpServletRequest r) {
         long storeId = db.store(r);

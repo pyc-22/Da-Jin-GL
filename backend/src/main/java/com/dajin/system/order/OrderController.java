@@ -5,6 +5,7 @@ import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.gold.GoldMarketService;
+import com.dajin.system.stock.GoodsInventoryUnit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -126,29 +127,67 @@ public class OrderController {
         return method;
     }
     private BigDecimal configDecimal(HttpServletRequest r, String k) { String v = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key=:k and enabled=1", Map.of("s", db.store(r), "k", k), String.class); if (v == null) throw new BusinessException(500101, "缺少系统配置: " + k); return new BigDecimal(v); }
-    private Item priceItem(Item item, HttpServletRequest request) {
-        if (market == null || item.goldType() == null || item.goldType().isBlank()) return item;
-        Map<String, Object> snapshot = market.snapshot(db.store(request), item.goldType(), item.unitPrice());
-        BigDecimal sale = snapshot.get("salePrice") instanceof BigDecimal value ? value : null;
-        if (sale == null || sale.signum() <= 0 || item.weight() == null || item.weight().signum() <= 0 || !Objects.equals(item.priceType(), 1)) return item;
+    Item priceItem(Item item, HttpServletRequest request) {
+        if (item.goodsId() == null) return item;
+        Map<String, Object> goods;
+        try {
+            goods = db.one("select status,price_type,weight,sale_price,gold_type,name from goods where goods_id=:g and store_id=:s",
+                    Map.of("g", item.goodsId(), "s", db.store(request)));
+        } catch (Exception e) {
+            throw new BusinessException(404002, "商品不存在或不属于当前门店");
+        }
+        if (integerValue(goods.get("status"), 0) != 1)
+            throw new BusinessException(409104, "商品未上架销售，请先在商品管理中上架");
+
+        int priceType = integerValue(goods.get("price_type"), 2);
         BigDecimal qty = BigDecimal.valueOf(item.qty() == null ? 1 : item.qty());
-        BigDecimal subtotal = sale.multiply(item.weight()).multiply(qty).setScale(2, RoundingMode.HALF_UP);
-        return new Item(item.goodsId(), item.itemName(), item.weight(), sale, item.laborFee(), item.qty(), subtotal, item.pieceNos(), item.goldType(), item.priceType());
+        BigDecimal weight = goods.get("weight") == null ? null : new BigDecimal(goods.get("weight").toString());
+        String goldType = goods.get("gold_type") == null ? "足金" : String.valueOf(goods.get("gold_type"));
+        String itemName = goods.get("name") == null ? item.itemName() : String.valueOf(goods.get("name"));
+        BigDecimal unitPrice;
+        BigDecimal lineAmount;
+
+        if (priceType == 1) {
+            if (market == null) throw new BusinessException(400118, "商品金价暂不可用，请刷新金价后重试");
+            Map<String, Object> snapshot = market.snapshot(db.store(request), goldType, null);
+            unitPrice = snapshot.get("salePrice") instanceof BigDecimal value ? value : null;
+            if (unitPrice == null || unitPrice.signum() <= 0)
+                throw new BusinessException(400118, "商品金价暂不可用，请刷新金价后重试");
+            // Gram-priced orders carry the total grams sold. Older clients
+            // omitted it, so fall back to the catalog's unit weight.
+            weight = item.weight() != null && item.weight().signum() > 0 ? item.weight() : weight;
+            if (weight == null || weight.signum() <= 0)
+                throw new BusinessException(400105, "按克商品档案缺少有效克重");
+            lineAmount = unitPrice.multiply(weight).setScale(2, RoundingMode.HALF_UP);
+            return new Item(item.goodsId(), itemName, weight, unitPrice, item.laborFee(), 1, lineAmount,
+                    List.of(), goldType, priceType);
+        } else {
+            unitPrice = goods.get("sale_price") == null ? BigDecimal.ZERO : new BigDecimal(goods.get("sale_price").toString());
+            lineAmount = unitPrice.multiply(qty).setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return new Item(item.goodsId(), itemName, weight, unitPrice, item.laborFee(), item.qty(), lineAmount,
+                item.pieceNos(), goldType, priceType);
+    }
+    private int integerValue(Object value, int fallback) {
+        if (value == null) return fallback;
+        try { return Integer.parseInt(String.valueOf(value)); }
+        catch (NumberFormatException ignored) { return fallback; }
     }
     void validateStockAvailability(Item item, HttpServletRequest request) {
         if (item.goodsId() == null) return;
-        validateStockAvailability(item.goodsId(), item.qty(), request, false);
+        validateStockAvailability(item.goodsId(), GoodsInventoryUnit.quantity(item.priceType(), item.weight(), item.qty()), request, false);
     }
     void validateStockAvailability(List<Item> items, HttpServletRequest request) {
-        Map<Long,Integer> requested = new TreeMap<>();
+        Map<Long,BigDecimal> requested = new TreeMap<>();
         for (Item item : items) {
-            if (item.goodsId() != null) requested.merge(item.goodsId(), item.qty(), Integer::sum);
+            if (item.goodsId() != null) requested.merge(item.goodsId(), GoodsInventoryUnit.quantity(item.priceType(), item.weight(), item.qty()), BigDecimal::add);
         }
-        for (Map.Entry<Long,Integer> entry : requested.entrySet()) {
+        for (Map.Entry<Long,BigDecimal> entry : requested.entrySet()) {
             validateStockAvailability(entry.getKey(), entry.getValue(), request, true);
         }
     }
-    private void validateStockAvailability(Long goodsId, Integer qty, HttpServletRequest request, boolean lock) {
+    private void validateStockAvailability(Long goodsId, BigDecimal qty, HttpServletRequest request, boolean lock) {
         Map<String,Object> goods;
         try {
             goods = db.one("select stock,status from goods where goods_id=:g and store_id=:s" + (lock ? " for update" : ""),
@@ -161,13 +200,17 @@ public class OrderController {
         BigDecimal stock = new BigDecimal(String.valueOf(goods.getOrDefault("stock", 0)));
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(request)).addValue("g", goodsId);
         BigDecimal reserved = db.jdbc().queryForObject(
-                "select coalesce(sum(soi.qty),0) from sales_order_item soi join sales_order so on so.order_id=soi.order_id and so.store_id=soi.store_id where soi.store_id=:s and soi.goods_id=:g and so.status in (0,3)",
+                "select coalesce(sum(case when g.price_type=1 then coalesce(soi.weight,0)*coalesce(soi.qty,1) else soi.qty end),0) "
+                        + "from sales_order_item soi join sales_order so on so.order_id=soi.order_id and so.store_id=soi.store_id "
+                        + "join goods g on g.goods_id=soi.goods_id and g.store_id=soi.store_id "
+                        + "where soi.store_id=:s and soi.goods_id=:g and so.status in (0,3)",
                 p, BigDecimal.class);
         BigDecimal available = stock.subtract(reserved == null ? BigDecimal.ZERO : reserved);
-        if (available.compareTo(BigDecimal.valueOf(qty)) < 0)
+        if (available.compareTo(qty) < 0)
             throw new BusinessException(409103, "商品可售库存不足，已有待收款订单占用，请先收款或取消原订单: " + goodsId);
     }
     private void validatePieces(Item item, Set<String> requested, HttpServletRequest request) {
+        if (GoodsInventoryUnit.isGramPriced(item.priceType())) return;
         if (item.pieceNos() == null || item.pieceNos().isEmpty()) return;
         if (item.goodsId() == null || item.qty() != item.pieceNos().size()) throw new BusinessException(400112, "销售数量必须与单件码数量一致");
         for (String raw : item.pieceNos()) {
@@ -186,7 +229,7 @@ public class OrderController {
     void reservePieces(long orderId, List<Item> items, HttpServletRequest request) {
         long storeId = db.store(request);
         for (Item item : items) {
-            if (item.goodsId() == null) continue;
+            if (item.goodsId() == null || GoodsInventoryUnit.isGramPriced(item.priceType())) continue;
             List<String> pieceNos = item.pieceNos() == null ? List.of() : item.pieceNos().stream().map(String::trim).toList();
             MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("g", item.goodsId()).addValue("o", orderId);
             if (!pieceNos.isEmpty()) {
@@ -332,7 +375,7 @@ public class OrderController {
         int priceType = ((Number) goods.getOrDefault("price_type", 2)).intValue();
         if (priceType == 1) {
             BigDecimal weight = item.weight() != null ? item.weight() : (goods.get("weight") == null ? BigDecimal.ZERO : new BigDecimal(goods.get("weight").toString()));
-            return unitCost.multiply(weight).multiply(qty).setScale(2, RoundingMode.HALF_UP);
+            return unitCost.multiply(weight).setScale(2, RoundingMode.HALF_UP);
         }
         return unitCost.multiply(qty).setScale(2, RoundingMode.HALF_UP);
     }

@@ -43,5 +43,7 @@ class SchemaContractTests {
         assertTrue(sql.contains("piece_nos JSON NULL"));
         assertTrue(sql.contains("cost_snapshot DECIMAL(14,2), piece_nos JSON NULL"));
         assertTrue(sql.contains("'打金师傅','CRAFTSMAN'"));
+        assertFalse(sql.contains("ALTER TABLE processing_order ADD COLUMN sales_id"),
+                "processing_order columns are already declared in CREATE TABLE and must not be added twice");
     }
 }

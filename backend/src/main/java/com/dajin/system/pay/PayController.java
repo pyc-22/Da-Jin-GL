@@ -1,5 +1,5 @@
 package com.dajin.system.pay;
-import com.dajin.system.common.*; import com.dajin.system.config.RequirePermission; import com.dajin.system.config.RequireRoles; import com.dajin.system.config.SyncWebSocketHandler; import com.dajin.system.shift.ShiftService; import com.dajin.system.stock.OldMaterialLedgerService; import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.ObjectMapper; import org.springframework.dao.DuplicateKeyException; import org.springframework.jdbc.core.namedparam.*; import org.springframework.transaction.annotation.Transactional; import org.springframework.web.bind.annotation.*; import javax.servlet.http.*; import java.math.*; import java.util.*;
+import com.dajin.system.common.*; import com.dajin.system.config.RequirePermission; import com.dajin.system.config.RequireRoles; import com.dajin.system.config.SyncWebSocketHandler; import com.dajin.system.shift.ShiftService; import com.dajin.system.stock.GoodsInventoryUnit; import com.dajin.system.stock.OldMaterialLedgerService; import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.ObjectMapper; import org.springframework.dao.DuplicateKeyException; import org.springframework.jdbc.core.namedparam.*; import org.springframework.transaction.annotation.Transactional; import org.springframework.web.bind.annotation.*; import javax.servlet.http.*; import java.math.*; import java.util.*;
 @RestController @RequestMapping("/api/pay") public class PayController {private final DbSupport db; private final SyncWebSocketHandler ws; private final ShiftService shifts; private final OldMaterialLedgerService oldMaterials; private final ObjectMapper objectMapper; public PayController(DbSupport db,SyncWebSocketHandler ws,ShiftService shifts,OldMaterialLedgerService oldMaterials,ObjectMapper objectMapper){this.db=db;this.ws=ws;this.shifts=shifts;this.oldMaterials=oldMaterials;this.objectMapper=objectMapper;}
  @PostMapping("/pay") @RequirePermission("order:checkout") @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED) public ApiResponse<?> pay(@RequestBody Map<String,Object> body,HttpServletRequest r){
   String client=String.valueOf(body.getOrDefault("clientRequestId",""));
@@ -83,13 +83,19 @@ import com.dajin.system.common.*; import com.dajin.system.config.RequirePermissi
 
  void consumeOrderInventory(long orderId,HttpServletRequest r){
   long storeId=db.store(r);
-  List<Map<String,Object>> items=db.list("select goods_id,qty,piece_nos,order_item_id from sales_order_item where order_id=:o and store_id=:s and goods_id is not null order by goods_id,order_item_id",Map.of("o",orderId,"s",storeId));
-  for(Map<String,Object> item:items){
-   MapSqlParameterSource p=new MapSqlParameterSource().addValue("qty",item.get("qty")).addValue("g",item.get("goods_id")).addValue("s",storeId).addValue("o",orderId);
-   int changed=db.jdbc().update("update goods set stock=stock-:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s and stock>=:qty",p);
-   if(changed==0)throw new BusinessException(409103,"商品库存不足或版本已变化: "+item.get("goods_id"));
-   List<String> pieceNos=pieceNos(item.get("piece_nos"));
-   int pieceQty=(int)Math.round(new BigDecimal(item.get("qty").toString()).doubleValue());
+   List<Map<String,Object>> items=db.list("select goods_id,qty,piece_nos,order_item_id,price_type,weight from (select soi.goods_id,soi.qty,soi.piece_nos,soi.order_item_id,soi.weight,g.price_type,soi.order_id,soi.store_id from sales_order_item soi join sales_order so on so.order_id=soi.order_id and so.store_id=soi.store_id join goods g on g.goods_id=soi.goods_id and g.store_id=soi.store_id) item where order_id=:o and store_id=:s and goods_id is not null order by goods_id,order_item_id",Map.of("o",orderId,"s",storeId));
+   for(Map<String,Object> item:items){
+    BigDecimal inventoryQuantity=GoodsInventoryUnit.quantity(item.get("price_type"),item.get("weight"),item.get("qty"));
+    MapSqlParameterSource p=new MapSqlParameterSource().addValue("qty",inventoryQuantity).addValue("g",item.get("goods_id")).addValue("s",storeId).addValue("o",orderId);
+    int changed=db.jdbc().update("update goods set stock=stock-:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s and stock>=:qty",p);
+    if(changed==0)throw new BusinessException(409103,"商品库存不足或版本已变化: "+item.get("goods_id"));
+    if(GoodsInventoryUnit.isGramPriced(item.get("price_type"))){
+     db.jdbc().update("insert into stock_out(store_id,bill_no,type,goods_id,qty,reason,operator_id,create_time) values(:s,:no,'SALE',:g,:qty,:reason,:uid,now())",
+       p.addValue("no","SALE-"+item.get("order_item_id")).addValue("reason","销售订单:"+orderId).addValue("uid",userId(r)));
+     continue;
+    }
+    List<String> pieceNos=pieceNos(item.get("piece_nos"));
+    int pieceQty=inventoryQuantity.intValue();
     if(!pieceNos.isEmpty()){
      if(pieceQty!=pieceNos.size())throw new BusinessException(409114,"订单数量与单件码数量不一致");
      int pieceChanged=db.jdbc().update("update goods_piece set status=0,sales_order_id=:o,update_time=now() where store_id=:s and goods_id=:g and piece_no in (:pieceNos) and ((status=2 and sales_order_id=:o) or (status=1 and sales_order_id is null))",p.addValue("pieceNos",pieceNos));

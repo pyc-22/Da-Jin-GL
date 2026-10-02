@@ -1,6 +1,7 @@
 package com.dajin.system.recycle;
 
 import com.dajin.system.common.*;
+import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.gold.GoldMarketService;
 import com.dajin.system.pay.PaymentChannelPolicy;
@@ -25,7 +26,7 @@ public class RecycleController {
     public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials) { this(db, ws, shifts, oldMaterials, null); }
     @Autowired
     public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials, GoldMarketService market) { this.db = db; this.ws = ws; this.shifts = shifts; this.oldMaterials = oldMaterials; this.market = market; }
-    @PostMapping("/create") @Transactional
+    @PostMapping("/create") @RequirePermission("recycle:view") @Transactional
     public ApiResponse<?> create(@RequestBody Map<String,Object> q, HttpServletRequest r) {
         String clientRequestId = q.get("clientRequestId") == null ? "" : String.valueOf(q.get("clientRequestId")).trim();
         if (!clientRequestId.isBlank()) {
@@ -60,7 +61,8 @@ public class RecycleController {
         if (!clientRequestId.isBlank()) db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'RECYCLE','CREATE',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", db.store(r)).addValue("uid", userId(r)).addValue("content", billNo).addValue("client", clientRequestId));
         Map<String,Object> result = new LinkedHashMap<>(); result.put("recycleOrderId", recycleId); result.put("billNo", billNo); result.put("amount", amount); result.put("status", status); result.put("approvalRequired", status == 3); if (approvalId != null) result.put("approvalId", approvalId); return ApiResponse.ok(result);
     }
-    @GetMapping("/list") public ApiResponse<?> list(HttpServletRequest r) { return ApiResponse.ok(db.list("select * from recycle_order where store_id=:s order by recycle_order_id desc limit 500", Map.of("s", db.store(r)))); }
+    @GetMapping("/list") @RequirePermission("recycle:view")
+    public ApiResponse<?> list(HttpServletRequest r) { return ApiResponse.ok(db.list("select * from recycle_order where store_id=:s order by recycle_order_id desc limit 500", Map.of("s", db.store(r)))); }
     public void finalizeFinance(long recycleId, HttpServletRequest r) {
         Map<String,Object> row = db.one("select * from recycle_order where recycle_order_id=:id and store_id=:s for update", Map.of("id", recycleId, "s", db.store(r)));
         if (((Number)row.get("status")).intValue() == 1 && !db.list("select finance_id from finance_record where related_bill_no=:no and category='RECYCLE'", Map.of("no", row.get("bill_no"))).isEmpty()) return;

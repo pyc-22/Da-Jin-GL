@@ -13,13 +13,18 @@ public final class InventoryAvailability {
     public void requireAvailable(long store, Object goodsId, BigDecimal quantity) {
         var p = new MapSqlParameterSource().addValue("s",store).addValue("g",goodsId);
         BigDecimal stock = db.jdbc().queryForObject("select stock from goods where store_id=:s and goods_id=:g for update",p,BigDecimal.class);
-        BigDecimal reserved = db.jdbc().queryForObject("select coalesce(sum(i.qty),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and i.goods_id=:g and o.status in (0,3)",p,BigDecimal.class);
+        Integer priceType = db.jdbc().queryForObject("select price_type from goods where store_id=:s and goods_id=:g",p,Integer.class);
+        String reservedQuantity = GoodsInventoryUnit.isGramPriced(priceType)
+                ? "coalesce(i.weight,0)*coalesce(i.qty,1)" : "i.qty";
+        BigDecimal reserved = db.jdbc().queryForObject("select coalesce(sum(" + reservedQuantity + "),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and i.goods_id=:g and o.status in (0,3)",p,BigDecimal.class);
         if (stock == null || stock.subtract(reserved == null ? BigDecimal.ZERO : reserved).compareTo(quantity)<0)
             throw new BusinessException(409103,"可用库存不足，请先处理占用库存的待收款订单");
     }
 
     public void removePieces(long store, Object goodsId, BigDecimal quantity, String pieceNo) {
         var p = new MapSqlParameterSource().addValue("s",store).addValue("g",goodsId);
+        Integer priceType = db.jdbc().queryForObject("select price_type from goods where store_id=:s and goods_id=:g",p,Integer.class);
+        if (GoodsInventoryUnit.isGramPriced(priceType)) return;
         Integer tracked = db.jdbc().queryForObject("select count(*) from goods_piece where store_id=:s and goods_id=:g",p,Integer.class);
         if ((tracked == null || tracked == 0) && (pieceNo == null || pieceNo.isBlank())) return;
         int count;
@@ -35,6 +40,8 @@ public final class InventoryAvailability {
     }
 
     public void adjustCountPieces(long store, long goodsId, BigDecimal difference) {
+        Integer priceType = db.jdbc().queryForObject("select price_type from goods where store_id=:s and goods_id=:g",new MapSqlParameterSource().addValue("s",store).addValue("g",goodsId),Integer.class);
+        if (GoodsInventoryUnit.isGramPriced(priceType)) return;
         if(difference.signum()<0) { removePieces(store,goodsId,difference.negate(),null); return; }
         var p = new MapSqlParameterSource().addValue("s",store).addValue("g",goodsId);
         Integer tracked = db.jdbc().queryForObject("select count(*) from goods_piece where store_id=:s and goods_id=:g",p,Integer.class);

@@ -62,4 +62,24 @@ class MemberControllerTests {
         verify(jdbc).update(anyString(), parameters.capture());
         assertEquals(27L, parameters.getValue().getValue("sid"));
     }
+
+    @Test
+    void updateCanClearSalesAssignmentWithExplicitNull() {
+        DbSupport db = mock(DbSupport.class);
+        SyncWebSocketHandler ws = mock(SyncWebSocketHandler.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.store(request)).thenReturn(3L);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), org.mockito.ArgumentMatchers.any(MapSqlParameterSource.class))).thenReturn(1);
+        MemberController controller = new MemberController(db, ws);
+
+        controller.update(12L, new MemberController.Req("会员", "13800138002", "[]", null, null, null, null), request);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<MapSqlParameterSource> parameters = ArgumentCaptor.forClass(MapSqlParameterSource.class);
+        verify(jdbc).update(sql.capture(), parameters.capture());
+        org.junit.jupiter.api.Assertions.assertTrue(sql.getValue().contains("sales_id=:sid"));
+        assertEquals(null, parameters.getValue().getValue("sid"));
+    }
 }
