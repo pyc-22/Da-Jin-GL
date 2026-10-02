@@ -1,5 +1,6 @@
-<template><router-view :key="`${auth.user?.store_id ?? auth.user?.storeId}:${auth.user?.user_id ?? auth.user?.userId}`" /></template>
+<template><router-view v-slot="{ Component }"><Transition name="page" mode="out-in"><component :is="Component" :key="`${auth.user?.store_id ?? auth.user?.storeId}:${auth.user?.user_id ?? auth.user?.userId}`" /></Transition></router-view><Toast /></template>
 <script setup>
+import Toast from './components/Toast.vue'
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth.js'
