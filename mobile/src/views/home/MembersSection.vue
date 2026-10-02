@@ -13,13 +13,15 @@
 <button @click="loadMembers">搜索</button>
 </div>
 <div v-if="role === 'SALES'" class="seg">
-<button :class="{active: memberTab==='mine'}" @click="memberTab='mine'">我的会员</button>
-<button :class="{active: memberTab==='pool'}" @click="memberTab='pool'">公海池</button>
+<Chip :selected="memberTab==='mine'" @click="memberTab='mine'">我的会员</Chip>
+<Chip :selected="memberTab==='pool'" @click="memberTab='pool'">公海池</Chip>
 </div>
 <MemberList :members="members" :sales="role === 'SALES' && memberTab==='mine'" @open="openMember" @claim="claim"/>
 </section>
 </template>
 <script setup>
+import Chip from '../../components/Chip.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import MemberList from '../../components/MemberList.vue'

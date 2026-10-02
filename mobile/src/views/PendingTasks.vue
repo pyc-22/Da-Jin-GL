@@ -1,10 +1,6 @@
 <template>
   <div class="shell">
-    <header class="topbar">
-      <button class="back" @click="router.back()">‹</button>
-      <div><strong>待处理</strong><span class="store">{{ storeName }}</span></div>
-      <button class="icon-btn" @click="load">刷新</button>
-    </header>
+    <DesignHeader title="待处理" :subtitle="storeName" :back="true" @back="router.back()"><button class="icon-btn" @click="load">刷新</button></DesignHeader>
     <main class="content page">
       <section class="form-card summary-card">
         <div><span>未完成订单</span><b>{{ pendingCount }} 笔</b></div>
@@ -12,9 +8,9 @@
         <div><span>未收尾款</span><b class="due">{{ money(outstandingTotal) }}</b></div>
       </section>
       <p v-if="!loading && !error && rows.length" class="muted small">未结加工单按状态排列，款项由收银端处理。</p>
-      <div v-if="loading" class="empty">加载中...</div>
-      <div v-else-if="error" class="empty"><span>{{ error }}</span><button class="outline" @click="load">重试</button></div>
-      <div v-else-if="!rows.length" class="empty">暂无待处理加工单</div>
+      <EmptyState v-if="loading" title="加载中..." />
+      <EmptyState v-else-if="error" title=""><span>{{ error }}</span><button class="outline" @click="load">重试</button></EmptyState>
+      <EmptyState v-else-if="!rows.length" title="暂无待处理加工单" />
       <article v-for="row in rows" :key="row.processing_order_id" class="list-card todo-card">
         <div class="todo-head">
           <b>{{ row.item_name_snapshot || '加工项目' }}</b>
@@ -50,6 +46,13 @@
   </div>
 </template>
 <script setup>
+import { useToast } from '../composables/useToast.js'
+const { toast } = useToast()
+
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -85,10 +88,10 @@ async function advance(row) {
   try {
     await api.processingStatus(row.processing_order_id, 'PROCESSING')
     await load()
-  } catch (e) { window.alert(e?.message || '状态更新失败') }
+  } catch (e) { toast(e?.message || '状态更新失败') }
 }
 async function notify(row) {
-  try { await api.processingNotify(row.processing_order_id); window.alert(`已记录通知 ${row.customer_name || '客户'} 取货`) } catch (e) { window.alert(e?.message || '通知失败') }
+  try { await api.processingNotify(row.processing_order_id); toast(`已记录通知 ${row.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
 }
 function parsePhotos(value) {
   if (Array.isArray(value)) return value.filter(Boolean).map(String)
@@ -131,27 +134,27 @@ onMounted(load)
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_HANDOVER'].includes(app.lastEventType))load()})
 </script>
 <style scoped>
-.summary-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;text-align:center}
+.summary-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:12px;text-align:center}
 .summary-card span{display:block;color:var(--ink-3);font-size:11px}
 .summary-card b{display:block;margin-top:4px;font-size:15px}
-.due{color:#c0392b}
+.due{color:var(--err)}
 .todo-card{display:block}
 .todo-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .todo-head b{font-size:var(--f-sm);min-width:0;overflow-wrap:anywhere;line-height:1.4}
 .todo-card p{margin:5px 0 0;color:var(--ink-2);font-size:var(--f-xs);overflow-wrap:break-word}
 .status-pill{padding:3px 7px;border-radius:12px;font-size:11px;white-space:nowrap}
-.status-pill.pending{background:#fff4df;color:#a26712}
-.status-pill.processing{background:#eef6ff;color:#245b87}
-.status-pill.completed{background:#e7f6ed;color:#18864b}
+.status-pill.pending{background:var(--gold-soft);color:var(--gold-deep)}
+.status-pill.processing{background:var(--gold-soft);color:var(--ink-2)}
+.status-pill.completed{background:var(--ok-soft);color:var(--ok)}
 .todo-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .todo-actions button{flex:1;min-width:84px;padding:0 8px}
-.sheet-mask{position:fixed;inset:0;background:rgba(15,20,28,.45);display:flex;align-items:flex-end;justify-content:center;z-index:60}
-.sheet{width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;background:#fff;border-radius:14px 14px 0 0;overflow:hidden}
+.sheet-mask{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:flex-end;justify-content:center;z-index:60}
+.sheet{width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;background:var(--card);border-radius:14px 14px 0 0;overflow:hidden}
 .sheet>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .sheet>header strong{font-size:15px}
 .sheet-body{padding:14px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .pickup-photo-list{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
-.pickup-photo-list img,.pickup-photo-list .add-photo{width:72px;height:72px;border-radius:8px;border:1px solid var(--line);object-fit:cover}
+.pickup-photo-list img,.pickup-photo-list .add-photo{width:72px;height:72px;border-radius:var(--r-md);border:1px solid var(--line);object-fit:cover}
 .pickup-photo-list .add-photo{display:flex;align-items:center;justify-content:center;border-style:dashed;color:var(--gold-deep);font-size:24px;cursor:pointer}
-.error{margin:0 0 10px;color:#c0392b;font-size:12px}
+.error{margin:0 0 10px;color:var(--err);font-size:12px}
 </style>

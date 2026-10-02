@@ -2,14 +2,14 @@
 <section  class="page">
 <PageTitle title="审批中心"/>
 <div class="seg">
-<button :class="{active: approvalView==='pending'}" @click="approvalView='pending'">待审批（{{ approvals.length }}）</button>
-<button :class="{active: approvalView==='history'}" @click="openApprovalHistory">历史</button>
+<Chip :selected="approvalView==='pending'" @click="approvalView='pending'">待审批（{{ approvals.length }}）</Chip>
+<Chip :selected="approvalView==='history'" @click="openApprovalHistory">历史</Chip>
 </div>
 <template v-if="approvalView==='pending'">
 <div class="chips">
-<button v-for="t in approvalTabs" :key="t" :class="{active: approvalFilter===t}" @click="approvalFilter=t">{{ t }}</button>
+<Chip v-for="t in approvalTabs" :key="t" :selected="approvalFilter===t" @click="approvalFilter=t">{{ t }}</Chip>
 </div>
-<div v-if="!filteredApprovals.length" class="empty">暂无待审批</div>
+<EmptyState v-if="!filteredApprovals.length" title="暂无待审批" />
 <article v-for="item in filteredApprovals" :key="item.approval_id || item.id" class="panel approval-card" @click="openApprovalDetail(item)">
 <h3>{{ typeName(item.type) }}<span class="more">{{ (item.create_time || item.time || '').slice(5,16).replace('T',' ') }}</span>
 </h3>
@@ -24,7 +24,7 @@
 </article>
 </template>
 <template v-else>
-<div v-if="!approvalHistoryData.length" class="empty">暂无审批历史</div>
+<EmptyState v-if="!approvalHistoryData.length" title="暂无审批历史" />
 <article v-for="item in approvalHistoryData" :key="'h'+item.approval_id" class="panel approval-card" @click="openApprovalDetail(item)">
 <h3>{{ typeName(item.type) }}<span class="more">{{ (item.approve_time||item.create_time||'').slice(5,16).replace('T',' ') }}</span>
 </h3>
@@ -38,6 +38,10 @@
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
+import Chip from '../../components/Chip.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import PageTitle from '../../components/PageTitle.vue'

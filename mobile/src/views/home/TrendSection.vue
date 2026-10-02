@@ -11,13 +11,15 @@
 <strong>¥{{ money(row.amount) }}</strong>
 <small>{{ row.orderCount }} 单 · 已结算</small>
 </div>
-<div v-if="!managerTrendRows.length" class="empty">暂无趋势数据</div>
+<EmptyState v-if="!managerTrendRows.length" title="暂无趋势数据" />
 </div>
 </Panel>
 <p class="muted small">数据与管理端仪表盘共用 /api/admin/dashboard，订单完成后自动刷新。</p>
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Panel from '../../components/Panel.vue'

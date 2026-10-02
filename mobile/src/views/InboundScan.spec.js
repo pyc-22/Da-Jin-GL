@@ -22,7 +22,7 @@ vi.mock('../api/request.js', () => ({
 }))
 vi.mock('../api/upload.js', () => ({ uploadImage: mocks.uploadImage }))
 vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ user: { real_name: '测试员' } }) }))
-vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ offline: false, primaryGold: { price_type: '足金', price: 600 } }) }))
+vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ offline: false, primaryGold: { price_type: '足金', salePrice: 600, recyclePrice: 550 } }) }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ replace: mocks.replace, push: vi.fn(), back: vi.fn() }) }))
 
 function seedDraft(items = []) {
@@ -72,7 +72,7 @@ describe('InboundScan', () => {
     expect(wrapper.text()).toContain('5.123g')
     expect(wrapper.text()).toContain('¥3,888.00')
 
-    await wrapper.get('.topbar .back').trigger('click')
+    await wrapper.get('.design-header-back').trigger('click')
     await enterBarcode(wrapper, 'CODE-001')
     expect(mocks.goodsByBarcode).toHaveBeenCalledTimes(1)
     expect(wrapper.get('.inbound-summary').text()).toContain('总件数 1')

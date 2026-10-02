@@ -1,6 +1,6 @@
 <template><button class="primary scan-code-button" :disabled="disabled" @click="scan"><span>▣</span>{{ label }}</button></template>
 <script setup>
-import { defineEmits, defineProps } from 'vue'
+
 import { isNativeApp, scanNativeBarcode } from '../utils/nativeDevice.js'
 const props = defineProps({ disabled: Boolean, label: { type: String, default: '扫码添加' } })
 const emit = defineEmits(['scan', 'scan-error', 'scan-request'])

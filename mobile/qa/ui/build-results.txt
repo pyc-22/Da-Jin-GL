@@ -1,0 +1,19 @@
+> dajin-mobile@1.0.3 build
+> vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 481 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/build/h5/index.html                   0.90 kB │ gzip:   0.51 kB
+dist/build/h5/assets/index-rrKNXjGO.css   97.69 kB │ gzip:  15.94 kB
+dist/build/h5/assets/web-CBNtj6wn.js       0.76 kB │ gzip:   0.36 kB
+dist/build/h5/assets/index-CeMVrtWz.js   454.42 kB │ gzip: 117.46 kB
+dist/build/h5/assets/index-DZKVAqq4.js   511.47 kB │ gzip: 172.84 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.87s

@@ -18,7 +18,7 @@ vi.mock('../api/request.js', () => ({
 
 vi.mock('../stores/app.js', () => ({
   useAppStore: () => ({
-    gold: [{ price_type: '回收金价', price: 300 }],
+    gold: [], primaryGold: { salePrice: 400, recyclePrice: 300, price: 999 },
     loadGold: vi.fn().mockResolvedValue(undefined)
   })
 }))
@@ -45,12 +45,13 @@ describe('RecycleCreate', () => {
     await flushPromises()
 
     const materialSelect = wrapper.get('[data-testid="material-type"]')
-    expect(materialSelect.element.tagName).toBe('SELECT')
+    expect(materialSelect.findAll('button')).toHaveLength(2)
+    expect(materialSelect.get('button[aria-pressed="true"]').text()).toBe('足金999')
     expect(materialSelect.text()).toContain('足金999')
     expect(materialSelect.text()).toContain('铂金950')
     expect(materialSelect.text()).not.toContain('18K金')
 
-    await wrapper.get('[data-testid="recycle-weight"]').setValue('10')
+    await wrapper.get('[data-testid="recycle-weight"] input').setValue('10')
     expect(wrapper.get('[data-testid="quote-card"]').text()).toContain('¥2,997.00')
 
     await wrapper.get('[data-testid="open-confirm"]').trigger('click')
@@ -75,7 +76,7 @@ describe('RecycleCreate', () => {
     const wrapper = mount(RecycleCreate)
     await flushPromises()
 
-    await wrapper.get('[data-testid="recycle-weight"]').setValue('20')
+    await wrapper.get('[data-testid="recycle-weight"] input').setValue('20')
     await wrapper.get('[data-testid="open-confirm"]').trigger('click')
     await wrapper.get('[data-testid="confirm-submit"]').trigger('click')
     await flushPromises()

@@ -1,0 +1,42 @@
+$ vitest run
+
+ RUN  v3.2.7 D:/xiangmu-wenjian/dajin-system/mobile
+
+ ✓ src/api/upload.spec.js (2 tests) 5ms
+ ✓ src/views/InboundCreate.spec.js (1 test) 30ms
+ ✓ src/views/InboundDetail.spec.js (1 test) 24ms
+ ✓ src/components/DesignControls.spec.js (2 tests) 21ms
+ ✓ src/views/Notifications.spec.js (3 tests) 44ms
+ ✓ src/views/GoldSettings.spec.js (5 tests) 70ms
+ ✓ src/views/SilverPriceDisplay.spec.js (2 tests) 21ms
+ ✓ src/stores/appInbound.spec.js (2 tests) 6ms
+ ✓ src/views/PendingTasks.spec.js (1 test) 29ms
+ ✓ src/utils/nativeDevice.spec.js (5 tests) 18ms
+ ✓ src/views/RecycleCreate.spec.js (2 tests) 58ms
+ ✓ src/views/MemberDetail.spec.js (1 test) 17ms
+ ✓ src/views/VisitsPage.spec.js (2 tests) 44ms
+ ✓ src/views/home/DocumentsSection.spec.js (3 tests) 61ms
+ ✓ src/views/GoodsDetail.spec.js (3 tests) 47ms
+ ✓ src/views/ProcessingOrders.spec.js (6 tests) 130ms
+ ✓ src/views/ReportDashboard.spec.js (5 tests) 118ms
+ ✓ src/utils/documents.spec.js (2 tests) 8ms
+ ✓ src/utils/goodsImages.spec.js (3 tests) 2ms
+ ✓ src/utils/browserBarcode.spec.js (3 tests) 6ms
+ ✓ src/views/InboundScan.spec.js (4 tests) 133ms
+ ✓ src/api/request.spec.js (3 tests) 65ms
+ ✓ src/views/RoleHomeNavigation.spec.js (1 test) 1ms
+ ✓ src/utils/inboundPhotos.spec.js (2 tests) 2ms
+ ✓ src/utils/inboundIdentity.spec.js (4 tests) 2ms
+ ✓ src/styles/dateInputs.spec.js (1 test) 1ms
+ ✓ src/utils/format.spec.js (1 test) 1ms
+ ✓ src/styles/mobileLayout.spec.js (4 tests) 2ms
+ ✓ tests/roles.test.js (5 tests) 5ms
+ ✓ src/stores/connectivity.spec.js (3 tests) 5ms
+ ✓ src/utils/storage.spec.js (3 tests) 3ms
+ ✓ src/stores/auth.spec.js (1 test) 4ms
+ ✓ src/views/HomeDesign.spec.js (3 tests) 77ms
+
+ Test Files  33 passed (33)
+      Tests  89 passed (89)
+   Start at  17:56:20
+   Duration  3.23s (transform 3.43s, setup 0ms, collect 12.36s, tests 1.06s, environment 18.81s, prepare 4.27s)

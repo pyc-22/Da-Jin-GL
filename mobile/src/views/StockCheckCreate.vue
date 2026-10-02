@@ -1,6 +1,6 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><strong>盘点准备</strong><button class="outline" @click="router.push('/stock-check/history')">最近记录</button></header>
+    <DesignHeader title="盘点准备" :back="true" @back="router.back()"><button class="outline" @click="router.push('/stock-check/history')">最近记录</button></DesignHeader>
     <main class="content page check-page">
       <section class="form-card">
         <h3>选择盘点范围</h3>
@@ -38,6 +38,8 @@
 </template>
 
 <script setup>
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/request.js'

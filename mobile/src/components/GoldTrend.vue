@@ -1,5 +1,7 @@
-<template><div class="gold-trend"><div v-if="!points.length" class="empty">暂无金价历史数据</div><template v-else><svg viewBox="0 0 300 100" preserveAspectRatio="none" class="gold-svg"><polyline :points="polyPoints" fill="none" stroke="#b7791f" stroke-width="2" vector-effect="non-scaling-stroke"/><circle v-for="(p,i) in plotted" :key="i" :cx="p.x" :cy="p.y" r="2.5" fill="#b7791f"/></svg><div class="trend-meta"><span>{{ points[0]?.date }}</span><span>最高 ¥{{ maxV }} · 最低 ¥{{ minV }}</span><span>{{ points[points.length-1]?.date }}</span></div></template></div></template>
+<template><div class="gold-trend"><EmptyState v-if="!points.length" title="暂无金价历史数据" /><template v-else><svg viewBox="0 0 300 100" preserveAspectRatio="none" class="gold-svg"><polyline :points="polyPoints" fill="none" stroke="var(--gold-deep)" stroke-width="2" vector-effect="non-scaling-stroke"/><circle v-for="(p,i) in plotted" :key="i" :cx="p.x" :cy="p.y" r="2.5" fill="var(--gold-deep)"/></svg><div class="trend-meta"><span>{{ points[0]?.date }}</span><span>最高 ¥{{ maxV }} · 最低 ¥{{ minV }}</span><span>{{ points[points.length-1]?.date }}</span></div></template></div></template>
 <script setup>
+import EmptyState from './EmptyState.vue'
+
 import { computed } from 'vue'
 const props = defineProps({ points: { type: Array, default: () => [] } })
 const values = computed(() => props.points.map(p => Number(p.price || 0)))

@@ -1,14 +1,14 @@
 <template>
   <div class="shell">
-    <header class="topbar"><div><button class="back" @click="router.back()">&#8249;</button><strong>商品详情</strong></div><div></div></header>
+    <DesignHeader title="商品详情" :back="true" @back="router.back()"></DesignHeader>
     <div class="content page">
-      <div v-if="loading" class="empty">加载中...</div>
+      <EmptyState v-if="loading" title="加载中..." />
       <template v-if="goods">
         <div class="detail-card">
           <h2>{{ goods.name }}</h2>
           <p class="muted">条码：{{ goods.barcode || '—' }}</p>
           <div class="detail-price">
-            <div><span>售价</span><b>¥{{ money(priceOf(goods)) }}</b></div>
+            <div><span>售价</span><b>{{ priceOf(goods) == null ? '待同步金价' : '¥' + money(priceOf(goods)) }}</b></div>
             <div><span>成本</span><b>¥{{ money(goods.cost_price) }}</b></div>
             <div><span>克重</span><b>{{ goods.weight ? goods.weight + 'g' : '—' }}</b></div>
           </div>
@@ -32,7 +32,7 @@
         </div>
         <button class="primary full poster-btn" @click="makePoster">生成营销海报</button>
       </template>
-      <div v-if="error" class="empty">{{ error }}</div>
+      <EmptyState v-if="error" :title="error" />
     </div>
     <div v-if="posterUrl" class="mobile-modal" @click.self="posterUrl=''">
       <div class="mobile-modal-card poster-modal">
@@ -48,6 +48,10 @@
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -75,7 +79,10 @@ const fileInput = ref(null)
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function priceOf(g) {
-  if (Number(g.price_type) === 1) return Number(g.weight || 0) * Number(app.primaryGold?.price || 612)
+  if (Number(g.price_type) === 1) {
+    const quote = Number(app.primaryGold?.salePrice || 0)
+    return quote > 0 ? Number(g.weight || 0) * quote : null
+  }
   return Number(g.sale_price || 0)
 }
 function parseImages(raw) {
@@ -151,11 +158,13 @@ async function makePoster() {
   const c = document.createElement('canvas')
   c.width = 720; c.height = 960
   const ctx = c.getContext('2d')
-  ctx.fillStyle = '#faf7f2'; ctx.fillRect(0, 0, 720, 960)
+  const tokens = getComputedStyle(document.documentElement)
+  const color = name => tokens.getPropertyValue(name).trim()
+  ctx.fillStyle = color('--bg'); ctx.fillRect(0, 0, 720, 960)
   const grad = ctx.createLinearGradient(0, 0, 720, 250)
-  grad.addColorStop(0, '#d4a437'); grad.addColorStop(1, '#b7791f')
+  grad.addColorStop(0, color('--gold-light')); grad.addColorStop(1, color('--gold-deep'))
   ctx.fillStyle = grad; ctx.fillRect(0, 0, 720, 250)
-  ctx.fillStyle = '#fff'
+  ctx.fillStyle = color('--card')
   ctx.font = 'bold 42px sans-serif'
   ctx.fillText((g.name || '货品').slice(0, 14), 40, 105)
   ctx.font = '26px sans-serif'
@@ -171,20 +180,20 @@ async function makePoster() {
     ctx.drawImage(photo, 40 + (640 - dw) / 2, 290 + (400 - dh) / 2, dw, dh)
     ctx.restore()
   } else {
-    ctx.fillStyle = '#f0e6d2'; roundRect(ctx, 40, 290, 640, 400, 20); ctx.fill()
-    ctx.fillStyle = '#b7791f'; ctx.font = '30px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillStyle = color('--gold-soft'); roundRect(ctx, 40, 290, 640, 400, 20); ctx.fill()
+    ctx.fillStyle = color('--gold-deep'); ctx.font = '30px sans-serif'; ctx.textAlign = 'center'
     ctx.fillText('货品图片', 360, 505); ctx.textAlign = 'left'
   }
-  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 34px sans-serif'
-  const gold = Number(app.primaryGold?.price || 612)
+  ctx.fillStyle = color('--ink'); ctx.font = 'bold 34px sans-serif'
+  const gold = Number(app.primaryGold?.salePrice || 0)
   const priceText = Number(g.price_type) === 1
-    ? `金价 ¥${money(gold)}/g × ${g.weight || 0}g`
+    ? (gold > 0 ? `金价 ¥${money(gold)}/g × ${g.weight || 0}g` : '金价待同步，请咨询门店')
     : `一口价 ¥${money(g.sale_price)}`
-  const amountText = `¥${money(priceOf(g))}`
+  const amountText = priceOf(g) == null ? '价格待确认' : `¥${money(priceOf(g))}`
   ctx.fillText(priceText, 40, 760)
-  ctx.fillStyle = '#b7791f'; ctx.font = 'bold 64px sans-serif'
+  ctx.fillStyle = color('--gold-deep'); ctx.font = 'bold 64px sans-serif'
   ctx.fillText(amountText, 40, 845)
-  ctx.fillStyle = '#7b8490'; ctx.font = '24px sans-serif'
+  ctx.fillStyle = color('--ink-3'); ctx.font = '24px sans-serif'
   ctx.fillText(`${storeLabel()} · ${new Date().toLocaleDateString('zh-CN')}`, 40, 915)
   ctx.textAlign = 'right'
   ctx.fillText('长按识别 · 到店选购', 680, 915)
@@ -212,17 +221,17 @@ onMounted(async () => {
 })
 </script>
 <style scoped>
-.photo-card{background:#fff;border:1px solid #eceef2;border-radius:12px;padding:15px;margin-bottom:14px}
+.photo-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:14px}
 .photo-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .photo-head span{font-weight:600}
-.photo-head small{color:#7b8490}
+.photo-head small{color:var(--ink-3)}
 .photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.photo-item{aspect-ratio:1;border-radius:8px;overflow:hidden;background:#f4f5f7}
+.photo-item{aspect-ratio:1;border-radius:var(--r-md);overflow:hidden;background:var(--line-soft)}
 .photo-item img{width:100%;height:100%;object-fit:cover;display:block}
-.photo-add{aspect-ratio:1;border:1px dashed #c9ced6;border-radius:8px;background:#fafbfc;color:#7b8490;font-size:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.photo-add{aspect-ratio:1;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg);color:var(--ink-3);font-size:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
 .photo-add small{font-size:11px}
 .photo-add:disabled{opacity:.6}
 .poster-btn{margin:6px 0 20px}
 .poster-modal{text-align:center}
-.poster-img{width:100%;border-radius:8px;border:1px solid #eceef2}
+.poster-img{width:100%;border-radius:var(--r-md);border:1px solid var(--line)}
 </style>

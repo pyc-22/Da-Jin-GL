@@ -1,1 +1,5 @@
-<template><div class="page-title"><h1>{{ title }}</h1><div><slot /></div></div></template><script setup>defineProps({title:String})</script>
+<template><DesignHeader :title="title"><slot /></DesignHeader></template>
+<script setup>
+import DesignHeader from './DesignHeader.vue'
+defineProps({title:String})
+</script>

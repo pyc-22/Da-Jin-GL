@@ -1,8 +1,8 @@
 <template>
   <div class="shell">
-    <header class="topbar"><div><button class="back" @click="router.back()">&#8249;</button><strong>交班结算</strong></div><div></div></header>
+    <DesignHeader title="交班结算" :back="true" @back="router.back()"></DesignHeader>
     <div class="content page">
-      <div v-if="loading" class="empty">加载中...</div>
+      <EmptyState v-if="loading" title="加载中..." />
       <template v-if="!loading && !done">
         <div class="detail-card">
           <p class="muted">班次号</p>
@@ -14,7 +14,7 @@
             <strong>¥{{ money(l.amount) }}</strong>
             <small>{{ l.count }} 笔</small>
           </div>
-          <div v-if="!info.lines?.length" class="empty">本班次暂无收款</div>
+          <EmptyState v-if="!info.lines?.length" title="本班次暂无收款" />
           <div v-if="info.lines?.length" class="shift-total">
             <span>合计</span><b>¥{{ money(info.total) }}</b>
           </div>
@@ -32,13 +32,13 @@
           <label v-if="cashActual !== null && cashActual !== '' && cashDiff !== 0" class="form-label">差异说明
             <textarea v-model="remark" rows="2" placeholder="请填写差异原因" @input="shiftError=''"/>
           </label>
-          <p v-if="shiftError" class="error" style="margin:8px 0 0;color:#c0392b;font-size:12px">{{ shiftError }}</p>
+          <p v-if="shiftError" class="error" style="margin:8px 0 0;color:var(--err);font-size:12px">{{ shiftError }}</p>
         </Panel>
         <button class="primary full" :disabled="confirming" @click="confirmShift">{{ confirming ? '提交中...' : '确认交班' }}</button>
       </template>
       <template v-if="done">
         <div class="detail-card" style="text-align:center">
-          <h3 style="color:#16a34a;margin:0 0 10px">交班成功</h3>
+          <h3 style="color:var(--ok);margin:0 0 10px">交班成功</h3>
           <p class="muted">班次 {{ result.previousShiftNo }} 已结束</p>
           <div class="rank-row"><span>系统现金</span><b>¥{{ money(result.cashSystem) }}</b></div>
           <div class="rank-row"><span>实点现金</span><b>¥{{ money(result.cashActual) }}</b></div>
@@ -51,6 +51,13 @@
   </div>
 </template>
 <script setup>
+import { useToast } from '../composables/useToast.js'
+const { toast } = useToast()
+
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
@@ -95,17 +102,17 @@ async function confirmShift() {
     })
     result.value = d
     done.value = true
-  } catch (e) { alert(e.message) }
+  } catch (e) { toast(e.message) }
   finally { confirming.value = false }
 }
 </script>
 <style scoped>
-.detail-card{background:#fff;border:1px solid #eceef2;border-radius:12px;padding:18px;margin-bottom:14px}
-.detail-card h3{margin:4px 0 0;font-size:15px;color:#374151;word-break:break-all}
-.shift-total{display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:6px;border-top:2px solid #f0f1f3;font-size:15px}
-.shift-total b{color:#b7791f;font-size:20px}
-.shift-system{float:right;color:#b7791f;font-size:16px}
+.detail-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+.detail-card h3{margin:4px 0 0;font-size:15px;color:var(--ink);word-break:break-all}
+.shift-total{display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:6px;border-top:2px solid var(--line-soft);font-size:15px}
+.shift-total b{color:var(--gold-deep);font-size:20px}
+.shift-system{float:right;color:var(--gold-deep);font-size:16px}
 .shift-diff{font-size:14px;font-weight:600;margin:8px 0}
-.shift-diff.ok{color:#16a34a}
-.shift-diff.warn{color:#d97706}
+.shift-diff.ok{color:var(--ok)}
+.shift-diff.warn{color:var(--gold-light)}
 </style>

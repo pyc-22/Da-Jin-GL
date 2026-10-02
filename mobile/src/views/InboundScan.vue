@@ -1,6 +1,6 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="goBack">‹</button><strong>扫码入库</strong><span class="state" :class="{ disabled: app.offline }">{{ app.offline ? '离线' : '在线' }}</span></header>
+    <DesignHeader title="扫码入库" :back="true" @back="goBack"><span class="state" :class="{ disabled: app.offline }">{{ app.offline ? '离线' : '在线' }}</span></DesignHeader>
     <main class="content page inbound-page">
       <div class="steps"><div v-for="(label, i) in STEP_LABELS" :key="label" :class="['step', { done: step > i + 1, cur: step === i + 1 }]"><i>{{ step > i + 1 ? '✓' : i + 1 }}</i><span>{{ label }}</span></div></div>
       <p v-if="notice" class="scan-notice">{{ notice }}</p>
@@ -64,7 +64,7 @@
 
       <Panel title="入库清单">
         <template #actions><button class="panel-toggle" @click="listExpanded = !listExpanded">{{ listExpanded ? '收起' : `展开（${items.length}）` }} {{ listExpanded ? '⌃' : '⌄' }}</button></template>
-        <div v-if="!items.length" class="empty">请扫描或手动添加货品<button v-if="isH5" class="outline empty-action" @click="manualScan">输入条码开始</button></div>
+        <EmptyState v-if="!items.length" title="">请扫描或手动添加货品<button v-if="isH5" class="outline empty-action" @click="manualScan">输入条码开始</button></EmptyState>
         <div v-else-if="listExpanded" class="inbound-list"><InboundItemCard v-for="item in items" :key="item.key" :item="item" @edit="editItem" @remove="removeItem" @photos="openPhotoFlow" @preview="previewItem" @remove-photo="removePhoto" @change="persist"/></div>
       </Panel>
       <div class="inbound-summary"><span>总件数 <b>{{ totalQuantity }}</b></span><span>总金重 <b>{{ totalWeight.toFixed(3) }}g</b></span><span>总金额 <b>¥{{ money(totalAmount) }}</b></span></div>
@@ -76,6 +76,10 @@
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { normalizeGoodsImageUrl } from '../utils/goodsImages.js'
 const imageUrl = value => normalizeGoodsImageUrl(value, http.defaults.baseURL)
 const pageCache = scopedStorage()
@@ -94,7 +98,7 @@ const sourceRow = computed(() => {
   return null
 })
 const operatorName = computed(() => auth.user?.real_name || auth.user?.realName || auth.user?.username || '—')
-const goldPrice = computed(() => Number(app.primaryGold?.price) || 0)
+const goldPrice = computed(() => Number(app.primaryGold?.salePrice) || 0)
 const goldTypeName = computed(() => String(app.primaryGold?.price_type || app.primaryGold?.priceType || '金价'))
 function parseImages(raw) { try { const value = typeof raw === 'string' ? JSON.parse(raw) : raw; return Array.isArray(value) ? value.filter(Boolean).slice(0, 4) : [] } catch { return [] } }
 function normalizeDraftItem(item) {
@@ -281,28 +285,28 @@ onMounted(() => {
 .step{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:var(--f-xs);color:var(--ink-3);position:relative;z-index:1}
 .step i{width:26px;height:26px;border-radius:50%;background:var(--card);border:2px solid var(--line);color:var(--ink-3);font-style:normal;display:grid;place-items:center;font-weight:600;font-size:var(--f-xs)}
 .step.cur{color:var(--gold-deep)}
-.step.cur i{background:var(--gold);border-color:var(--gold);color:#fff}
+.step.cur i{background:var(--gold);border-color:var(--gold);color:var(--card)}
 .step.done{color:var(--ok)}
-.step.done i{background:#e5f5ea;border-color:#9fd8ae;color:var(--ok)}
+.step.done i{background:var(--ok-soft);border-color:var(--ok-soft);color:var(--ok)}
 .inbound-detail-name{margin:var(--s-2) 0 var(--s-1)}
-.match-badge{display:inline-block;background:#e5f5ea;color:var(--ok);font-size:var(--f-xs);padding:2px 8px;border-radius:999px;font-weight:600}
+.match-badge{display:inline-block;background:var(--ok-soft);color:var(--ok);font-size:var(--f-xs);padding:2px 8px;border-radius:999px;font-weight:600}
 .inbound-facts{margin:var(--s-2) 0;display:grid;grid-template-columns:76px 1fr;gap:var(--s-1) var(--s-2);font-size:var(--f-sm)}
 .inbound-facts dt{color:var(--ink-3)}
 .inbound-facts dd{margin:0;overflow-wrap:anywhere;line-height:1.4}
 .piece-code{font-weight:700;color:var(--gold-deep);overflow-wrap:anywhere}
-.identity-tip{margin:var(--s-2) 0;padding:10px 12px;border-left:3px solid var(--gold);background:#fff8ea;color:var(--ink-2);font-size:var(--f-sm)}
+.identity-tip{margin:var(--s-2) 0;padding:10px 12px;border-left:3px solid var(--gold);background:var(--gold-soft);color:var(--ink-2);font-size:var(--f-sm)}
 .qty-stepper{display:flex;gap:var(--s-1);align-items:center;margin-top:var(--s-1)}
 .qty-stepper button{width:44px;height:44px;border:1px solid var(--gold-line);border-radius:var(--r-md);background:var(--card);font-size:var(--f-lg);color:var(--gold-deep)}
-.qty-stepper input{width:64px;min-height:44px;text-align:center;border:1px solid #dfe3e8;border-radius:var(--r-md);font-size:var(--f-sm)}
+.qty-stepper input{width:64px;min-height:44px;text-align:center;border:1px solid var(--line);border-radius:var(--r-md);font-size:var(--f-sm)}
 .gold-ref{margin:var(--s-2) 0 0;color:var(--ink-3);font-size:var(--f-xs)}
 .photos{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s-2);margin:var(--s-2) 0}
 .ph{position:relative;aspect-ratio:1;border-radius:var(--r-md);overflow:hidden;background:var(--line-soft)}
 .ph img{width:100%;height:100%;object-fit:cover;display:block}
-.ph i{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;background:var(--err);color:#fff;font-style:normal;font-size:14px;line-height:22px;text-align:center;z-index:1}
+.ph i{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;background:var(--err);color:var(--card);font-style:normal;font-size:14px;line-height:22px;text-align:center;z-index:1}
 .ph-add{border:1px dashed var(--gold-line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--gold-deep);background:var(--card);font-size:var(--f-lg);border-radius:var(--r-md)}
 .ph-add small{font-size:var(--f-xs)}
 .piece-photos{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);margin:var(--s-2) 0}
 .piece-photo{display:flex;flex-direction:column;gap:4px}
 .piece-tag{font-size:var(--f-xs);color:var(--ink-2)}
-.piece-empty{font-size:10px;color:#b3a58f}
+.piece-empty{font-size:10px;color:var(--ink-3)}
 </style>

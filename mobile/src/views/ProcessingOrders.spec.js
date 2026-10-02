@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   processingCreate: vi.fn(),
   processingPay: vi.fn(),
   processingHandover: vi.fn(),
-  httpGet: vi.fn()
+  httpGet: vi.fn(), toast: vi.fn(), query: {}
 }))
 
 vi.mock('../api/request.js', () => ({
@@ -33,10 +33,13 @@ vi.mock('../api/request.js', () => ({
 vi.mock('../api/upload.js', () => ({ uploadImage: vi.fn() }))
 vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'MANAGER', user: { storeName: '测试店' } }) }))
 vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ eventVersion: 0, lastEventType: '', gold: [], loadGold: vi.fn() }) }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ back: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute:()=>({query:mocks.query}), useRouter: () => ({ back: vi.fn() }) }))
+
+vi.mock('../composables/useToast.js',()=>({useToast:()=>({toast:mocks.toast})}))
 
 describe('ProcessingOrders mobile actions', () => {
   beforeEach(() => {
+    mocks.query = {}; mocks.toast.mockReset()
     const order = { processing_order_id: 12, order_no: 'JG0012', status: 'PENDING', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 0 }
     mocks.processingOrders.mockReset().mockResolvedValue([order])
     mocks.processingOrder.mockReset().mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], payments: [] })
@@ -51,6 +54,13 @@ describe('ProcessingOrders mobile actions', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {})
   })
 
+  it('opens creation directly for the center shortcut', async()=>{
+    mocks.query={create:'1'}
+    const wrapper=mount(ProcessingOrders);await flushPromises()
+    expect(wrapper.get('.sheet').text()).toContain('开加工单')
+    expect(mocks.processingItems).toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('does not expose a printing action on mobile', async () => {
     const wrapper = mount(ProcessingOrders)
     await flushPromises()
@@ -105,7 +115,7 @@ describe('ProcessingOrders mobile actions', () => {
     await wrapper.find('.sheet-body button.primary.full').trigger('click')
     await flushPromises()
     expect(mocks.processingCreate).toHaveBeenCalledOnce()
-    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('已创建，但转交失败'))
+    expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('已创建，但转交失败'))
     expect(wrapper.find('.sheet-body button.primary.full').exists()).toBe(false)
   })
 

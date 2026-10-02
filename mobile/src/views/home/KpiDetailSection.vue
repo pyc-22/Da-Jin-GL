@@ -5,7 +5,7 @@
 </PageTitle>
 <p class="muted small" style="margin:0 0 10px">{{ kpiDetailSummary }}</p>
 <Panel :title="kpiDetailTitle">
-<div v-if="kpiDetailLoading" class="empty">加载中...</div>
+<EmptyState v-if="kpiDetailLoading" title="加载中..." />
 <template v-else>
 <div v-for="(row,i) in kpiDetailRows" :key="i" class="rank-row">
 <span>{{ row.title }}<small>{{ row.sub }}</small>
@@ -13,12 +13,14 @@
 <strong>{{ row.amount }}</strong>
 <small>{{ row.extra }}</small>
 </div>
-<div v-if="!kpiDetailRows.length" class="empty">今日暂无明细</div>
+<EmptyState v-if="!kpiDetailRows.length" title="今日暂无明细" />
 </template>
 </Panel>
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Panel from '../../components/Panel.vue'

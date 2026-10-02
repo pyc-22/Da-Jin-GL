@@ -18,7 +18,7 @@ describe('Notifications navigation', () => {
   it('keeps the role tab bar visible and localizes read notifications', async () => {
     const wrapper = mount(Notifications)
     await flushPromises()
-    expect(wrapper.findAll('.tabbar button')).toHaveLength(6)
+    expect(wrapper.findAll('.tabbar button')).toHaveLength(5)
     expect(wrapper.get('.tabbar button:nth-child(3)').text()).toContain('开单')
     expect(wrapper.get('.tabbar button.active').text()).toContain('消息')
     expect(wrapper.text()).toContain('通知')
@@ -36,6 +36,6 @@ describe('Notifications navigation', () => {
     const wrapper = mount(Notifications)
     await flushPromises()
     await wrapper.find('.tabbar-order').trigger('click')
-    expect(mocks.push).toHaveBeenCalledWith('/manager/order')
+    expect(mocks.push).toHaveBeenCalledWith('/processing?create=1')
   })
 })

@@ -1,6 +1,6 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><div class="check-head"><strong>扫码盘点</strong><small>{{ meta.scopeName || '当前范围' }}</small></div><button class="outline" @click="router.push('/stock-check/history')">记录</button></header>
+    <DesignHeader title="扫码盘点" :subtitle="meta.scopeName || '当前范围'" :back="true" @back="router.back()"><button class="outline" @click="router.push('/stock-check/history')">记录</button></DesignHeader>
     <main class="content page check-page check-scan-page">
       <div v-if="notice" class="scan-notice">{{ notice }}</div>
       <div class="check-progress-card">
@@ -15,10 +15,10 @@
       </div>
 
       <div class="check-list-tools">
-        <div class="filter-tabs"><button v-for="option in filters" :key="option.value" :class="{ active: filter === option.value }" @click="filter = option.value">{{ option.label }}</button></div>
+        <div class="filter-tabs"><Chip v-for="option in filters" :key="option.value" :selected="filter === option.value" @click="filter = option.value">{{ option.label }}</Chip></div>
         <input v-model.trim="keyword" placeholder="筛选名称或条码" />
       </div>
-      <div v-if="!visibleItems.length" class="empty">当前筛选下暂无商品</div>
+      <EmptyState v-if="!visibleItems.length" title="当前筛选下暂无商品" />
       <div v-else class="check-item-list"><StockCheckItemCard v-for="item in visibleItems" :key="item.key" :item="item" @change="changeActual" /></div>
       <div class="check-submit-spacer"></div>
     </main>
@@ -29,6 +29,12 @@
 </template>
 
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+
+import Chip from '../components/Chip.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 const pageCache = scopedStorage()
 const getStorage = pageCache.get, setStorage = pageCache.set
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'

@@ -23,14 +23,14 @@
 </Panel>
 <Panel :title="reportTabTitle">
 <div class="chips">
-<button v-for="t in reportTabs" :key="t.key" :class="{active: reportTab===t.key}" @click="reportTab=t.key">{{ t.label }}</button>
+<Chip v-for="t in reportTabs" :key="t.key" :selected="reportTab===t.key" @click="reportTab=t.key">{{ t.label }}</Chip>
 </div>
 <template v-if="reportTab==='category'">
 <CategoryPie :rows="categoryRows"/>
 </template>
 <template v-else-if="reportTab==='pay'">
 <CategoryPie :rows="payMethodRows"/>
-<div v-if="!payMethodRows.length" class="empty">今日暂无收款</div>
+<EmptyState v-if="!payMethodRows.length" title="今日暂无收款" />
 </template>
 <template v-else>
 <div class="kpi-grid">
@@ -44,6 +44,10 @@
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
+import Chip from '../../components/Chip.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Kpi from '../../components/Kpi.vue'

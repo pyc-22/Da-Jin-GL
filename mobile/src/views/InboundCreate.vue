@@ -1,10 +1,10 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><strong>入库准备</strong><button class="outline" @click="router.push('/inbound/history')">最近记录</button></header>
+    <DesignHeader title="入库准备" :back="true" @back="router.back()"><button class="outline" @click="router.push('/inbound/history')">最近记录</button></DesignHeader>
     <main class="content page inbound-page">
       <div class="form-card">
         <h3>入库类型</h3>
-        <div class="filter-tabs inbound-types"><button v-for="type in types" :key="type.value" :class="{ active: form.inboundType === type.value }" @click="selectType(type.value)">{{ type.label }}</button></div>
+        <div class="filter-tabs inbound-types"><Chip v-for="type in types" :key="type.value" :selected="form.inboundType === type.value" @click="selectType(type.value)">{{ type.label }}</Chip></div>
         <label v-if="form.inboundType === 'purchase'" class="form-label">供应商
           <select v-model="form.sourceId"><option value="" disabled>请选择供应商</option><option v-for="supplier in suppliers" :key="supplier.supplier_id" :value="supplier.supplier_id">{{ supplier.supplier_name }}（{{ supplier.supplier_code }}）</option></select>
           <span v-if="creatingSupplier" class="supplier-create"><input v-model.trim="newSupplierName" placeholder="输入新供应商名称"/><button class="outline" :disabled="!newSupplierName || supplierSaving" @click="saveNewSupplier">{{ supplierSaving ? '保存中...' : '保存' }}</button><button class="outline" @click="creatingSupplier = false; newSupplierName = ''">取消</button></span>
@@ -25,6 +25,9 @@
   </div>
 </template>
 <script setup>
+import Chip from '../components/Chip.vue'
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'

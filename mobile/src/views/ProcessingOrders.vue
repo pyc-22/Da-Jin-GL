@@ -1,10 +1,6 @@
 <template>
   <div class="shell">
-    <header class="topbar">
-      <button class="back" @click="router.back()">‹</button>
-      <div><strong>加工订单</strong><span class="store">{{ storeName }}</span></div>
-      <button class="icon-btn" @click="load">刷新</button>
-    </header>
+    <DesignHeader title="加工订单" :subtitle="storeName" :back="true" @back="router.back()"><button class="icon-btn" @click="load">刷新</button></DesignHeader>
     <main class="content page">
       <section class="form-card">
         <div class="search">
@@ -12,19 +8,19 @@
           <button class="primary" @click="load">查询</button>
         </div>
         <div class="filter-tabs">
-          <button v-for="s in statuses" :key="s.key" :class="{ active: status === s.key }" @click="status = s.key; load()">{{ s.label }}</button>
+          <Chip v-for="s in statuses" :key="s.key" :selected="status === s.key" @click="status = s.key; load()">{{ s.label }}</Chip>
         </div>
         <button class="primary full" @click="openCreate">＋ 开加工单</button>
         <p v-if="lateCount" class="muted small">有 {{ lateCount }} 笔加工单已超过预计取货日期，请及时联系客户。</p>
       </section>
-      <div v-if="loading" class="empty">加载中...</div>
-      <div v-else-if="error" class="empty"><span>{{ error }}</span><button class="outline" @click="load">重试</button></div>
-      <div v-else-if="!orders.length" class="empty">{{ keyword || status ? '没有符合条件的加工单' : '暂无加工订单' }}</div>
+      <EmptyState v-if="loading" title="加载中..." />
+      <EmptyState v-else-if="error" title=""><span>{{ error }}</span><button class="outline" @click="load">重试</button></EmptyState>
+      <EmptyState v-else-if="!orders.length" :title="keyword || status ? '没有符合条件的加工单' : '暂无加工订单'" />
       <article v-for="order in orders" :key="order.processing_order_id" class="list-card processing-card" @click="openDetail(order)">
         <div class="processing-main">
           <div class="processing-title">
             <b>{{ order.item_name_snapshot || '加工项目' }}</b>
-            <span :class="['status-pill', statusClass(order.status)]">{{ Number(order.handover) === 1 && String(order.status).toUpperCase() === 'PENDING' ? '已转交前台' : statusLabel(order.status) }}</span>
+            <StatusPill :tone="order.status==='PICKED_UP'?'ok':'gold'">{{ Number(order.handover) === 1 && String(order.status).toUpperCase() === 'PENDING' ? '已转交前台' : statusLabel(order.status) }}</StatusPill>
           </div>
           <p>{{ order.customer_name || order.member_name || '散客' }} · {{ order.customer_phone || '—' }}</p>
           <p>{{ order.order_no }}</p>
@@ -34,13 +30,14 @@
         <div class="timeline">
           <div v-for="step in steps" :key="step.key" :class="['timeline-step', { done: step.done(order.status), current: step.current(order.status) }]"><i></i><span>{{ step.label }}</span></div>
         </div>
+        <div class="processing-card-actions"><button v-if="order.customer_phone" class="outline" @click.stop="call(order.customer_phone)">联系客户</button><button class="outline" @click.stop="openDetail(order)">查看进度</button></div>
       </article>
     </main>
     <div v-if="detail" class="sheet-mask" @click.self="closeDetail">
       <section class="sheet">
         <header><strong>加工单详情</strong><button class="icon-btn" @click="closeDetail">×</button></header>
         <div class="sheet-body">
-          <div v-if="detailLoading" class="empty">加载中...</div>
+          <EmptyState v-if="detailLoading" title="加载中..." />
           <template v-else>
             <div class="detail-head">
               <b>{{ detail.item_name_snapshot || '加工项目' }}</b>
@@ -61,7 +58,7 @@
               <div v-if="Number(detail.store_gold_weight) > 0"><span>店供金料</span><b>{{ Number(detail.store_gold_weight).toFixed(3) }}g · {{ Number(detail.store_gold_price).toFixed(2) }}/g</b></div>
               <div v-if="Number(detail.store_gold_weight) > 0"><span>补金金额</span><b>{{ money(detail.store_gold_amount) }}</b></div>
               <div v-if="detail.finished_weight != null"><span>成品实重</span><b>{{ grams(detail.finished_weight) }}{{ detail.finished_fineness ? ' · ' + fineness(detail.finished_fineness) : '' }}</b></div>
-              <div v-if="detail.loss_weight != null"><span>损耗{{ detail.loss_over ? '（超标）' : '' }}</span><b :style="detail.loss_over ? 'color:#c0392b' : ''">{{ grams(detail.loss_weight) }}{{ detail.loss_permille != null ? ' · ' + detail.loss_permille + '‰' : '' }}</b></div>
+              <div v-if="detail.loss_weight != null"><span>损耗{{ detail.loss_over ? '（超标）' : '' }}</span><b :style="detail.loss_over ? 'color:var(--err)' : ''">{{ grams(detail.loss_weight) }}{{ detail.loss_permille != null ? ' · ' + detail.loss_permille + '‰' : '' }}</b></div>
               <div><span>剩余旧料</span><b>{{ handlingLabel(detail.residual_gold_handling) }}</b></div>
               <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料类型</span><b>{{ detail.residual_material_type || '—' }}</b></div>
               <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料克重/成色</span><b>{{ grams(detail.residual_gold_weight) }} · {{ fineness(detail.residual_gold_fineness) }}</b></div>
@@ -135,7 +132,7 @@
           </div>
           <div class="form-label">剩余旧料处理
             <div class="filter-tabs">
-              <button v-for="h in handlings" :key="h.value" :class="{ active: form.residualGoldHandling === h.value }" @click="form.residualGoldHandling = h.value">{{ h.label }}</button>
+              <Chip v-for="h in handlings" :key="h.value" :selected="form.residualGoldHandling === h.value" @click="form.residualGoldHandling = h.value">{{ h.label }}</Chip>
             </div>
           </div>
           <template v-if="form.residualGoldHandling === 'STORE_DEDUCT'">
@@ -165,6 +162,17 @@
   </div>
 </template>
 <script setup>
+import { useToast } from '../composables/useToast.js'
+const { toast } = useToast()
+
+import StatusPill from '../components/StatusPill.vue'
+
+import EmptyState from '../components/EmptyState.vue'
+
+import Chip from '../components/Chip.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -191,7 +199,7 @@ const creating = ref(false), saving = ref(false), createError = ref('')
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
 const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金旧料', residualGoldWeight: '', residualGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
-const recyclePrice = computed(() => { const rows = Array.isArray(app.gold) ? app.gold : []; const hit = rows.find(x => String(x.price_type || x.priceType || x.name || '').includes('回收')); return Number(hit?.price || 0) })
+const recyclePrice = computed(() => Number(app.primaryGold?.recyclePrice || 0))
 const deductionPreview = computed(() => { if (form.residualGoldHandling !== 'STORE_DEDUCT') return 0; const value = Number(form.residualGoldWeight || 0) * Number(form.residualGoldFineness || 0) * recyclePrice.value; return Math.min(value, laborFee.value) })
 const duePreview = computed(() => Math.max(0, laborFee.value - deductionPreview.value))
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -214,9 +222,9 @@ async function advance(order) {
   if (!window.confirm(`确认将 ${order.order_no}「转交前台」？`)) return
   try {
     await api.processingHandover(order.processing_order_id)
-    window.alert('已转交前台，请在电脑收银端「前台待办」确认加工')
+    toast('已转交前台，请在电脑收银端「前台待办」确认加工')
     detail.value = null; await load()
-  } catch (e) { window.alert(e?.message || '状态更新失败') }
+  } catch (e) { toast(e?.message || '状态更新失败') }
 }
 const selectedItem = computed(() => items.value.find(item => Number(item.item_id) === Number(form.itemId)) || null)
 const laborFee = computed(() => Math.round(Number(selectedItem.value?.labor_fee || 0) * Number((selectedItem.value?.pricing_unit === '按克' ? form.billingWeight : form.quantity) || 0) * 100) / 100)
@@ -240,7 +248,7 @@ async function openDetail(order) {
 }
 function closeDetail() { detail.value = null }
 async function notify(order) {
-  try { await api.processingNotify(order.processing_order_id); window.alert(`已记录通知 ${order.customer_name || '客户'} 取货`) } catch (e) { window.alert(e?.message || '通知失败') }
+  try { await api.processingNotify(order.processing_order_id); toast(`已记录通知 ${order.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
 }
 function call(phone) { if (typeof uni !== 'undefined') uni.makePhoneCall({ phoneNumber: String(phone) }); else window.location.href = `tel:${phone}` }
 async function openCreate() {
@@ -274,7 +282,7 @@ async function nativeProcessingPhoto(event, type) {
   if (nativePhotoBusy || photoBusy.value) return
   nativePhotoBusy = true
   try { await addPhotos({ target: { files: [await takeNativePhoto()], value: '' } }, type) }
-  catch (error) { if (!/cancel|取消/i.test(error?.message || '')) window.alert(error?.message || '拍照失败，请检查相机权限') }
+  catch (error) { if (!/cancel|取消/i.test(error?.message || '')) toast(error?.message || '拍照失败，请检查相机权限') }
   finally { nativePhotoBusy = false }
 }
 async function addPhotos(event, type) {
@@ -293,7 +301,7 @@ async function addPhotos(event, type) {
     detail.value.incoming_photos = parsePhotos(detail.value.incoming_photos)
     detail.value.weigh_photos = parsePhotos(detail.value.weigh_photos)
     detail.value.pickup_photos = parsePhotos(detail.value.pickup_photos)
-  } catch (e) { window.alert(e?.message || '照片上传失败') } finally { photoBusy.value = false }
+  } catch (e) { toast(e?.message || '照片上传失败') } finally { photoBusy.value = false }
 }
 function parsePhotos(v) { let list = v; if (!Array.isArray(list)) { try { list = JSON.parse(v || '[]') } catch { list = [] } } return (Array.isArray(list) ? list : []).filter(Boolean).map(u => String(u).startsWith('/') ? http.defaults.baseURL + u : u) }
 function preview(url) { if (url) window.open(url) }
@@ -340,7 +348,7 @@ async function submit() {
       try {
         await api.processingHandover(created.processing_order_id)
       } catch (e) {
-        window.alert(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '请在加工单详情中重试转交前台'}`)
+        toast(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '请在加工单详情中重试转交前台'}`)
       }
     }
     await load()
@@ -350,9 +358,9 @@ onMounted(() => { load(); if (route.query.create === '1') openCreate(); else if 
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){if(app.lastEventType==='PROCESSING_CATALOG_UPDATED')items.value=[];if(app.lastEventType==='STAFF_UPDATED'){craftsmen.value=[];if(creating.value)loadCraftsmen()}load()}})
 </script>
 <style scoped>
-.form-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}
+.form-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:14px}
 .search{display:flex;gap:8px}
-.search input{flex:1;min-width:0;min-height:44px;border:1px solid #dfe3e8;border-radius:8px;padding:0 10px}
+.search input{flex:1;min-width:0;min-height:44px;border:1px solid var(--line);border-radius:var(--r-md);padding:0 10px}
 .search button{min-width:72px}
 .filter-tabs{margin:10px 0}
 .filter-tabs button{white-space:nowrap}
@@ -363,25 +371,25 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .processing-title b{font-size:var(--f-sm);min-width:0;overflow-wrap:anywhere;line-height:1.4}
 .processing-card p{margin:5px 0 0;color:var(--ink-2);font-size:var(--f-xs);overflow-wrap:break-word}
 .status-pill{padding:3px 7px;border-radius:12px;font-size:11px;white-space:nowrap}
-.status-pill.pending{background:#fff4df;color:#a26712}
-.status-pill.processing{background:#eef6ff;color:#245b87}
-.status-pill.completed{background:#e7f6ed;color:#18864b}
-.status-pill.picked_up{background:#f0f1f3;color:var(--ink-3)}
+.status-pill.pending{background:var(--gold-soft);color:var(--gold-deep)}
+.status-pill.processing{background:var(--gold-soft);color:var(--ink-2)}
+.status-pill.completed{background:var(--ok-soft);color:var(--ok)}
+.status-pill.picked_up{background:var(--line-soft);color:var(--ink-3)}
 .timeline{display:flex;justify-content:space-between;margin:16px 0 2px}
 .timeline-step{position:relative;flex:1;min-width:0;text-align:center;color:var(--ink-3);font-size:11px}
-.timeline-step:not(:last-child)::after{content:'';position:absolute;top:5px;left:50%;width:100%;height:2px;background:#e5e7eb;z-index:0}
-.timeline-step i{position:relative;z-index:1;display:block;width:12px;height:12px;border-radius:50%;background:#dfe3e8;margin:0 auto 5px}
+.timeline-step:not(:last-child)::after{content:'';position:absolute;top:5px;left:50%;width:100%;height:2px;background:var(--line);z-index:0}
+.timeline-step i{position:relative;z-index:1;display:block;width:12px;height:12px;border-radius:50%;background:var(--line);margin:0 auto 5px}
 .timeline-step.done{color:var(--gold-deep)}
 .timeline-step.done i{background:var(--gold)}
 .timeline-step.current{font-weight:600}
-.sheet-mask{position:fixed;inset:0;background:rgba(15,20,28,.45);display:flex;align-items:flex-end;justify-content:center;z-index:60}
-.sheet{width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;background:#fff;border-radius:14px 14px 0 0;overflow:hidden}
+.sheet-mask{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:flex-end;justify-content:center;z-index:60}
+.sheet{width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;background:var(--card);border-radius:14px 14px 0 0;overflow:hidden}
 .sheet>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .sheet>header strong{font-size:15px}
 .sheet-body{padding:14px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .detail-head b{font-size:15px;min-width:0;overflow-wrap:anywhere;line-height:1.4}
-.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px;padding:12px;background:var(--gold-soft);border-radius:8px;font-size:12px}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px;padding:12px;background:var(--gold-soft);border-radius:var(--r-md);font-size:12px}
 .detail-grid span{display:block;color:var(--ink-3)}
 .detail-grid b{display:block;margin-top:3px;font-size:13px;overflow-wrap:break-word}
 .remark{margin:10px 0 0;font-size:12px;color:var(--ink-2)}
@@ -391,18 +399,18 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .sheet-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .sheet-actions button{flex:1;min-width:110px}
 .form-label{display:block;margin-bottom:10px;font-size:13px;color:var(--ink-2)}
-.form-label input,.form-label select,.form-label textarea{display:block;width:100%;margin-top:5px;min-height:42px;border:1px solid #dfe3e8;border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);background:#fff}
+.form-label input,.form-label select,.form-label textarea{display:block;width:100%;margin-top:5px;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px;font-size:14px;color:var(--ink);background:var(--card)}
 .form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.estimate-lines{margin:6px 0 12px;padding:10px 12px;background:var(--gold-soft);border-radius:8px;font-size:13px}
+.estimate-lines{margin:6px 0 12px;padding:10px 12px;background:var(--gold-soft);border-radius:var(--r-md);font-size:13px}
 .estimate-lines div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0}
 .estimate-lines span{color:var(--ink-3)}
 .estimate-lines b{color:var(--ink)}
-.estimate-lines .total{border-top:1px dashed #e3d5b4;margin-top:4px;padding-top:6px}
+.estimate-lines .total{border-top:1px dashed var(--gold-line);margin-top:4px;padding-top:6px}
 .estimate-lines .total b{color:var(--gold-deep);font-size:16px}
-.error{margin:0 0 10px;color:#c0392b;font-size:12px}
+.error{margin:0 0 10px;color:var(--err);font-size:12px}
 .photo-strip{margin-top:12px;display:grid;gap:10px}
 .photo-strip h4{margin:0 0 6px;font-size:13px}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px}
-.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
-.add-photo{width:64px;height:64px;display:flex;align-items:center;justify-content:center;border:1px dashed #b9b2a4;border-radius:8px;color:var(--gold-deep);font-size:22px;cursor:pointer}
+.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:var(--r-md);border:1px solid var(--line);cursor:pointer}
+.add-photo{width:64px;height:64px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--ink-3);border-radius:var(--r-md);color:var(--gold-deep);font-size:22px;cursor:pointer}
 </style>

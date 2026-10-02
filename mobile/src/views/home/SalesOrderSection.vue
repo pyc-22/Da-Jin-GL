@@ -1,9 +1,6 @@
 <template>
 <section  class="page">
-<PageTitle title="商品与收款">
-<span class="state" :class="{disabled: app.offline}">{{ app.offline ? '离线不可开单' : '在线可提交' }}</span>
-</PageTitle>
-    <div  class="order-sales-select"><label>导购（销售）<select v-model="order.salesId"><option :value="null">无导购（散客）</option><option v-for="person in salespeople" :key="person.user_id" :value="person.user_id">{{ person.real_name || person.username }}</option></select><small v-if="!order.salesId">未选择导购，本单不计销售提成</small></label></div>
+<div  class="order-sales-select"><label>导购（销售）<select v-model="order.salesId"><option :value="null">无导购（散客）</option><option v-for="person in salespeople" :key="person.user_id" :value="person.user_id">{{ person.real_name || person.username }}</option></select><small v-if="!order.salesId">未选择导购，本单不计销售提成</small></label></div>
 <Panel v-if="lastSubmitted?.orderNo" title="订单已提交"><p>{{ lastSubmitted.orderNo }}</p><PriceLockBadge :locked="lastSubmitted.hasGramItems" /><p class="muted">请在前台完成审批或收款，结算以订单保存的价格为准。</p></Panel>
 <div class="order-form">
 <div class="order-member">
@@ -84,6 +81,5 @@ import PriceLockBadge from '../../components/PriceLockBadge.vue'
 import Panel from '../../components/Panel.vue'
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
-import PageTitle from '../../components/PageTitle.vue'
 const { lastSubmitted, salespeople, app, section, threshold, oldMaterialTypes, oldMaterialTypeError, oldMetal, order, orderMemberHits, recyclePrice, isGramItem, oldDeduct, orderTotal, money, scan, previewGoods, scanOrSearch, normalizeOrderQty, addOldMetal, searchOrderMember, pickOrderMember, clearOrderMember, startCheckout } = inject(roleHomeKey)
 </script>

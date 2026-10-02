@@ -9,11 +9,11 @@ describe('mobile role navigation', () => {
   })
 
   it('keeps manager and sales tabs isolated', () => {
-    expect(tabsForRole('MANAGER', ['dashboard:view', 'report:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['dashboard', 'report', 'member', 'notifications', 'profile'])
-    expect(tabsForRole('SALES', ['dashboard:view', 'report:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['home', 'performance', 'members', 'notifications', 'profile'])
-    expect(tabsForRole('SALES', ['dashboard:view']).some(x => x.key === 'order')).toBe(false)
+    expect(tabsForRole('MANAGER', ['dashboard:view', 'report:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['dashboard', 'documents', 'notifications', 'profile'])
+    expect(tabsForRole('SALES', ['dashboard:view', 'report:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['home', 'documents', 'notifications', 'profile'])
+    expect(tabsForRole('SALES', ['dashboard:view']).some(x => x.key === 'processing')).toBe(false)
     expect(tabsForRole('MANAGER', ['*']).some(x => x.key === 'approval')).toBe(false)
-    expect(tabsForRole('CASHIER', ['dashboard:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['home', 'members', 'notifications', 'profile'])
+    expect(tabsForRole('CASHIER', ['dashboard:view', 'member:view', 'notification:view']).map(x => x.key)).toEqual(['home', 'documents', 'notifications', 'profile'])
     expect(managerFunctions.find(x => x.key === 'inbound')?.permission).toBe('stock:inbound:create')
     expect(managerFunctions.find(x => x.key === 'stock-check')?.permission).toBe('stock:check:create')
     expect(salesFunctions.find(x => x.key === 'stock-check')?.permission).toBe('stock:check:create')
@@ -43,7 +43,7 @@ describe('mobile role navigation', () => {
   })
 
   it('removes a tab as soon as its permission is absent', () => {
-    expect(tabsForRole('MANAGER', ['dashboard:view', 'member:view']).map(x => x.key)).toEqual(['dashboard', 'member', 'profile'])
+    expect(tabsForRole('MANAGER', ['dashboard:view', 'member:view']).map(x => x.key)).toEqual(['dashboard', 'documents', 'profile'])
     expect(permissionForSection('report', 'SALES')).toBe('report:view:all')
     expect(permissionForSection('performance', 'SALES')).toBe('report:view')
   })

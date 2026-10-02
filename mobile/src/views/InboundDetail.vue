@@ -1,8 +1,8 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><strong>入库凭证</strong><span></span></header>
+    <DesignHeader title="入库凭证" :back="true" @back="router.back()"></DesignHeader>
     <main class="content page inbound-page">
-      <div v-if="loading" class="empty">加载中...</div>
+      <EmptyState v-if="loading" title="加载中..." />
       <template v-else>
         <div class="voucher">
           <h2>入库凭证</h2>
@@ -19,9 +19,16 @@
   </div>
 </template>
 <script setup>
+import { useToast } from '../composables/useToast.js'
+const { toast } = useToast()
+
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { onMounted, ref } from 'vue'; import { useRoute, useRouter } from 'vue-router'; import { api } from '../api/request.js'
 const route = useRoute(), router = useRouter(), data = ref({}), loading = ref(true), money = v => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), typeName = t => ({ purchase: '采购入库', transfer: '调拨入库', return: '退货入库', profit: '盘盈入库' }[t] || t)
 function pieceNos(item) { try { const value = typeof item.piece_nos === 'string' ? JSON.parse(item.piece_nos) : item.piece_nos; return Array.isArray(value) ? value.filter(Boolean) : [] } catch { return [] } }
-onMounted(async () => { try { data.value = await api.inboundDetail(route.params.id) || {} } catch (e) { alert(e.message || '凭证加载失败') } finally { loading.value = false } })
+onMounted(async () => { try { data.value = await api.inboundDetail(route.params.id) || {} } catch (e) { toast(e.message || '凭证加载失败') } finally { loading.value = false } })
 </script>
 <style scoped>.piece-no{color:var(--gold-deep);overflow-wrap:anywhere}</style>

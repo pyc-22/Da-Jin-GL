@@ -1,22 +1,28 @@
 <template>
   <div class="shell">
-    <header class="topbar"><div><button class="back" @click="router.back()">&#8249;</button><strong>货品搜索</strong></div><div></div></header>
+    <DesignHeader title="货品搜索" :back="true" @back="router.back()"></DesignHeader>
     <div class="content page">
       <div class="search"><input v-model="keyword" placeholder="输入条码或名称搜索" @keyup.enter="doSearch" ref="inputRef"/><button @click="doScan">扫码</button><button @click="doSearch">搜索</button></div>
-      <div v-if="scanned" class="list-card goods-search-card" style="border-color:#b7791f" @click="openGoods(scanned)"><div class="search-thumb"><img v-if="imageFor(scanned) && !failedImages.has(imageFor(scanned))" :src="imageFor(scanned)" :alt="`${scanned.name}照片`" @error="markImageFailed(imageFor(scanned))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ scanned.name }}</b><p>{{ scanned.category }} · 条码 {{ scanned.barcode }}</p><small>库存 {{ inventoryText(scanned) }} · 克重 {{ scanned.weight }}g</small></div><strong>¥{{ money(scanned.sale_price) }}</strong></div>
+      <div v-if="scanned" class="list-card goods-search-card" style="border-color:var(--gold-deep)" @click="openGoods(scanned)"><div class="search-thumb"><img v-if="imageFor(scanned) && !failedImages.has(imageFor(scanned))" :src="imageFor(scanned)" :alt="`${scanned.name}照片`" @error="markImageFailed(imageFor(scanned))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ scanned.name }}</b><p>{{ scanned.category }} · 条码 {{ scanned.barcode }}</p><small>库存 {{ inventoryText(scanned) }} · 克重 {{ scanned.weight }}g</small></div><strong>¥{{ money(scanned.sale_price) }}</strong></div>
       <p v-if="loading" class="muted" style="text-align:center;padding:20px">搜索中...</p>
-      <p v-if="error" class="error" style="text-align:center;padding:20px">{{ error }} <button class="outline" style="min-height:36px;margin-left:8px" @click="doSearch">重试</button></p>
+      <p v-if="error" class="error" style="text-align:center;padding:20px">{{ error }} <button class="outline" style="min-height:var(--tap);margin-left:8px" @click="doSearch">重试</button></p>
       <template v-if="!searched && recent.length">
         <p class="muted small" style="margin:8px 0">最近搜索</p>
-        <div class="filter-tabs"><button v-for="t in recent" :key="t" @click="useRecent(t)">{{ t }}</button></div>
+        <div class="filter-tabs"><Chip v-for="t in recent" :key="t" @click="useRecent(t)">{{ t }}</Chip></div>
       </template>
       <div v-for="g in goods" :key="g.goods_id" class="list-card goods-search-card" @click="openGoods(g)"><div class="search-thumb"><img v-if="imageFor(g) && !failedImages.has(imageFor(g))" :src="imageFor(g)" :alt="`${g.name}照片`" @error="markImageFailed(imageFor(g))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ g.name }}</b><p>{{ g.category }} · {{ g.barcode }}</p><small>库存 {{ inventoryText(g) }} · {{ g.weight }}g</small></div><strong>¥{{ money(g.sale_price) }}</strong></div>
-      <div v-if="!loading && !scanned && !goods.length && searched" class="empty">未找到匹配商品<button class="outline" @click="clearSearch">清空重新搜索</button></div>
+      <EmptyState v-if="!loading && !scanned && !goods.length && searched" title="">未找到匹配商品<button class="outline" @click="clearSearch">清空重新搜索</button></EmptyState>
       <button v-if="hasMore" class="outline full" style="margin-top:12px" @click="loadMore">加载更多</button>
     </div>
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+
+import Chip from '../components/Chip.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, http } from '../api/request.js'

@@ -1,11 +1,11 @@
 <template>
   <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><strong>最近入库记录</strong><button class="outline" @click="load">刷新</button></header>
+    <DesignHeader title="最近入库记录" :back="true" @back="router.back()"><button class="outline" @click="load">刷新</button></DesignHeader>
     <main class="content page inbound-page">
       <p class="muted small">仅显示最近3个月记录。离线暂存的单据需联网后逐单点「同步」上传，不会自动重放。</p>
       <p v-if="legacyData" class="error">本机保留了旧版未标记员工归属的草稿。为避免混单，已暂停显示和同步，请联系管理员核对；原数据未删除。</p>
-      <div v-if="loading" class="empty">加载中...</div>
-      <div v-else-if="!records.length" class="empty">暂无最近入库记录</div>
+      <EmptyState v-if="loading" title="加载中..." />
+      <EmptyState v-else-if="!records.length" title="暂无最近入库记录" />
       <article v-for="record in records" :key="recordKey(record)" class="list-card inbound-history-card">
         <div class="inbound-history-main">
           <div class="history-title"><b>{{ record.inbound_no || '待同步入库单' }}</b><span :class="['history-status', statusClass(record.status)]">{{ statusLabel(record.status) }}</span></div>
@@ -27,6 +27,13 @@
   </div>
 </template>
 <script setup>
+import { useToast } from '../composables/useToast.js'
+const { toast } = useToast()
+
+import EmptyState from '../components/EmptyState.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 const pageCache = scopedStorage()
 const getStorage = pageCache.get, setStorage = pageCache.set
 import { onMounted, ref } from 'vue'
@@ -54,7 +61,7 @@ const statusClass = value => String(value || '').toUpperCase() === 'FAILED' ? 'f
 const recordKey = record => record.clientRequestId || record.client_request_id || record.inbound_id || record.createdAt
 const syncable = record => ['PENDING', 'FAILED'].includes(String(record.status || '').toUpperCase()) && Boolean(record.clientRequestId || record.client_request_id)
 async function confirmSync(message) { if (typeof uni !== 'undefined' && uni.showModal) return await new Promise(resolve => uni.showModal({ title: '确认同步', content: message, success: r => resolve(Boolean(r.confirm)), fail: () => resolve(false) })); return window.confirm(message) }
-function showAlert(content) { if (typeof uni !== 'undefined' && uni.showModal) { uni.showModal({ title: '同步失败', content, showCancel: false }); return } window.alert(content) }
+function showAlert(content) { if (typeof uni !== 'undefined' && uni.showModal) { uni.showModal({ title: '同步失败', content, showCancel: false }); return } toast(content) }
 async function sync(record) {
   const key = record.clientRequestId || record.client_request_id
   const failed = String(record.status || '').toUpperCase() === 'FAILED'

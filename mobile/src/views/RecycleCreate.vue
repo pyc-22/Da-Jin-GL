@@ -1,10 +1,6 @@
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <button class="back" aria-label="返回" @click="router.back()">‹</button>
-      <strong>回收登记</strong>
-      <span></span>
-    </header>
+  <div class="shell recycle-page">
+    <DesignHeader title="回收登记" :back="true" @back="router.back()"></DesignHeader>
 
     <main class="content page">
       <section v-if="done" class="result-page" data-testid="success-result">
@@ -48,15 +44,12 @@
           <h3>旧料信息</h3>
           <label class="form-label">
             旧料类型
-            <select v-model="materialType" data-testid="material-type" :disabled="typesLoading || !materialTypes.length">
-              <option value="" disabled>{{ typesLoading ? '正在加载旧料类型...' : '请选择旧料类型' }}</option>
-              <option v-for="type in materialTypes" :key="type.type_id || type.name" :value="type.name">{{ type.name }}</option>
-            </select>
+            <div class="chips material-chips" data-testid="material-type"><Chip v-for="type in materialTypes" :key="type.type_id || type.name" :selected="materialType===type.name" :disabled="typesLoading" @click="materialType=type.name">{{ type.name }}</Chip></div><small v-if="typesLoading">正在加载旧料类型...</small>
           </label>
           <p v-if="typeError" class="error field-tip">{{ typeError }}</p>
           <label class="form-label">
             克重（g）
-            <input v-model.number="weight" data-testid="recycle-weight" type="number" min="0" step="0.001" inputmode="decimal" placeholder="请输入实际称重" />
+            <Stepper v-model="weight" data-testid="recycle-weight" label="称重（克）" :min="0" :step="0.001" />
           </label>
           <label class="form-label">
             成色
@@ -73,9 +66,9 @@
         <section class="form-card">
           <h3>付款方式</h3>
           <div class="chips">
-            <button v-for="method in payOptions" :key="method.code" type="button" :class="{ active: payMethod === method.code }" @click="payMethod = method.code">
+            <Chip v-for="method in payOptions" :key="method.code" type="button" :selected="payMethod === method.code" @click="payMethod = method.code">
               {{ method.label }}
-            </button>
+            </Chip>
           </div>
         </section>
 
@@ -91,7 +84,7 @@
         </section>
 
         <p v-if="submitError" class="error submit-error">{{ submitError }}</p>
-        <button class="primary full" data-testid="open-confirm" type="button" :disabled="!canSubmit || busy" @click="confirmOpen = true">
+        <button class="primary full recycle-submit" data-testid="open-confirm" type="button" :disabled="!canSubmit || busy" @click="confirmOpen = true">
           {{ busy ? '提交中...' : '确认报价并回收' }}
         </button>
         <small v-if="recycleAvailable && !canSubmit && !busy" class="muted small">请选择旧料类型并填写大于 0 的克重</small>
@@ -121,6 +114,12 @@
 </template>
 
 <script setup>
+import Stepper from '../components/Stepper.vue'
+
+import Chip from '../components/Chip.vue'
+
+import DesignHeader from '../components/DesignHeader.vue'
+
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app.js'
@@ -178,9 +177,7 @@ onMounted(() => {
 async function loadRecyclePrice() {
   try {
     await app.loadGold()
-    const rows = Array.isArray(app.gold) ? app.gold : []
-    const hit = rows.find(item => String(item.price_type || item.priceType || item.name || '').includes('回收'))
-    recycle.value = Number(hit?.price || 0)
+    recycle.value = Number(app.primaryGold?.recyclePrice || 0)
   } catch {
     recycle.value = 0
   }
@@ -250,6 +247,6 @@ function startAnother() {
 </script>
 
 <style scoped>
-.price-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.price-strip>div{background:var(--gold-soft);border:1px solid #efd9a9;border-radius:8px;padding:12px;text-align:center}.price-strip small{display:block;color:var(--ink-3);font-size:11px}.price-strip b{display:block;color:var(--gold-deep);font-size:16px;margin-top:4px}.price-strip b.na{color:var(--ink-3);font-weight:400}.error.tip{margin:0 0 8px;font-size:12px;color:#c0392b}.form-card{margin-top:12px}.form-card h3{font-size:15px;margin:0 0 8px}.form-label{display:block;font-size:12px;color:var(--ink-2);margin:10px 0}.form-label input,.form-label select{display:block;width:100%;margin-top:4px;min-height:44px;border:1px solid #dfe3e8;border-radius:8px;padding:0 10px;background:#fff;color:var(--ink-1);box-sizing:border-box}.form-label select:disabled{background:#f5f6f8;color:var(--ink-3)}.field-tip{margin:-4px 0 8px;font-size:12px}.full{width:100%;min-height:46px;margin-top:12px}.small{display:block;margin-top:8px}.quote-card{margin-top:12px;border:1px solid #e8cf94;border-radius:8px;background:#fffaf0;overflow:hidden}.quote-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #f0dfb9}.quote-heading span{font-size:16px;font-weight:700;color:var(--ink-1)}.quote-heading small{color:#956a18}.quote-card dl,.confirm-dialog dl,.result-detail{margin:0;padding:8px 14px}.quote-card dl div,.confirm-dialog dl div,.result-detail div{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:34px}.quote-card dt,.confirm-dialog dt,.result-detail dt{font-size:12px;color:var(--ink-3)}.quote-card dd,.confirm-dialog dd,.result-detail dd{margin:0;text-align:right;color:var(--ink-1);font-size:13px;font-weight:600}.quote-total{display:flex;align-items:flex-end;justify-content:space-between;padding:12px 14px;background:#fff3d8}.quote-total span{font-size:13px;font-weight:600}.quote-total b{color:var(--gold-deep);font-size:25px;line-height:1}.submit-error{margin:12px 0 0;padding:10px 12px;background:#fff2f0;border:1px solid #ffd1cc;border-radius:8px;font-size:12px}.dialog-mask{position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center;background:rgba(17,24,39,.48);padding:16px}.confirm-dialog{width:min(100%,480px);background:#fff;border-radius:8px;padding:18px;box-sizing:border-box}.confirm-dialog h3{margin:0;font-size:18px}.confirm-dialog>p{margin:8px 0 4px;color:var(--ink-3);font-size:13px;line-height:1.6}.confirm-dialog dl{padding:8px 0}.confirm-amount{padding:12px;text-align:center;background:var(--gold-soft);border:1px solid #efd9a9;border-radius:8px}.confirm-amount small{display:block;color:var(--ink-3)}.confirm-amount b{display:block;margin-top:4px;color:var(--gold-deep);font-size:28px}.dialog-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:14px}.dialog-actions button{min-height:46px}.result-page{padding:28px 4px;text-align:center}.result-icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:#1f8f55;color:#fff;font-size:34px;font-weight:700}.result-icon.pending{background:#d68a12}.result-page h2{margin:0;color:var(--ink-1);font-size:22px}.result-message{margin:8px auto 18px;color:var(--ink-3);font-size:13px;line-height:1.6}.result-amount{padding:18px 12px;background:var(--gold-soft);border:1px solid #efd9a9;border-radius:8px}.result-amount small{display:block;color:var(--ink-3)}.result-amount b{display:block;margin-top:6px;color:var(--gold-deep);font-size:30px}.result-detail{margin:12px 0;padding:10px 14px;background:#fff;border:1px solid #e6e8eb;border-radius:8px;text-align:left}.result-detail div+div{border-top:1px solid #f0f1f3}.success-text{color:#1f8f55!important}.pending-text{color:#b66c00!important}.secondary-action{margin-top:8px}
+.price-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.price-strip>div{background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md);padding:12px;text-align:center}.price-strip small{display:block;color:var(--ink-3);font-size:11px}.price-strip b{display:block;color:var(--gold-deep);font-size:16px;margin-top:4px}.price-strip b.na{color:var(--ink-3);font-weight:400}.error.tip{margin:0 0 8px;font-size:12px;color:var(--err)}.form-card{margin-top:12px}.form-card h3{font-size:15px;margin:0 0 8px}.form-label{display:block;font-size:12px;color:var(--ink-2);margin:10px 0}.form-label input,.form-label select{display:block;width:100%;margin-top:4px;min-height:44px;border:1px solid var(--line);border-radius:var(--r-md);padding:0 10px;background:var(--card);color:var(--ink);box-sizing:border-box}.form-label select:disabled{background:var(--line-soft);color:var(--ink-3)}.field-tip{margin:-4px 0 8px;font-size:12px}.full{width:100%;min-height:46px;margin-top:12px}.small{display:block;margin-top:8px}.quote-card{margin-top:12px;border:1px solid var(--gold-line);border-radius:var(--r-md);background:var(--gold-soft);overflow:hidden}.quote-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--gold-line)}.quote-heading span{font-size:16px;font-weight:700;color:var(--ink)}.quote-heading small{color:var(--gold-deep)}.quote-card dl,.confirm-dialog dl,.result-detail{margin:0;padding:8px 14px}.quote-card dl div,.confirm-dialog dl div,.result-detail div{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:var(--tap)}.quote-card dt,.confirm-dialog dt,.result-detail dt{font-size:12px;color:var(--ink-3)}.quote-card dd,.confirm-dialog dd,.result-detail dd{margin:0;text-align:right;color:var(--ink);font-size:13px;font-weight:600}.quote-total{display:flex;align-items:flex-end;justify-content:space-between;padding:12px 14px;background:var(--gold-soft)}.quote-total span{font-size:13px;font-weight:600}.quote-total b{color:var(--gold-deep);font-size:25px;line-height:1}.submit-error{margin:12px 0 0;padding:10px 12px;background:var(--err-soft);border:1px solid var(--err-soft);border-radius:var(--r-md);font-size:12px}.dialog-mask{position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center;background:var(--overlay);padding:16px}.confirm-dialog{width:min(100%,480px);background:var(--card);border-radius:var(--r-md);padding:18px;box-sizing:border-box}.confirm-dialog h3{margin:0;font-size:18px}.confirm-dialog>p{margin:8px 0 4px;color:var(--ink-3);font-size:13px;line-height:1.6}.confirm-dialog dl{padding:8px 0}.confirm-amount{padding:12px;text-align:center;background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md)}.confirm-amount small{display:block;color:var(--ink-3)}.confirm-amount b{display:block;margin-top:4px;color:var(--gold-deep);font-size:28px}.dialog-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:14px}.dialog-actions button{min-height:46px}.result-page{padding:28px 4px;text-align:center}.result-icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:var(--ok);color:var(--card);font-size:34px;font-weight:700}.result-icon.pending{background:var(--gold-light)}.result-page h2{margin:0;color:var(--ink);font-size:22px}.result-message{margin:8px auto 18px;color:var(--ink-3);font-size:13px;line-height:1.6}.result-amount{padding:18px 12px;background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md)}.result-amount small{display:block;color:var(--ink-3)}.result-amount b{display:block;margin-top:6px;color:var(--gold-deep);font-size:30px}.result-detail{margin:12px 0;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);text-align:left}.result-detail div+div{border-top:1px solid var(--line-soft)}.success-text{color:var(--ok)!important}.pending-text{color:var(--gold-deep)!important}.secondary-action{margin-top:8px}
 @media (min-width:600px){.dialog-mask{align-items:center}.confirm-dialog{padding:22px}}
 </style>

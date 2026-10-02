@@ -1,0 +1,388 @@
+[
+  {
+    "viewport": 320,
+    "path": "/manager/dashboard?qaRole=MANAGER",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/sales/home?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/sales/order?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/gold-settings?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/admin/profile?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/admin/documents?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/processing?create=1&qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/sales/recycle?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/report?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/inventory",
+    "finalUrl": "http://127.0.0.1:5190/inventory?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/inbound/create",
+    "finalUrl": "http://127.0.0.1:5190/inbound/create?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/inbound/scan",
+    "finalUrl": "http://127.0.0.1:5190/inbound/create",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/inbound/history",
+    "finalUrl": "http://127.0.0.1:5190/inbound/history?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/inbound/detail/QA001",
+    "finalUrl": "http://127.0.0.1:5190/inbound/detail/QA001?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/stock-check/create",
+    "finalUrl": "http://127.0.0.1:5190/stock-check/create?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/stock-check/scan",
+    "finalUrl": "http://127.0.0.1:5190/stock-check/create",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/stock-check/history",
+    "finalUrl": "http://127.0.0.1:5190/stock-check/history?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/stock-check/detail/1",
+    "finalUrl": "http://127.0.0.1:5190/stock-check/detail/1?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/goods/search",
+    "finalUrl": "http://127.0.0.1:5190/goods/search?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/goods/1",
+    "finalUrl": "http://127.0.0.1:5190/goods/1?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/member/1",
+    "finalUrl": "http://127.0.0.1:5190/member/1?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/shift",
+    "finalUrl": "http://127.0.0.1:5190/shift?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/manager/deposit",
+    "finalUrl": "http://127.0.0.1:5190/manager/deposit?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/manager/daily",
+    "finalUrl": "http://127.0.0.1:5190/manager/daily?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/activity",
+    "finalUrl": "http://127.0.0.1:5190/activity?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/visits",
+    "finalUrl": "http://127.0.0.1:5190/visits?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/sales/birthday",
+    "finalUrl": "http://127.0.0.1:5190/sales/birthday?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/todo",
+    "finalUrl": "http://127.0.0.1:5190/todo?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/sales/calc",
+    "finalUrl": "http://127.0.0.1:5190/sales/calc?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "/forbidden",
+    "finalUrl": "http://127.0.0.1:5190/forbidden?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "/notifications",
+    "finalUrl": "http://127.0.0.1:5190/notifications?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 430,
+    "path": "/manager/dashboard?qaRole=MANAGER",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 430,
+    "path": "/sales/home?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 430,
+    "path": "/sales/order?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 430,
+    "path": "/gold-settings?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 430,
+    "path": "/admin/profile?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 430,
+    "path": "/admin/documents?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "viewport": 430,
+    "path": "/processing?create=1&qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "viewport": 430,
+    "path": "/sales/recycle?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "viewport": 430,
+    "path": "/report?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  },
+  {
+    "viewport": 320,
+    "path": "inbound/scan with goods",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 320,
+    "path": "stock-check/scan with goods",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 390,
+    "path": "/manager/dashboard?qaRole=MANAGER",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/sales/home?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/sales/order?qaRole=SALES",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/gold-settings?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/admin/profile?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/sales/recycle?qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "viewport": 390,
+    "path": "/processing?create=1&qaRole=ADMIN",
+    "overflow": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "viewport": 320,
+    "path": "login?qaLoggedOut=1",
+    "overflow": [],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "viewport": 320,
+    "path": "sales/order with gram item",
+    "overflow": [],
+    "scrollWidth": 305,
+    "width": 305
+  },
+  {
+    "viewport": 430,
+    "path": "sales/order with gram item",
+    "overflow": [],
+    "scrollWidth": 415,
+    "width": 415
+  }
+]

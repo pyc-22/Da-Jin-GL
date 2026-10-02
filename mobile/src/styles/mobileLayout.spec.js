@@ -6,7 +6,7 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles/app.css'), 'utf8')
 
 describe('mobile layout safeguards', () => {
   it('reserves space for the fixed bottom navigation and safe area', () => {
-    expect(css).toContain('.shell{min-height:100vh;min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom))')
+    expect(css).toContain('.shell{min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom))')
     expect(css).toContain('.report-page{padding-bottom:calc(128px + env(safe-area-inset-bottom))')
   })
 
@@ -18,7 +18,16 @@ describe('mobile layout safeguards', () => {
     expect(css).toContain('.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}')
   })
 
+  it('shares touch targets and safe-area tokens without legacy viewport sizing',()=>{
+    expect(css).not.toContain('100vh')
+    expect(css).toContain('--tap:44px')
+    expect(css).toContain('--button-h:54px')
+    expect(css).toContain('--tab-h:64px')
+    expect(css).toContain('font-variant-numeric:tabular-nums')
+    expect(css).toContain('.stepper button{min-width:var(--tap);min-height:var(--tap)')
+    expect(css).not.toContain("content:' · 金价已锁'")
+  })
   it('keeps normal vertical scrolling on the page axis', () => {
-    expect(css).toContain('.shell{min-height:100vh;min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom));overflow-x:clip;touch-action:pan-y}')
+    expect(css).toContain('.shell{min-height:100dvh;padding-bottom:calc(120px + env(safe-area-inset-bottom));overflow-x:clip;touch-action:pan-y}')
   })
 })

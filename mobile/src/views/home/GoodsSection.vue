@@ -5,7 +5,7 @@
 </PageTitle>
 <Panel :title="goodsTabTitle">
 <div class="chips">
-<button v-for="t in goodsTabs" :key="t.key" :class="{active: goodsTab===t.key}" @click="goodsTab=t.key">{{ t.label }}</button>
+<Chip v-for="t in goodsTabs" :key="t.key" :selected="goodsTab===t.key" @click="goodsTab=t.key">{{ t.label }}</Chip>
 </div>
 <template v-if="goodsTab==='overview'">
 <div class="kpi-grid">
@@ -13,11 +13,11 @@
 <Kpi label="库存总量" :value="stockRoots.map(categoryStockText).join(' · ') || '0件'"/>
 </div>
 <div class="chips">
-<button :class="{active: wallCat===null}" @click="pickWallCat(null)">全部</button>
-<button v-for="root in stockRoots" :key="root.category_id" :class="{active: wallCat===root.category_id}" @click="pickWallCat(root.category_id)">{{ root.category }} {{ categoryStockText(root) }}</button>
+<Chip :selected="wallCat===null" @click="pickWallCat(null)">全部</Chip>
+<Chip v-for="root in stockRoots" :key="root.category_id" :selected="wallCat===root.category_id" @click="pickWallCat(root.category_id)">{{ root.category }} {{ categoryStockText(root) }}</Chip>
 </div>
-<div v-if="wallLoading" class="empty">加载中…</div>
-<div v-else-if="!wallGoods.length" class="empty">暂无在库货品</div>
+<EmptyState v-if="wallLoading" title="加载中…" />
+<EmptyState v-else-if="!wallGoods.length" title="暂无在库货品" />
 <div v-for="g in wallGoods" :key="g.goods_id" class="goods-card">
 <img v-if="goodsImage(g.piece_image || g.images)" :src="goodsImage(g.piece_image || g.images)" class="item-thumb big" @click="previewGoods(goodsImage(g.piece_image || g.images))"/>
 <div v-else class="item-thumb big empty">无图</div>
@@ -46,7 +46,7 @@
 <small>¥{{ money(w.sale_price) }}</small>
 </div>
 </div>
-<div v-if="!warnings.length" class="empty">库存充足</div>
+<EmptyState v-if="!warnings.length" title="库存充足" />
 </template>
 <template v-else-if="goodsTab==='old'">
 <div v-for="m in oldMaterials.slice(0,8)" :key="'om'+m.material_type" class="rank-row">
@@ -54,7 +54,7 @@
 <strong>{{ m.total_weight||0 }}g</strong>
 <small>¥{{ money(m.total_value) }} · {{ m.inbound_count||0 }}笔</small>
 </div>
-<div v-if="!oldMaterials.length" class="empty">暂无旧料</div>
+<EmptyState v-if="!oldMaterials.length" title="暂无旧料" />
 </template>
 <template v-else>
 <div v-for="c in stockChecks.slice(0,6)" :key="'ck'+c.check_id" class="rank-row">
@@ -62,12 +62,16 @@
 <b :class="c.status===3?'ok':(c.status===4?'error':'')">{{ c.status===3?'已通过':(c.status===4?'已驳回':'待处理') }}</b>
 <small>{{ (c.create_time||'').slice(0,10) }}</small>
 </div>
-<div v-if="!stockChecks.length" class="empty">暂无盘点记录</div>
+<EmptyState v-if="!stockChecks.length" title="暂无盘点记录" />
 </template>
 </Panel>
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
+import Chip from '../../components/Chip.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Kpi from '../../components/Kpi.vue'

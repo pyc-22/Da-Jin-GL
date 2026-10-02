@@ -25,12 +25,14 @@
 <small>生日 {{ (m.birthday||'').slice(5) }} · {{ maskPhone(m.phone) }}</small>
 <button class="outline" @click="call(m.phone)">拨号</button>
 </div>
-<div v-if="!birthdayMembers.length" class="empty">本月暂无生日会员</div>
+<EmptyState v-if="!birthdayMembers.length" title="本月暂无生日会员" />
 </Panel>
 <MemberList :members="members" @open="openMember"/>
 </section>
 </template>
 <script setup>
+import EmptyState from '../../components/EmptyState.vue'
+
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Kpi from '../../components/Kpi.vue'

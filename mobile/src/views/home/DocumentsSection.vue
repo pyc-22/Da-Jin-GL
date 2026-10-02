@@ -1,7 +1,7 @@
 <template>
   <section class="page documents-page">
     <div class="chips" aria-label="单据类型"><Chip v-for="item in filters" :key="item.key" :selected="filter===item.key" @click="filter=item.key">{{ item.label }} {{ count(item.key) }}</Chip></div>
-    <div class="summary-line"><small class="muted">销售/回收为本月记录，加工为接口当前列表</small><button class="text-action" :disabled="loading" @click="load">刷新</button></div>
+    <div class="summary-line"><small class="muted">本月销售、回收记录 · 当前加工单</small><button class="text-action" :disabled="loading" @click="load">刷新</button></div>
     <p v-for="message in errors" :key="message" class="error" role="alert">{{ message }}</p>
     <EmptyState v-if="loading" title="正在汇总单据" />
     <template v-else><button v-for="row in filtered" :key="row.key" class="document-card panel" @click="open(row)"><div class="summary-line"><small>{{ row.no || '—' }} · {{ row.typeLabel }}单</small><StatusPill :tone="row.tone">{{ row.status }}</StatusPill></div><div class="document-main"><strong>{{ row.title }}</strong><span class="document-amount">{{ row.amount == null ? '—' : money(row.amount) }}</span></div><div class="summary-line"><small>{{ row.customer }}<template v-if="row.salesperson"> · 导购 {{ row.salesperson }}</template></small><small>{{ row.amountLabel }}</small></div><small>{{ row.time }}</small></button><EmptyState v-if="!filtered.length" title="暂无单据" message="显示当前账号有权限查询的记录" /></template>
