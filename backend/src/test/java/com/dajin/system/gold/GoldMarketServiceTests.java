@@ -36,11 +36,15 @@ class GoldMarketServiceTests {
         Set<LocalDate> holidays = Set.of(LocalDate.of(2026, 10, 1));
         assertTrue(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 29, 9, 15), holidays));
         assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 29, 12, 0), holidays));
-        assertTrue(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 28, 1, 30), holidays));
+        assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 28, 1, 30), holidays));
         assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 27, 1, 30), holidays));
         assertTrue(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 30, 1, 30), holidays));
         assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 10, 1, 10, 0), holidays));
         assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 10, 3, 21, 0), holidays));
+        assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 30, 21, 0), holidays));
+        assertFalse(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 10, 8, 1, 0), GoldTradingCalendar.holidays()));
+        assertTrue(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 18, 21, 0), holidays));
+        assertTrue(GoldMarketService.isTradingSession(LocalDateTime.of(2026, 9, 19, 1, 0), holidays));
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,27 +41,36 @@ public class GoldMarketService {
     private static final long CACHE_SECONDS = 15 * 60L;
     private static final BigDecimal TEN_PERCENT = new BigDecimal("0.10");
     private static final BigDecimal FIVE_PERCENT = new BigDecimal("0.05");
-    private static final Map<String, Map<String, Object>> MEMORY_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, Long> MEMORY_COUNTER = new ConcurrentHashMap<>();
-    private static final Map<String, Long> MEMORY_COOLDOWN = new ConcurrentHashMap<>();
-    private static final Map<String, Boolean> MEMORY_RESUME_OVERRIDES = new ConcurrentHashMap<>();
-    private static final long TIAN_FAILURE_COOLDOWN_SECONDS = 120L;
+    private final Map<String, Map<String, Object>> MEMORY_CACHE = new ConcurrentHashMap<>();
+    private final Map<String, Long> MEMORY_COUNTER = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> MEMORY_RESUME_OVERRIDES = new ConcurrentHashMap<>();
 
     private final DbSupport db;
     private final SyncWebSocketHandler ws;
     private final ObjectMapper mapper;
     private final StringRedisTemplate redis;
     private final Environment environment;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+    private final HttpClient http;
+    private final Clock clock;
     private final Map<Long, Object> storeLocks = new ConcurrentHashMap<>();
+    private final Map<String, Object> quoteLocks = new ConcurrentHashMap<>();
 
+    @Autowired
     public GoldMarketService(DbSupport db, SyncWebSocketHandler ws, ObjectMapper mapper,
                              StringRedisTemplate redis, Environment environment) {
+        this(db, ws, mapper, redis, environment, Clock.system(ZONE),
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build());
+    }
+
+    GoldMarketService(DbSupport db, SyncWebSocketHandler ws, ObjectMapper mapper,
+                      StringRedisTemplate redis, Environment environment, Clock clock, HttpClient http) {
         this.db = db;
         this.ws = ws;
         this.mapper = mapper;
         this.redis = redis;
         this.environment = environment;
+        this.clock = clock;
+        this.http = http;
     }
 
     @Scheduled(fixedDelay = 60_000L, initialDelay = 5_000L)
@@ -115,12 +125,17 @@ public class GoldMarketService {
             String code = String.valueOf(item.getOrDefault("code", name));
             Map<String, Object> price = latest.getOrDefault(name, latest.get(code));
             Map<String, Object> quote = quotes.get(baseInstrument(item));
+            Map<String, Object> cached = readCache(cacheKey(storeId, baseInstrument(item)));
+            if (cached != null && !expired(cached)) quote = cached;
+            if (quote == null) quote = isTradingSession(LocalDateTime.now(clock), holidays(storeId))
+                    ? unavailable("尚无有效行情，请检查数据源配置或稍后刷新；保留门店现价")
+                    : closedQuote(null, LocalDateTime.now(clock));
             BigDecimal sale = decimal(price == null ? null : price.get("sale_price"));
             BigDecimal recycle = decimal(price == null ? null : price.get("recycle_price"));
             BigDecimal legacy = decimal(price == null ? null : price.get("price"));
             boolean recycleType = isRecycleType(item);
-            if (sale == null) sale = recycleType ? BigDecimal.ZERO : legacyOr(item.get("price"));
-            if (recycle == null) recycle = recycleType ? legacyOr(item.get("price")) : peerRecycle(item, recycleFallback, latest);
+            if (sale == null) sale = recycleType ? BigDecimal.ZERO : (legacy == null ? legacyOr(item.get("price")) : legacy);
+            if (recycle == null) recycle = recycleType ? (legacy == null ? legacyOr(item.get("price")) : legacy) : peerRecycle(item, recycleFallback, latest);
             item.put("salePrice", sale);
             item.put("recyclePrice", recycle == null ? BigDecimal.ZERO : recycle);
             item.put("price", recycleType ? (recycle == null ? BigDecimal.ZERO : recycle) : sale);
@@ -143,6 +158,7 @@ public class GoldMarketService {
                 item.put("autoFrozen", number(quote.get("auto_frozen")) == 1);
                 item.put("rawUnit", quote.get("raw_unit"));
             }
+            item.put("pricingWarning", autoValidationMessage(item, decimal(quote.get("price"))));
             if (price != null) {
                 item.put("pricingSource", price.get("source"));
                 item.put("pricingQuoteTime", price.get("quote_time"));
@@ -184,6 +200,8 @@ public class GoldMarketService {
         if (item == null) throw new BusinessException(404301, "贵金属类型不存在");
         Map<String, Object> previous = latestPrices(storeId).get(String.valueOf(item.get("name")));
         applyDefinitionUpdate(item, request);
+        // Validate before any configuration write or resume side effect.
+        validateAuto(storeId, item);
         persistDefinitions(storeId, definitions);
         if (Boolean.TRUE.equals(request.get("resumeAuto")) || "true".equalsIgnoreCase(String.valueOf(request.get("resumeAuto")))) {
             clearFrozen(storeId, baseInstrument(item));
@@ -211,6 +229,7 @@ public class GoldMarketService {
         item.put("pricingMode", "MANUAL"); item.put("baseInstrument", code.toUpperCase(Locale.ROOT).contains("SILVER") ? AG_TD : AU_TD);
         item.put("purityCoefficient", coefficient(item)); item.put("markup", BigDecimal.ZERO); item.put("recycleDeduction", BigDecimal.ZERO); item.put("roundingRule", "NONE");
         applyDefinitionUpdate(item, request);
+        validateAuto(storeId, item);
         definitions.add(item); persistDefinitions(storeId, definitions);
         logOperation(storeId, userId, "TYPE_CREATE", "金类=" + name);
         ws.broadcast("GOLD_TYPES_UPDATED", Map.of("storeId", storeId, "action", "CREATE", "code", code));
@@ -274,80 +293,144 @@ public class GoldMarketService {
     }
 
     public static boolean isTradingSession(LocalDateTime time, Set<LocalDate> holidays) {
-        if (time == null || holidays.contains(time.toLocalDate())) return false;
-        DayOfWeek day = time.getDayOfWeek(); LocalTime t = time.toLocalTime();
-        if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) return false;
-        boolean daySession = !t.isBefore(LocalTime.of(9, 0)) && (t.isBefore(LocalTime.of(11, 30)) || (!t.isBefore(LocalTime.of(13, 30)) && !t.isAfter(LocalTime.of(15, 30))));
-        if (daySession) return true;
-        if (!t.isBefore(LocalTime.of(20, 0))) return day != DayOfWeek.FRIDAY;
-        if (t.isBefore(LocalTime.of(2, 30))) {
-            DayOfWeek previous = day.minus(1);
-            return previous != DayOfWeek.FRIDAY && previous != DayOfWeek.SATURDAY;
-        }
-        return false;
+        if (time == null) return false;
+        LocalDate date = time.toLocalDate(); LocalTime t = time.toLocalTime();
+        if (t.isBefore(LocalTime.of(2, 30))) return nightSession(date.minusDays(1), holidays);
+        if (!tradingDay(date, holidays)) return false;
+        if (!t.isBefore(LocalTime.of(20, 0))) return nightSession(date, holidays);
+        return !t.isBefore(LocalTime.of(9, 0)) && (t.isBefore(LocalTime.of(11, 30))
+                || (!t.isBefore(LocalTime.of(13, 30)) && !t.isAfter(LocalTime.of(15, 30))));
+    }
+
+    private static boolean tradingDay(LocalDate date, Set<LocalDate> holidays) {
+        return date.getDayOfWeek() != DayOfWeek.SATURDAY && date.getDayOfWeek() != DayOfWeek.SUNDAY && !holidays.contains(date);
+    }
+
+    private static boolean nightSession(LocalDate date, Set<LocalDate> holidays) {
+        if (!tradingDay(date, holidays)) return false;
+        LocalDate next = date.plusDays(1);
+        while (next.getDayOfWeek() == DayOfWeek.SATURDAY || next.getDayOfWeek() == DayOfWeek.SUNDAY) next = next.plusDays(1);
+        return !holidays.contains(next);
     }
 
     private Map<String, Object> refreshQuote(long storeId, String instrument) {
-        LocalDateTime now = LocalDateTime.now(ZONE);
-        Map<String, Object> previous = loadQuote(storeId, instrument);
-        if (!isTradingSession(now, holidays(storeId))) {
-            Map<String, Object> closed = closedQuote(previous, now);
-            if (previous != null) saveQuote(closed);
-            return closed;
-        }
-        String key = cacheKey(storeId, instrument);
-        Map<String, Object> cached = readCache(key);
-        if (cached != null && !expired(cached)) return cached;
-        if (previous != null && !expired(previous) && !"ERROR".equals(String.valueOf(previous.get("market_status")))) {
-            writeCache(key, previous);
-            return previous;
-        }
-        boolean resumeOverride = takeResumeOverride(storeId, instrument);
-        BigDecimal freezeThreshold = freezeThreshold(storeId);
-        Map<String, Object> quote = null;
-        String failure = "";
-        if (tryTake("jisu:" + instrument, 90)) {
-            try {
-                Map<String, Object> candidate = fetchJisu(instrument);
-                if (acceptQuote(candidate, previous)) quote = candidate;
-                else failure = "极速数据异常";
-            } catch (Exception e) { failure = "极速数据请求失败"; }
-        } else failure = "极速数据今日调用额度已用尽";
-        if (quote == null && canTryTian(storeId, instrument)) {
-            if (tryTake("tianapi", 60)) {
-                try {
-                    Map<String, Object> candidate = fetchTian(instrument);
-                    if (acceptQuote(candidate, previous)) {
-                        quote = candidate;
-                        clearTianCooldown(storeId, instrument);
-                    } else failure = "天行数据异常";
-                } catch (Exception e) {
-                    failure = "天行数据请求失败";
-                    markTianCooldown(storeId, instrument);
+        synchronized (quoteLocks.computeIfAbsent(cacheKey(storeId, instrument), ignored -> new Object())) {
+            LocalDateTime now = LocalDateTime.now(clock);
+            boolean open = isTradingSession(now, holidays(storeId));
+            Map<String, Object> previous = loadQuote(storeId, instrument);
+            String key = cacheKey(storeId, instrument);
+            if (!open && quotePrice(previous) != null && quotePrice(previous).signum() > 0) {
+                Map<String, Object> closed = closedQuote(previous, now);
+                if (!"CLOSED".equals(previous.get("market_status"))) saveQuote(closed);
+                writeCache(key, closed);
+                return closed;
+            }
+            Map<String, Object> cached = readCache(key);
+            if (cached != null && !expired(cached) && (!open || !"CLOSED".equals(cached.get("market_status")))) return cached;
+            if (open && previous != null && !expired(previous) && "OPEN".equals(previous.get("market_status"))) {
+                writeCache(key, previous);
+                return previous;
+            }
+            Map<String, Object> upstream = fetchSharedQuote(instrument);
+            Map<String, Object> result;
+            if (!acceptQuote(upstream, previous)) {
+                String reason = quotePrice(upstream) == null ? String.valueOf(upstream.get("message")) : "行情偏离上一档超过10%，已拒绝异常报价";
+                result = failedQuote(previous, reason, now);
+                result.put("_retryAt", upstream.getOrDefault("_retryAt", clock.millis() + 120_000L));
+                if (!open) {
+                    result.put("market_status", "CLOSED");
+                    result.put("message", "休市，暂无有效收盘参考价；" + reason + "；保留门店现价");
                 }
-            } else failure = "天行数据今日调用额度已用尽";
-            if (quote == null && !"天行数据今日调用额度已用尽".equals(failure)) markTianCooldown(storeId, instrument);
-        } else if (quote == null && failure.isBlank()) failure = "天行数据失败冷却中";
-        if (quote == null) {
-            Map<String, Object> failed = failedQuote(previous, failure, now);
-            if (previous != null) saveQuote(failed);
-            return failed;
+            } else {
+                boolean resumeOverride = takeResumeOverride(storeId, instrument);
+                boolean frozen = !resumeOverride && previous != null && (number(previous.get("auto_frozen")) == 1
+                        || deviates(quotePrice(upstream), quotePrice(previous), freezeThreshold(storeId)));
+                result = new LinkedHashMap<>(frozen ? previous : upstream);
+                result.put("auto_frozen", frozen ? 1 : 0);
+                result.put("fetched_at", now.toString());
+                if (frozen) {
+                    result.put("market_status", "FROZEN");
+                    result.put("message", "行情异常，已冻结上一档价格；请管理员核对后恢复自动定价");
+                } else if (!open) {
+                    result = closedQuote(result, now);
+                } else if (staleQuote(result, now)) {
+                    result.put("market_status", "ERROR");
+                    result.put("message", "报价时间已过期，以下为旧价；保留门店现价，等待有效行情");
+                } else if ("OPEN".equals(result.get("market_status"))) {
+                    result.put("_fresh", true);
+                }
+            }
+            result.put("store_id", storeId); result.put("instrument", instrument);
+            result.putIfAbsent("auto_frozen", 0);
+            saveQuote(result);
+            writeCache(key, result);
+            return result;
         }
-        if (!resumeOverride && previous != null && deviates(quotePrice(quote), decimal(previous.get("price")), freezeThreshold)) {
-            Map<String, Object> frozen = new LinkedHashMap<>(previous);
-            frozen.put("store_id", storeId);
-            frozen.put("instrument", instrument);
-            frozen.put("market_status", "FROZEN");
-            frozen.put("auto_frozen", 1);
-            frozen.put("message", "行情异常，涨跌超过" + freezeThreshold.multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%，已冻结上一档价格");
-            saveQuote(frozen);
-            return frozen;
+    }
+
+    /** A provider call is shared by every store and caller. Failure backoff is shared too. */
+    private Map<String, Object> fetchSharedQuote(String instrument) {
+        String key = "dajin:gold:upstream:" + instrument;
+        synchronized (quoteLocks.computeIfAbsent(key, ignored -> new Object())) {
+            Map<String, Object> cached = readCache(key);
+            if (cached != null && !expired(cached)) return new LinkedHashMap<>(cached);
+            Map<String, Object> result = null;
+            List<String> failures = new ArrayList<>();
+            if (environment.getProperty("JISU_APPKEY", "").isBlank()) failures.add("极速数据密钥未配置");
+            else if (!tryTake("jisu:" + instrument, 90)) failures.add("极速数据今日调用额度已用尽");
+            else try {
+                result = fetchJisu(instrument);
+                if (quotePrice(result) == null || quotePrice(result).signum() <= 0) { result = null; failures.add("极速数据报价无效"); }
+            } catch (Exception ignored) { failures.add("极速数据请求失败，请检查密钥或服务状态"); }
+            if (result == null) {
+                if (environment.getProperty("TIANAPI_KEY", "").isBlank()) failures.add("天行数据密钥未配置");
+                else if (!tryTake("tianapi", 60)) failures.add("天行数据今日调用额度已用尽");
+                else try {
+                    result = fetchTian(instrument);
+                    if (quotePrice(result) == null || quotePrice(result).signum() <= 0) { result = null; failures.add("天行数据报价无效"); }
+                } catch (Exception ignored) { failures.add("天行数据请求失败，请检查密钥或服务状态"); }
+            }
+            if (result == null) {
+                int attempts = cached == null ? 1 : number(cached.get("_failures")) + 1;
+                long delay = Math.min(CACHE_SECONDS, 120L * (1L << Math.min(attempts - 1, 3)));
+                result = unavailable(String.join("；", failures));
+                result.put("_failures", attempts);
+                result.put("_retryAt", clock.millis() + delay * 1000);
+            }
+            result.put("fetched_at", LocalDateTime.now(clock).toString());
+            writeCache(key, result);
+            return new LinkedHashMap<>(result);
         }
-        boolean frozen = !resumeOverride && previous != null && (number(previous.get("auto_frozen")) == 1 || deviates(quotePrice(quote), decimal(previous.get("price")), freezeThreshold));
-        quote.put("store_id", storeId); quote.put("instrument", instrument); quote.put("auto_frozen", frozen ? 1 : 0); quote.put("fetched_at", now.toString()); quote.put("_fresh", true);
-        saveQuote(quote);
-        writeCache(key, quote);
-        return quote;
+    }
+
+    private boolean staleQuote(Map<String, Object> quote, LocalDateTime now) {
+        Object raw = quote.get("quote_time");
+        try {
+            LocalDateTime time = raw instanceof java.sql.Timestamp t ? t.toLocalDateTime()
+                    : LocalDateTime.parse(String.valueOf(raw).replace('T', ' '), TIME);
+            return time.isAfter(now.plusMinutes(5)) || Duration.between(time, now).toSeconds() > CACHE_SECONDS;
+        } catch (Exception ignored) { return true; }
+    }
+
+    static String autoValidationMessage(Map<String, Object> item, BigDecimal base) {
+        if (!"AUTO".equals(item.get("pricingMode")) || number(item.getOrDefault("status", 1)) != 1) return "";
+        BigDecimal markup = decimalOrZero(item.get("markup")), deduction = decimalOrZero(item.get("recycleDeduction"));
+        if (markup.signum() == 0 && deduction.signum() == 0) return "自动定价的卖价加价和回收扣减至少填写一项大于0的金额，确保卖价高于回收价";
+        if (base == null || base.signum() <= 0) return "暂无有效基准行情，请先刷新行情或使用手动定价；现价保持不变";
+        String rule = String.valueOf(item.getOrDefault("roundingRule", "NONE"));
+        BigDecimal sale = calculate(base, coefficient(item), markup, deduction, rule, false);
+        BigDecimal recycle = calculate(base, coefficient(item), markup, deduction, rule, true);
+        return sale.compareTo(recycle) > 0 ? "" : "取整后卖价须高于回收价，请增加加价或扣减，或调整取整规则；现价保持不变";
+    }
+
+    private void validateAuto(long storeId, Map<String, Object> item) {
+        if (!"AUTO".equals(pricingMode(item)) || number(item.getOrDefault("status", 1)) != 1) return;
+        if (decimalOrZero(item.get("markup")).signum() == 0 && decimalOrZero(item.get("recycleDeduction")).signum() == 0)
+            throw new BusinessException(400308, autoValidationMessage(item, null));
+        Map<String, Object> quote = refreshQuote(storeId, baseInstrument(item));
+        String message = autoValidationMessage(item, quotePrice(quote));
+        if (!message.isBlank()) throw new BusinessException(400308, message);
+        if ("ERROR".equals(quote.get("market_status"))) throw new BusinessException(400309, "行情异常，请先恢复有效行情后启用自动定价；现价保持不变");
     }
 
     private void repriceAuto(long storeId, Map<String, Map<String, Object>> quotes, boolean force) {
@@ -417,17 +500,17 @@ public class GoldMarketService {
     }
 
     private Map<String, Object> failedQuote(Map<String, Object> previous, String reason, LocalDateTime now) {
-        if (previous == null) return unavailable("行情获取失败");
-        Map<String, Object> result = new LinkedHashMap<>(previous); result.put("market_status", "ERROR"); result.put("message", "行情获取失败，以下为 " + oldTime(previous, now) + " 旧价"); result.put("failure_reason", reason); return result;
+        if (previous == null || quotePrice(previous) == null) return unavailable("行情获取失败；" + reason + "；保留门店现价");
+        Map<String, Object> result = new LinkedHashMap<>(previous); result.put("market_status", "ERROR"); result.put("message", "行情获取失败；" + reason + "；以下为 " + oldTime(previous, now) + " 旧价"); result.put("failure_reason", reason); return result;
     }
 
     private Map<String, Object> closedQuote(Map<String, Object> previous, LocalDateTime now) {
-        if (previous == null) return unavailable("休市，暂无最近收盘价");
-        Map<String, Object> result = new LinkedHashMap<>(previous); result.put("market_status", "CLOSED"); result.put("message", "休市，以下为 " + oldTime(previous, now) + " 最近收盘价"); return result;
+        if (previous == null || quotePrice(previous) == null) { Map<String, Object> result = unavailable("休市，暂无有效收盘参考价；保留门店现价"); result.put("market_status", "CLOSED"); return result; }
+        Map<String, Object> result = new LinkedHashMap<>(previous); result.put("market_status", "CLOSED"); result.put("message", "休市，以下为 " + oldTime(previous, now) + " 收盘参考价"); return result;
     }
 
     private Map<String, Object> unavailable(String message) { Map<String, Object> result = new LinkedHashMap<>(); result.put("price", null); result.put("market_status", "ERROR"); result.put("message", message); return result; }
-    private Map<String, Object> publicQuote(Map<String, Object> raw) { Map<String, Object> result = new LinkedHashMap<>(raw); result.remove("store_id"); result.remove("fetched_at"); result.remove("auto_frozen"); return result; }
+    private Map<String, Object> publicQuote(Map<String, Object> raw) { Map<String, Object> result = new LinkedHashMap<>(raw); result.remove("store_id"); result.remove("fetched_at"); result.remove("auto_frozen"); result.keySet().removeIf(key -> key.startsWith("_")); return result; }
     private String oldTime(Map<String, Object> row, LocalDateTime now) {
         Object raw = row.get("quote_time");
         if (raw instanceof java.sql.Timestamp timestamp) return timestamp.toLocalDateTime().format(OLD_TIME);
@@ -472,7 +555,7 @@ public class GoldMarketService {
         return row == null ? null : decimal(row.get("price"));
     }
     private String cacheKey(long storeId, String instrument) { return "dajin:gold:quote:" + storeId + ":" + instrument; }
-    private boolean expired(Map<String, Object> row) { Object value = row.get("fetched_at"); try { LocalDateTime at = value instanceof java.sql.Timestamp timestamp ? timestamp.toLocalDateTime() : LocalDateTime.parse(String.valueOf(value)); return Duration.between(at, LocalDateTime.now(ZONE)).getSeconds() >= CACHE_SECONDS; } catch (Exception e) { return true; } }
+    private boolean expired(Map<String, Object> row) { if (row.get("_retryAt") instanceof Number retry) return clock.millis() >= retry.longValue(); Object value = row.get("fetched_at"); try { LocalDateTime at = value instanceof java.sql.Timestamp timestamp ? timestamp.toLocalDateTime() : LocalDateTime.parse(String.valueOf(value)); return Duration.between(at, LocalDateTime.now(clock)).getSeconds() >= CACHE_SECONDS; } catch (Exception e) { return true; } }
     private Map<String, Object> readCache(String key) { try { String raw = redis.opsForValue().get(key); return raw == null ? MEMORY_CACHE.get(key) : mapper.readValue(raw, new TypeReference<>() {}); } catch (Exception e) { return MEMORY_CACHE.get(key); } }
     private void writeCache(String key, Map<String, Object> row) {
         Map<String, Object> cached = new LinkedHashMap<>(row);
@@ -480,27 +563,6 @@ public class GoldMarketService {
         MEMORY_CACHE.put(key, cached);
         try { redis.opsForValue().set(key, mapper.writeValueAsString(cached), Duration.ofSeconds(CACHE_SECONDS)); } catch (Exception ignored) { }
     }
-    private boolean canTryTian(long storeId, String instrument) {
-        String key = cooldownKey(storeId, instrument);
-        try {
-            String value = redis.opsForValue().get(key);
-            return value == null || Long.parseLong(value) <= System.currentTimeMillis();
-        } catch (Exception ignored) {
-            return MEMORY_COOLDOWN.getOrDefault(key, 0L) <= System.currentTimeMillis();
-        }
-    }
-    private void markTianCooldown(long storeId, String instrument) {
-        String key = cooldownKey(storeId, instrument);
-        long until = System.currentTimeMillis() + TIAN_FAILURE_COOLDOWN_SECONDS * 1000;
-        MEMORY_COOLDOWN.put(key, until);
-        try { redis.opsForValue().set(key, String.valueOf(until), Duration.ofSeconds(TIAN_FAILURE_COOLDOWN_SECONDS)); } catch (Exception ignored) { }
-    }
-    private void clearTianCooldown(long storeId, String instrument) {
-        String key = cooldownKey(storeId, instrument);
-        MEMORY_COOLDOWN.remove(key);
-        try { redis.delete(key); } catch (Exception ignored) { }
-    }
-    private String cooldownKey(long storeId, String instrument) { return "dajin:gold:tian-cooldown:" + storeId + ":" + instrument; }
     private BigDecimal freezeThreshold(long storeId) {
         try {
             BigDecimal value = decimal(db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key='gold_market_freeze_threshold' and enabled=1", Map.of("s", storeId), String.class));
@@ -512,8 +574,8 @@ public class GoldMarketService {
         return MEMORY_RESUME_OVERRIDES.remove(resumeKey(storeId, instrument)) != null;
     }
     private String resumeKey(long storeId, String instrument) { return "dajin:gold:resume:" + storeId + ":" + instrument; }
-    private boolean tryTake(String name, long limit) { String key = "dajin:gold:limit:" + name + ":" + LocalDate.now(ZONE); try { Long value = redis.opsForValue().increment(key); if (value != null && value == 1) redis.expire(key, Duration.ofDays(2)); if (value != null && value > limit) { redis.opsForValue().decrement(key); return false; } return true; } catch (Exception e) { long value = MEMORY_COUNTER.merge(key, 1L, Long::sum); if (value > limit) { MEMORY_COUNTER.computeIfPresent(key, (k, v) -> Math.max(0, v - 1)); return false; } return true; } }
-    private Set<LocalDate> holidays(long storeId) { String raw; try { raw = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key='gold_market_holidays' and enabled=1", Map.of("s", storeId), String.class); } catch (Exception e) { raw = "[]"; } Set<LocalDate> result = new HashSet<>(); try { JsonNode node = mapper.readTree(raw); if (node.isArray()) node.forEach(n -> { try { result.add(LocalDate.parse(n.asText())); } catch (Exception ignored) { } }); } catch (Exception ignored) { } return result; }
+    private boolean tryTake(String name, long limit) { String key = "dajin:gold:limit:" + name + ":" + LocalDate.now(clock); try { Long value = redis.opsForValue().increment(key); if (value != null && value == 1) redis.expire(key, Duration.ofDays(2)); if (value != null && value > limit) { redis.opsForValue().decrement(key); return false; } return true; } catch (Exception e) { long value = MEMORY_COUNTER.merge(key, 1L, Long::sum); if (value > limit) { MEMORY_COUNTER.computeIfPresent(key, (k, v) -> Math.max(0, v - 1)); return false; } return true; } }
+    private Set<LocalDate> holidays(long storeId) { String raw; try { raw = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key='gold_market_holidays' and enabled=1", Map.of("s", storeId), String.class); } catch (Exception e) { raw = "[]"; } Set<LocalDate> result = GoldTradingCalendar.holidays(); try { JsonNode node = mapper.readTree(raw); if (node.isArray()) node.forEach(n -> { try { result.add(LocalDate.parse(n.asText())); } catch (Exception ignored) { } }); } catch (Exception ignored) { } return result; }
     private void clearFrozen(long storeId, String instrument) {
         db.jdbc().update("update gold_market_quote set auto_frozen=0,message=null,fetched_at=null,update_time=now() where store_id=:s and instrument_code=:i", Map.of("s", storeId, "i", instrument));
         MEMORY_CACHE.remove(cacheKey(storeId, instrument));

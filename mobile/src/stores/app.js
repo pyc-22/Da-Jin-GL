@@ -184,6 +184,7 @@ export const useAppStore = defineStore('app', {
             if (i >= 0) rows[i] = { ...rows[i], price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode }; else rows.push({ price_type: data.priceType, price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode })
             this.gold = rows; setStorage('dajin-gold', JSON.stringify(rows))
           }
+          if (m.type === 'GOLD_TYPES_UPDATED') await this.loadGold()
           if (m.type === 'APPROVAL_CREATED') { this.unread++; this.approvals = [...this.approvals, data] }
           if (m.type === 'STOCK_IN_COMPLETED') this.refreshLocalPendingInbounds()
           const auth = useAuthStore()
