@@ -1,31 +1,31 @@
 <template>
-  <div class="shell">
-    <header class="topbar"><button class="back" @click="router.back()">‹</button><strong>消息通知</strong><span></span></header>
-    <main class="content page">
-      <div v-for="n in notices" :key="n.id" class="list-card" :class="{ unread: !n.read }" @click="markRead(n)">
-        <div><b>{{ n.title }}</b><p>{{ n.text }}</p><small>{{ n.time }}</small></div><span>{{ n.read ? '已读' : '未读' }}</span>
-      </div>
-      <div v-if="!notices.length" class="empty">暂无消息</div>
+  <div :class="embedded ? 'messages-section' : 'shell'">
+    <DesignHeader v-if="!embedded" title="消息" :back="true" @back="router.back()"><button class="text-action" @click="markAll">全部已读</button></DesignHeader>
+    <main class="content page"><div v-if="embedded" class="summary-line"><span class="muted">消息通知</span><button class="text-action" @click="markAll">全部已读</button></div>
+      <button type="button" v-for="n in notices" :key="n.id" class="list-card" :class="{ unread: !n.read }" @click="markRead(n)"><span class="entry-symbol" :class="{'message-unread':!n.read}">{{ n.title.slice(0,1) }}</span>
+        <div><b>{{ n.title }}</b><p>{{ n.text }}</p><small>{{ n.time }}</small></div><StatusPill :tone="n.read ? 'muted' : 'gold'">{{ n.read ? '已读' : '未读' }}</StatusPill>
+      </button>
+      <p v-if="error" role="alert" class="error">{{ error }}</p><EmptyState v-if="!notices.length" title="暂无消息" />
     </main>
-    <nav class="tabbar">
-      <button v-for="tab in tabs" :key="tab.key" :class="{ active: tab.key === 'notifications', 'tabbar-order': tab.key === 'order' }" @click="openTab(tab.key)"><span>{{ TAB_ICONS[tab.key] || '•' }}</span>{{ tab.label }}</button>
-    </nav>
+    <BottomNav v-if="!embedded" active="notifications" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import DesignHeader from '../components/DesignHeader.vue'
+import BottomNav from '../components/BottomNav.vue'
+import StatusPill from '../components/StatusPill.vue'
+import EmptyState from '../components/EmptyState.vue'
+const props=defineProps({embedded:Boolean})
+
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/request.js'
-import { tabsForRole } from '../config/roles.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const router = useRouter()
 const auth = useAuthStore()
-const notices = ref([])
-const isManager = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
-const TAB_ICONS = { dashboard: '⌂', home: '⌂', report: '↗', performance: '↗', member: '👤', members: '👤', order: '＋', notifications: '●', profile: '⚙' }
-const tabs = computed(() => tabsForRole(auth.role, auth.permissions))
+const notices = ref([]), error=ref('')
 
 const actionLabel = value => ({
   REMIND: '超期/库存提醒',
@@ -44,14 +44,7 @@ const fmtTime = value => {
   return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date).replace(/\//g, '-')
 }
 
-function openTab(key) {
-  if (key === 'notifications') return
-  if (key === 'dashboard' || key === 'home') return router.push(isManager.value ? '/manager/dashboard' : '/sales/home')
-  if (key === 'order') return router.push(isManager.value ? '/manager/order' : '/sales/order')
-  if (key === 'report' || key === 'performance') return router.push('/report')
-  if (key === 'member' || key === 'members') return router.push(isManager.value ? '/manager/member' : '/sales/members')
-  if (key === 'profile') return router.push(isManager.value ? '/manager/profile' : '/sales/profile')
-}
+
 
 onMounted(async () => {
   try {
@@ -63,13 +56,14 @@ onMounted(async () => {
       return { id: n.notification_id, title, text: n.content, time: fmtTime(n.create_time), read }
     })
   } catch {
+    error.value = '消息加载失败，请稍后刷新'
     notices.value = []
   }
 })
 
 async function markRead(notice) {
   if (notice.read) return
-  notice.read = true
-  try { await api.markNotificationRead(notice.id) } catch {}
+  try { await api.markNotificationRead(notice.id); notice.read = true } catch { error.value='标记已读失败，请重试' }
 }
+async function markAll(){await Promise.all(notices.value.filter(n=>!n.read).map(markRead))}
 </script>

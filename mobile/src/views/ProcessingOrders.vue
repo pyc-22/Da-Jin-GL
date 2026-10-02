@@ -167,11 +167,12 @@
 <script setup>
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
+const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
 const canManage = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
@@ -345,7 +346,7 @@ async function submit() {
     await load()
   } catch (e) { createError.value = e?.message || '开加工单失败' } finally { saving.value = false }
 }
-onMounted(load)
+onMounted(() => { load(); if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id }) })
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){if(app.lastEventType==='PROCESSING_CATALOG_UPDATED')items.value=[];if(app.lastEventType==='STAFF_UPDATED'){craftsmen.value=[];if(creating.value)loadCraftsmen()}load()}})
 </script>
 <style scoped>

@@ -1,8 +1,9 @@
 <template><section class="page">
   <section class="profile-card profile-line"><div class="avatar large">{{ auth.user?.real_name?.slice(0,1) || '员' }}</div><div><h2>{{ auth.user?.real_name || auth.user?.username }}</h2><p>{{ auth.role }} · {{ auth.user?.store_name || '默认门店' }}</p></div></section>
+  <div class="profile-shortcuts"><button v-for="item in shortcuts" :key="item.label" class="entry" @click="router.push(item.path)"><span class="entry-symbol">{{ item.symbol }}</span><span class="entry-copy"><b>{{ item.label }}</b><small>{{ item.description }}</small></span><span>›</span></button></div>
   <div class="settings entry-list">
-    <button v-if="isManager" class="entry" @click="$emit('go','approval')"><span class="entry-main"><i v-if="pendingCount" class="entry-badge">{{ pendingCount }}</i>审批中心</span><span class="entry-sub">{{ pendingCount ? `${pendingCount} 条待审批` : '暂无待审批' }} ›</span></button>
-    <button v-else class="entry" @click="$emit('go','performance')"><span class="entry-main">个人业绩</span><span class="entry-sub">本月销售与提成 ›</span></button>
+    <button v-if="isManager && auth.can('stock:check:approve')" class="entry" @click="$emit('go','approval')"><span class="entry-main"><i v-if="pendingCount" class="entry-badge">{{ pendingCount }}</i>审批中心</span><span class="entry-sub">{{ pendingCount ? `${pendingCount} 条待审批` : '暂无待审批' }} ›</span></button>
+    <button v-else-if="!isManager && auth.can('report:view')" class="entry" @click="$emit('go','performance')"><span class="entry-main">个人业绩</span><span class="entry-sub">本月销售与提成 ›</span></button>
   </div>
   <section class="profile-card qr-card"><canvas ref="qrCanvas" width="200" height="200"></canvas><p class="qr-title">我的专属二维码</p><small class="muted">客户扫码登记会员并绑定专属顾问（登记页待后端支持）</small><button class="outline" @click="saveQr">保存二维码</button></section>
   <div class="settings"><button @click="pwDialog=true">修改密码 <span>›</span></button><button @click="openNotify">消息设置 <span>›</span></button><button @click="showVersion">关于与版本 <span>v1.0.0-rc.3 ›</span></button></div><button class="danger full" @click="logout">退出登录</button>
@@ -19,6 +20,16 @@ import { getStorage, setStorage } from '../utils/storage.js'
 defineEmits(['go'])
 const router=useRouter(); const auth=useAuthStore(); const app=useAppStore()
 const isManager=computed(()=>auth.role==='MANAGER'||auth.role==='ADMIN')
+const shortcuts=computed(()=>[
+ {symbol:'班',label:'交班结算',description:'当班收银核对与交接',path:'/shift',permission:'shift:confirm'},
+ {symbol:'价',label:'金价设置 / 价格变更日志',description:'定价配置与价格变更记录',path:'/gold-settings',permission:'gold:manage',admin:true},
+ {symbol:'存',label:'客存金台账',description:'寄存金料与取回记录',path:'/manager/deposit',permission:'processing:view'},
+ {symbol:'报',label:'经营日报',description:'每日营业、回收与加工',path:'/manager/daily',permission:'report:view:all'},
+ {symbol:'表',label:'经营报表',description:'销售业绩与提成明细',path:'/report',permission:'report:view'},
+ {symbol:'访',label:'客户回访',description:'客户跟进与回访任务',path:'/visits',permission:'member:follow'},
+ {symbol:'生',label:'生日提醒',description:'查看会员生日',path:'/sales/birthday',permission:'member:view'},
+ {symbol:'素',label:'活动素材库',description:'朋友圈文案与活动海报',path:'/activity',permission:'member:follow'}
+].filter(item=>(!item.admin || auth.role==='ADMIN') && auth.can(item.permission)))
 const pendingCount=computed(()=>app.approvals.length)
 const pwDialog=ref(false); const pwSubmitting=ref(false); const pwError=ref(''); const pwOk=ref(''); const pwForm=reactive({oldPassword:'',newPassword:'',confirm:''})
 const notifyDialog=ref(false); const notifyItems=[{key:'approval',label:'审批推送'},{key:'stock',label:'库存预警'},{key:'visit',label:'回访提醒'},{key:'system',label:'系统消息'}]
