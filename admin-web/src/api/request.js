@@ -12,7 +12,7 @@ function rejectWithMessage(error, fallback) {
 }
 http.interceptors.response.use(response => {
   const body = response.data
-  if (body?.code !== undefined && body.code !== 200) return rejectWithMessage(new Error(body.message || '请求失败'), '请求失败')
+  if (body?.code !== undefined && body.code !== 200) { const reason = new Error(body.message || '请求失败'); reason.code = body.code; return rejectWithMessage(reason, '请求失败') }
   return body?.data ?? body
 }, error => {
   if (error.response?.status === 401) { localStorage.removeItem('dajin_admin_token'); location.hash = '#/login' }

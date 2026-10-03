@@ -16,10 +16,12 @@ const routes = [{ path: '/login', component: () => import('../views/Login.vue') 
   ...processingPages.map(([path, title, processingTab]) => ({ path, name: title, component: () => import('../views/Processing.vue'), meta: { processingTab } }))
 ] }, { path: '/no-access', component: () => import('../views/NoAccess.vue') }, { path: '/:pathMatch(.*)*', redirect: '/' }]
 const router = createRouter({ history: createWebHashHistory(), routes })
-router.beforeEach(async to => {
+export async function navigationGuard(to) {
   const auth = useAuthStore()
   if (!auth.loggedIn) return to.path === '/login' ? undefined : '/login'
-  try { await auth.refresh() } catch { auth.logout(); return '/login' }
+  try { await auth.refresh() } catch (error) { if (error?.response?.status === 401 || error?.code === 401) { auth.logout(); return '/login' } if (!auth.user) return false }
+  if (!auth.loggedIn) return '/login'
   return redirectForPage(to.path, code => auth.can(code)) || undefined
-})
+}
+router.beforeEach(navigationGuard)
 export default router
