@@ -3,6 +3,7 @@ package com.dajin.system;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.recycle.RecycleController;
 import com.dajin.system.shift.ShiftController;
+import com.dajin.system.approval.ApprovalController;
 import org.junit.jupiter.api.Test;
 
 import javax.servlet.http.HttpServletRequest;
@@ -22,6 +23,12 @@ class BusinessEndpointPermissionTests {
     void shiftEndpointsRequireShiftConfirmationPermission() throws Exception {
         assertPermission(ShiftController.class.getMethod("info", HttpServletRequest.class), "shift:confirm");
         assertPermission(ShiftController.class.getMethod("confirm", java.util.Map.class, HttpServletRequest.class), "shift:confirm");
+    }
+
+    @Test
+    void approvalEndpointsRequireGenericHandlingPermission() throws Exception {
+        assertPermission(ApprovalController.class.getMethod("approve", long.class, java.util.Map.class, HttpServletRequest.class), "approval:handle");
+        assertPermission(ApprovalController.class.getMethod("reject", long.class, java.util.Map.class, HttpServletRequest.class), "approval:handle");
     }
 
     private void assertPermission(Method method, String expected) {

@@ -97,6 +97,11 @@ public class ApprovalController {
         if (changed == 0) throw new BusinessException(409001, "审批单状态已变化");
         Map<String,Object> approval = db.one("select approval_id,type,biz_id,reason from approval where approval_id=:id and store_id=:s", p);
         String type = String.valueOf(approval.get("type"));
+        if ("STOCK_CHECK".equals(type)) {
+            Object permissions = r.getAttribute("permissions");
+            if (!(permissions instanceof java.util.Set<?> set) || !set.contains("stock:check:approve"))
+                throw new BusinessException(403213, "处理盘点审批需要审批盘点权限");
+        }
         long bizId = ((Number) approval.get("biz_id")).longValue();
 
         if ("DISCOUNT".equals(type)) {

@@ -22,6 +22,7 @@ const typeOptions = [
 ]
 const typeLabel = (type) => typeOptions.find(item => item.value === type)?.label || type || '-'
 const pendingRows = computed(() => selectedType.value === 'ALL' ? pending.value : pending.value.filter(row => row.type === selectedType.value))
+const canHandle = row => auth.can('approval:handle') && (row?.type !== 'STOCK_CHECK' || auth.can('stock:check:approve'))
 
 async function load() {
   pending.value = await approvalApi.pending()
@@ -33,7 +34,7 @@ async function showDetail(row) {
   detailVisible.value = true
 }
 async function approve(id) {
-  if (!auth.can('approval:handle')) return
+  if (!canHandle(pending.value.find(row => Number(row.approval_id) === Number(id)) || detail.value?.approval)) return ElMessage.warning('当前账号没有该类型审批权限')
   try {
     const current = await approvalApi.detail(id)
     const excess = Number(current?.order?.old_material_excess || 0)
@@ -51,7 +52,7 @@ async function approve(id) {
   }
 }
 async function reject(id) {
-  if (!auth.can('approval:handle')) return
+  if (!canHandle(pending.value.find(row => Number(row.approval_id) === Number(id)) || detail.value?.approval)) return ElMessage.warning('当前账号没有该类型审批权限')
   const remark = await ElMessageBox.prompt('请输入驳回原因', '驳回审批', { inputPattern: /\S+/, inputErrorMessage: '原因不能为空' }).then(item => item.value).catch(() => null)
   if (!remark) return
   await approvalApi.reject(id, remark)
@@ -81,7 +82,7 @@ onMounted(load)
           <el-table-column label="金额"><template #default="scope">{{ formatMoney(scope.row.amount) }}</template></el-table-column>
       <el-table-column label="申请原因"><template #default="scope">{{ formatApprovalReason(scope.row) }}</template></el-table-column>
           <el-table-column label="申请时间" min-width="180"><template #default="scope">{{ formatTime(scope.row.create_time) }}</template></el-table-column>
-          <el-table-column label="操作" width="190"><template #default="scope"><el-button v-if="auth.can('approval:view')" link @click="showDetail(scope.row)">详情</el-button><el-button v-if="auth.can('approval:handle')" link type="success" @click="approve(scope.row.approval_id)">通过</el-button><el-button v-if="auth.can('approval:handle')" link type="danger" @click="reject(scope.row.approval_id)">驳回</el-button></template></el-table-column>
+          <el-table-column label="操作" width="190"><template #default="scope"><el-button v-if="auth.can('approval:view')" link @click="showDetail(scope.row)">详情</el-button><el-button v-if="canHandle(scope.row)" link type="success" @click="approve(scope.row.approval_id)">通过</el-button><el-button v-if="canHandle(scope.row)" link type="danger" @click="reject(scope.row.approval_id)">驳回</el-button></template></el-table-column>
         </el-table>
       </section>
     </el-tab-pane>
@@ -134,6 +135,6 @@ onMounted(load)
         <el-descriptions-item label="收款原因" :span="2">{{ detail.payment?.reason || '顾客优惠' }}</el-descriptions-item>
       </el-descriptions>
     </template>
-    <template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-if="detail?.approval?.status === 1 && auth.can('approval:handle')" type="success" @click="approve(detail.approval.approval_id)">通过</el-button><el-button v-if="detail?.approval?.status === 1 && auth.can('approval:handle')" type="danger" @click="reject(detail.approval.approval_id)">驳回</el-button></template>
+    <template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-if="detail?.approval?.status === 1 && canHandle(detail?.approval)" type="success" @click="approve(detail.approval.approval_id)">通过</el-button><el-button v-if="detail?.approval?.status === 1 && canHandle(detail?.approval)" type="danger" @click="reject(detail.approval.approval_id)">驳回</el-button></template>
   </el-dialog>
 </template>
