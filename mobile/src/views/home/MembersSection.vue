@@ -16,7 +16,7 @@
 <Chip :selected="memberTab==='mine'" @click="memberTab='mine'">我的会员</Chip>
 <Chip :selected="memberTab==='pool'" @click="memberTab='pool'">公海池</Chip>
 </div>
-<MemberList :members="members" :sales="role === 'SALES' && memberTab==='mine'" @open="openMember" @claim="claim"/>
+<MemberList :members="members" :claimable="role === 'SALES' && memberTab === 'pool' && auth.can('member:follow')" @open="openMember" @claim="refreshMembers"/>
 </section>
 </template>
 <script setup>
@@ -26,5 +26,6 @@ import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import MemberList from '../../components/MemberList.vue'
 import PageTitle from '../../components/PageTitle.vue'
-const { router, auth, role, section, members, keyword, memberTab, visits, memberCreateOpen, visitStats, loadMembers, openMember, claim } = inject(roleHomeKey)
+const { router, auth, role, section, members, keyword, memberTab, visits, memberCreateOpen, visitStats, loadMembers, openMember } = inject(roleHomeKey)
+const refreshMembers = () => loadMembers()
 </script>

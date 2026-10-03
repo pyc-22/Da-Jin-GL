@@ -20,11 +20,16 @@ const detail = ref(null)
 const balanceDialog = ref(false)
 const balanceBusy = ref(false)
 const assignDialog = ref(false)
+const saving = ref(false)
+const assignBusy = ref(false)
+const claimingId = ref(null)
 const balanceForm = reactive({ amount: 0, type: 'RECHARGE', payMethod: 'CASH', clientRequestId: '' })
 const assignForm = reactive({ salesId: null })
 const form = reactive({ name: '', phone: '', tags: '[]', birthday: '', gender: '', source: '管理端', salesId: null })
 const dialogTitle = computed(() => editingId.value ? '编辑会员' : '新增会员')
 const visibleRows = computed(() => tab.value === 'pool' ? pool.value : rows.value)
+const canManageMembers = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role) && auth.can('member:manage'))
+const canAssignMembers = computed(() => canManageMembers.value && auth.can('staff:manage'))
 const rechargeChannels = computed(() => app.paymentChannels.filter(channel => Number(channel.status) === 1 && !['BALANCE', 'COMBINATION'].includes(String(channel.channel_code).toUpperCase())))
 
 function requestParams() {
@@ -41,7 +46,8 @@ async function load() {
   const data = tab.value === 'pool' ? await memberApi.pool(params) : await memberApi.list(params)
   if (tab.value === 'pool') pool.value = data.records || []
   else rows.value = data.records || []
-  sales.value = auth.can('staff:manage') ? (await staffApi.list()).filter(user => [3, 4].includes(Number(user.role_id))) : []
+  const storeId = auth.user?.store_id ?? auth.user?.storeId
+  sales.value = canAssignMembers.value ? (await staffApi.list()).filter(user => String(user.role_code || '').toUpperCase() === 'SALES' && Number(user.status ?? 1) === 1 && (storeId == null || Number(user.store_id) === Number(storeId))) : []
 }
 
 function resetForm() {
@@ -69,13 +75,17 @@ function openEdit(row) {
 }
 
 async function save() {
+  if (saving.value) return
   const name = form.name.trim()
   const phone = form.phone.trim()
   if (!name) return ElMessage.warning('请输入会员姓名')
   if (!/^1[3-9]\d{9}$/.test(phone)) return ElMessage.warning('请输入正确的手机号')
+  const updating = Boolean(editingId.value)
+  if (updating && !canManageMembers.value) return ElMessage.error('当前账号没有会员编辑权限')
+  if (!updating && !auth.can('member:create')) return ElMessage.error('当前账号没有新增会员权限')
+  saving.value = true
   try {
     const payload = { ...form, name, phone, tags: form.tags || '[]', birthday: form.birthday || null }
-    const updating = Boolean(editingId.value)
     if (updating) await memberApi.update(editingId.value, payload)
     else await memberApi.create(payload)
     dialog.value = false
@@ -85,6 +95,8 @@ async function save() {
     editingId.value = null
   } catch (error) {
     ElMessage.error(error?.message || '会员保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -101,6 +113,7 @@ async function show(row) {
 
 async function balance() {
   if (balanceBusy.value) return
+  if (!canManageMembers.value) return ElMessage.error('当前账号没有会员管理权限')
   balanceBusy.value = true
   try {
     await memberApi.balance(detail.value.member_id, balanceForm)
@@ -116,6 +129,9 @@ async function balance() {
 }
 
 async function assign() {
+  if (assignBusy.value) return
+  if (!canAssignMembers.value) return ElMessage.error('当前账号没有会员分配权限')
+  assignBusy.value = true
   try {
     await memberApi.assign(detail.value.member_id, assignForm.salesId)
     assignDialog.value = false
@@ -124,6 +140,23 @@ async function assign() {
     await load()
   } catch (error) {
     ElMessage.error(error?.message || '会员分配失败')
+  } finally {
+    assignBusy.value = false
+  }
+}
+
+async function requestClaim(row) {
+  const memberId = row?.member_id
+  if (auth.role !== 'SALES' || !memberId || claimingId.value === memberId) return
+  claimingId.value = memberId
+  try {
+    const result = await memberApi.claim(memberId)
+    ElMessage.success(result?.approvalRequired ? '认领申请已提交，等待店长或管理员审批' : '认领申请已提交')
+    await load()
+  } catch (error) {
+    ElMessage.error(error?.message || '认领申请提交失败')
+  } finally {
+    claimingId.value = null
   }
 }
 
@@ -209,9 +242,9 @@ watch(() => app.eventVersion, () => {
       <el-table-column prop="points" label="积分" min-width="70" />
       <el-table-column prop="total_consume" label="累计消费" min-width="110"><template #default="scope">{{ formatMoney(scope.row.total_consume) }}</template></el-table-column>
       <el-table-column v-if="tab === 'pool'" label="归属" min-width="140">
-        <template #default="scope"><el-button v-if="auth.can('member:manage') && auth.can('staff:manage')" link type="primary" @click="openAssign(scope.row)">分配</el-button><el-button v-if="auth.can('member:follow')" link @click="memberApi.claim(scope.row.member_id).then(load)">认领</el-button></template>
+        <template #default="scope"><el-button v-if="canAssignMembers" link type="primary" @click="openAssign(scope.row)">分配</el-button><el-button v-if="auth.role === 'SALES' && auth.can('member:follow')" link :loading="claimingId === scope.row.member_id" :disabled="claimingId === scope.row.member_id" @click="requestClaim(scope.row)">申请认领</el-button></template>
       </el-table-column>
-      <el-table-column label="操作" min-width="130"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button v-if="auth.can('member:manage')" link @click="openEdit(scope.row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" min-width="130"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button v-if="canManageMembers" link @click="openEdit(scope.row)">编辑</el-button></template></el-table-column>
     </el-table>
   </section>
 
@@ -223,12 +256,12 @@ watch(() => app.eventVersion, () => {
       <el-form-item label="性别"><el-select v-model="form.gender" placeholder="请选择" clearable style="width:100%"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item>
       <el-form-item label="标签"><el-input v-model="form.tags" placeholder="JSON 标签数组" /></el-form-item>
     </el-form>
-    <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
+    <template #footer><el-button :disabled="saving" @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
   </el-dialog>
 
   <el-drawer v-model="detailVisible" title="会员详情" size="44%">
     <template v-if="detail">
-      <div class="page-toolbar"><strong>{{ detail.name }}</strong><el-button v-if="auth.can('member:manage')" type="primary" size="small" @click="openEdit(detail)">编辑</el-button></div>
+      <div class="page-toolbar"><strong>{{ detail.name }}</strong><el-button v-if="canManageMembers" type="primary" size="small" @click="openEdit(detail)">编辑</el-button></div>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="姓名">{{ detail.name }}</el-descriptions-item>
         <el-descriptions-item label="手机号">{{ detail.phone }}</el-descriptions-item>
@@ -238,7 +271,7 @@ watch(() => app.eventVersion, () => {
         <el-descriptions-item label="积分">{{ detail.points || 0 }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ formatTime(detail.create_time) }}</el-descriptions-item>
       </el-descriptions>
-      <div v-if="auth.can('member:manage')" class="inline-actions balance-actions"><el-button type="primary" @click="openBalance('RECHARGE')">储值充值</el-button><el-button type="warning" @click="openBalance('DEDUCT')">储值扣款</el-button><el-button v-if="auth.can('staff:manage')" @click="openAssign(detail)">分配销售</el-button></div>
+      <div v-if="canManageMembers" class="inline-actions balance-actions"><el-button type="primary" @click="openBalance('RECHARGE')">储值充值</el-button><el-button type="warning" @click="openBalance('DEDUCT')">储值扣款</el-button><el-button v-if="canAssignMembers" @click="openAssign(detail)">分配销售</el-button></div>
       <h4>储值流水</h4>
       <el-table :data="detail.balanceRecords || []" size="small"><el-table-column prop="amount" label="变动金额" /><el-table-column label="时间"><template #default="scope">{{ formatTime(scope.row.consume_time) }}</template></el-table-column></el-table>
       <h4>消费记录</h4>
@@ -253,6 +286,6 @@ watch(() => app.eventVersion, () => {
 
   <el-dialog v-model="assignDialog" title="分配销售" width="380px">
     <el-select v-model="assignForm.salesId" placeholder="选择销售" style="width:100%"><el-option v-for="user in sales" :key="user.user_id" :value="user.user_id" :label="user.real_name || user.username" /></el-select>
-    <template #footer><el-button @click="assignDialog = false">取消</el-button><el-button type="primary" @click="assign">确认分配</el-button></template>
+    <template #footer><el-button :disabled="assignBusy" @click="assignDialog = false">取消</el-button><el-button type="primary" :loading="assignBusy" @click="assign">确认分配</el-button></template>
   </el-dialog>
 </template>
