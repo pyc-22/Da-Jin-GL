@@ -87,6 +87,7 @@ public class StockController {
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
     @RequirePermission("stock:inbound:create")
     public ApiResponse<?> inboundStores(HttpServletRequest request) {
+        // Source stores remain selectable for transfer-in; the target store is checked separately.
         return ApiResponse.ok(db.list("select store_id,store_name,address from sys_store where status=1 order by store_id", Map.of()));
     }
 
@@ -492,7 +493,7 @@ public class StockController {
         String role = "";
         Object claims = request.getAttribute("claims");
         if (claims instanceof io.jsonwebtoken.Claims c) role = String.valueOf(c.get("role"));
-        if (!("ADMIN".equals(role) || "MANAGER".equals(role))) throw new BusinessException(403224, "当前角色只能在所属门店入库");
+        if (!"ADMIN".equals(role)) throw new BusinessException(403224, "当前角色只能在所属门店入库");
         Integer active = db.jdbc().queryForObject("select count(*) from sys_store where store_id=:s and status=1", Map.of("s", requested), Integer.class);
         if (active == null || active == 0) throw new BusinessException(404226, "入库门店不存在或已停用");
         return requested;
@@ -503,7 +504,7 @@ public class StockController {
         if (requested == null || requested == currentStore) return currentStore;
         Object claims = request.getAttribute("claims");
         String role = claims instanceof io.jsonwebtoken.Claims c ? String.valueOf(c.get("role")) : "";
-        if (!("ADMIN".equals(role) || "MANAGER".equals(role))) throw new BusinessException(403225, "当前角色只能查询所属门店货品");
+        if (!"ADMIN".equals(role)) throw new BusinessException(403225, "当前角色只能查询所属门店货品");
         Integer active = db.jdbc().queryForObject("select count(*) from sys_store where store_id=:s and status=1", Map.of("s", requested), Integer.class);
         if (active == null || active == 0) throw new BusinessException(404227, "查询门店不存在或已停用");
         return requested;

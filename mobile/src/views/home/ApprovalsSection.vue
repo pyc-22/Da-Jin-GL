@@ -16,7 +16,7 @@
 <p>{{ formatApprovalReason(item) }}</p>
 <div class="approval-foot">
 <b>{{ Number(item.amount) ? '¥'+money(item.amount) : '—' }}</b>
-<div class="card-actions">
+<div v-if="canHandleApproval(auth,item)" class="card-actions">
 <button class="success" @click.stop="openApprovalDetail(item)">通过</button>
 <button class="danger" @click.stop="openApprovalDetail(item,true)">驳回</button>
 </div>
@@ -45,5 +45,6 @@ import Chip from '../../components/Chip.vue'
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import PageTitle from '../../components/PageTitle.vue'
-const { formatApprovalReason, section, approvals, approvalFilter, approvalTabs, approvalView, approvalHistoryData, typeName, filteredApprovals, money, openApprovalHistory, openApprovalDetail } = inject(roleHomeKey)
+import { canHandleApproval } from '../../utils/approvalPermissions'
+const { auth, formatApprovalReason, section, approvals, approvalFilter, approvalTabs, approvalView, approvalHistoryData, typeName, filteredApprovals, money, openApprovalHistory, openApprovalDetail } = inject(roleHomeKey)
 </script>

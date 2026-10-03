@@ -50,7 +50,7 @@ async function saveNewSupplier() {
 const types = [{ value: 'purchase', label: '采购入库' }, { value: 'transfer', label: '调拨入库' }, { value: 'return', label: '退货入库' }, { value: 'profit', label: '盘盈入库' }]
 const currentStoreId = Number(auth.user?.store_id || auth.user?.storeId || 1)
 const form = reactive({ inboundType: 'purchase', sourceId: '', storeId: currentStoreId, remark: '' })
-const canSwitchStore = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
+const canSwitchStore = computed(() => auth.role === 'ADMIN')
 const inboundStores = computed(() => canSwitchStore.value ? stores.value : stores.value.filter(store => Number(store.store_id) === currentStoreId))
 const transferStores = computed(() => stores.value.filter(store => Number(store.store_id) !== Number(form.storeId)))
 async function loadSuppliers() { try { const rows = await api.inboundSuppliers(form.storeId); suppliers.value = Array.isArray(rows) ? rows : rows?.records || [] } catch { suppliers.value = []; error.value = '供应商列表加载失败，请检查网络连接' } }

@@ -93,15 +93,20 @@ public class ApprovalController {
         String decisionRemark = q == null || q.get("remark") == null ? "" : String.valueOf(q.get("remark")).trim();
         if (status == 4 && decisionRemark.isBlank()) throw new BusinessException(400211, "驳回原因不能为空");
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("st", status).addValue("id", id).addValue("s", db.store(r)).addValue("remark", q == null ? null : q.get("remark")).addValue("uid", userId(r));
-        int changed = db.jdbc().update("update approval set status=:st,approver_id=:uid,approve_remark=:remark,approve_time=now() where approval_id=:id and store_id=:s and status=1", p);
-        if (changed == 0) throw new BusinessException(409001, "审批单状态已变化");
-        Map<String,Object> approval = db.one("select approval_id,type,biz_id,reason from approval where approval_id=:id and store_id=:s", p);
+        Map<String,Object> approval;
+        try {
+            approval = db.one("select approval_id,type,biz_id,reason from approval where approval_id=:id and store_id=:s for update", p);
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw new BusinessException(409001, "审批单状态已变化");
+        }
         String type = String.valueOf(approval.get("type"));
         if ("STOCK_CHECK".equals(type)) {
             Object permissions = r.getAttribute("permissions");
-            if (!(permissions instanceof java.util.Set<?> set) || !set.contains("stock:check:approve"))
+            if (!(permissions instanceof java.util.Set<?> set) || !(set.contains("*") || set.contains("stock:check:approve")))
                 throw new BusinessException(403213, "处理盘点审批需要审批盘点权限");
         }
+        int changed = db.jdbc().update("update approval set status=:st,approver_id=:uid,approve_remark=:remark,approve_time=now() where approval_id=:id and store_id=:s and status=1", p);
+        if (changed == 0) throw new BusinessException(409001, "审批单状态已变化");
         long bizId = ((Number) approval.get("biz_id")).longValue();
 
         if ("DISCOUNT".equals(type)) {
