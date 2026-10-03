@@ -29,7 +29,7 @@ import static org.mockito.Mockito.mock;
 
 @EnabledIfEnvironmentVariable(named = "DAJIN_TEST_MYSQL", matches = "true")
 class RepairMysqlTests {
-    static DriverManagerDataSource source;
+    static com.zaxxer.hikari.HikariDataSource source;
     static JdbcTemplate jdbc;
     DbSupport db;
     OrderController orders;
@@ -41,7 +41,11 @@ class RepairMysqlTests {
 
     @BeforeAll static void schema() throws Exception {
         ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("ROOT")).setLevel(ch.qos.logback.classic.Level.WARN);
-        source = new DriverManagerDataSource("jdbc:mysql://127.0.0.1:13306/dajin_repair_test?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai", "root", "");
+        source = new com.zaxxer.hikari.HikariDataSource();
+        source.setJdbcUrl("jdbc:mysql://127.0.0.1:13306/dajin_repair_test?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai");
+        source.setUsername("root");
+        source.setPassword("");
+        source.setMaximumPoolSize(4);
         jdbc = new JdbcTemplate(source);
         assertEquals("dajin_repair_test", jdbc.queryForObject("select database()", String.class));
         for (String line : Files.readAllLines(Path.of("../db/schema.sql")))
@@ -51,11 +55,15 @@ class RepairMysqlTests {
         migration.run();
     }
 
+    @AfterAll static void closeDatabase() { if (source != null) source.close(); }
+
     @BeforeEach void setup() {
         for (String table : jdbc.queryForList("show tables", String.class)) jdbc.execute("delete from `" + table + "`");
         jdbc.update("insert into sys_store(store_id,store_name) values(1,'Test store')");
         jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code) values(1,1,'Admin','ADMIN')");
         jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(1,1,'test','test','Test',1)");
+        jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code) values(7,1,'Sales','SALES')");
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(7,1,'sales','test','Sales',7)");
         jdbc.update("insert into sys_config(store_id,config_key,config_value) values(1,'discount_threshold','0.8'),(1,'default_commission_rate','0.01'),(1,'current_shift_no','SHIFT-TEST')");
         jdbc.update("insert into pay_channel(store_id,channel_name,channel_code) values(1,'Cash','CASH'),(1,'Stored value','BALANCE')");
         jdbc.update("insert into goods_category(category_id,store_id,name,category_code,level) values(1,1,'Items','ITEMS',2)");
@@ -72,6 +80,7 @@ class RepairMysqlTests {
         request = new MockHttpServletRequest();
         request.setAttribute("storeId", 1L);
         request.setAttribute("claims", Jwts.claims(Map.of("role", "ADMIN", "storeId", 1L)).setSubject("1"));
+        request.setAttribute("permissions", Set.of("*"));
     }
 
     @SuppressWarnings("unchecked") <T> T transactional(T target) {
@@ -82,7 +91,7 @@ class RepairMysqlTests {
     }
 
     OrderController.Req sale(String key) {
-        return new OrderController.Req(1L, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, 1L, "",
+        return new OrderController.Req(1L, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, 7L, "",
                 List.of(new OrderController.Item(1L, "Item", null, new BigDecimal("100"), BigDecimal.ZERO, 1, new BigDecimal("100"), List.of())), List.of(), key, null, false);
     }
     long create(String key) { return ((Number)((Map<?,?>)orders.create(sale(key), request).data()).get("orderId")).longValue(); }
@@ -95,26 +104,86 @@ class RepairMysqlTests {
     BigDecimal balance() { return jdbc.queryForObject("select balance from member where member_id=1", BigDecimal.class); }
     int inventory() { return jdbc.queryForObject("select stock from goods where goods_id=1", Integer.class); }
 
-    @Test void partialPaymentThenRemainingPaymentSettlesExactlyOnce() {
+    @Test void managerReportingMigrationAppliesDefaultsOnceAndPreservesLaterEdits() throws Exception {
+        jdbc.update("insert into sys_role(role_id,store_id,role_name,role_code,permissions,permission_initialized) values(2,1,'Manager','MANAGER','[\"*\"]',1)");
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id,permission_initialized,permission_customized) values(2,1,'manager','test','Manager',2,1,1)");
+        jdbc.update("insert into sys_role_permission(store_id,role_code,permission_code) values(1,'MANAGER','*'),(1,'ADMIN','*')");
+        jdbc.update("insert into sys_user_permission(store_id,user_id,permission_code) values(1,2,'*')");
+        var migration = transactional(new com.dajin.system.config.ReportingPermissionMigration(jdbc));
+        migration.run();
+        var permissions = new com.dajin.system.config.PermissionService(db.jdbc());
+        Set<String> manager = permissions.userPermissions(2L, 1L, "MANAGER");
+        assertFalse(manager.contains("*"));
+        assertFalse(manager.contains("report:store-performance"));
+        assertFalse(manager.contains("report:monthly"));
+        assertTrue(manager.containsAll(Set.of("report:daily","report:commission","report:processing","report:recycle")));
+        assertTrue(permissions.permissions(1L,"ADMIN").contains("*"));
+        jdbc.update("delete from sys_role_permission where store_id=1 and role_code='MANAGER' and permission_code='report:recycle'");
+        jdbc.update("insert into sys_role_permission(store_id,role_code,permission_code) values(1,'MANAGER','report:store-performance')");
+        new com.dajin.system.config.SchemaCompatibilityMigration(jdbc).run();
+        migration.run();
+        Set<String> later = permissions.permissions(1L,"MANAGER");
+        assertFalse(later.contains("report:recycle"));
+        assertTrue(later.contains("report:store-performance"));
+        assertFalse(later.contains("report:monthly"));
+    }
+
+    @Test void approvalPaymentDoesNotChangeRecycleSalesOwnership() {
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(2,1,'sales-a','test','Sales A',7),(3,1,'sales-b','test','Sales B',7)");
+        jdbc.update("insert into sys_config(store_id,config_key,config_value) values(1,'recycle_approval_limit','1')");
+        var recycle = transactional(new RecycleController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
+        request.setAttribute("claims",Jwts.claims(Map.of("role","SALES","storeId",1L)).setSubject("2"));
+        Map<?,?> created = (Map<?,?>) recycle.create(Map.of("weight",1,"purity",1,"recyclePrice",580,"payMethod","CASH"),request).data();
+        long id = ((Number)created.get("recycleOrderId")).longValue();
+        request.setAttribute("claims",Jwts.claims(Map.of("role","ADMIN","storeId",1L)).setSubject("1"));
+        request.setAttribute("permissions",Set.of("*"));
+        approvals.approve(((Number)created.get("approvalId")).longValue(),Map.of(),request);
+        assertEquals(2L,jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=?",Long.class,id));
+        assertEquals(1L,jdbc.queryForObject("select operator_id from finance_record where category='RECYCLE'",Long.class));
+        request.setAttribute("claims",Jwts.claims(Map.of("role","SALES","storeId",1L)).setSubject("2"));
+        assertEquals(1,((List<?>)recycle.list(request).data()).size());
+        var report = new com.dajin.system.report.ReportController(db);
+        assertEquals(new BigDecimal("580.00"),((Map<?,?>)report.recycle(null,null,request).data()).get("amount"));
+        request.setAttribute("claims",Jwts.claims(Map.of("role","SALES","storeId",1L)).setSubject("3"));
+        assertTrue(((List<?>)recycle.list(request).data()).isEmpty());
+        assertEquals(BigDecimal.ZERO.setScale(2),((Map<?,?>)report.recycle(null,null,request).data()).get("amount"));
+    }
+
+    @Test void historicalRecycleCreatorBackfillIsConservativeAndIdempotent() {
+        for(int id=100;id<=105;id++)jdbc.update("insert into recycle_order(recycle_order_id,store_id,bill_no,weight,purity,created_by) values(?,1,?,1,1,?)",id,"HS-"+id,id==104?99L:null);
+        jdbc.update("insert into approval(store_id,type,biz_id,applicant_id,status) values(1,'RECYCLE',100,2,3),(1,'RECYCLE',102,2,3),(2,'RECYCLE',105,2,3)");
+        jdbc.update("insert into operation_log(store_id,user_id,module,action,content) values(1,3,'RECYCLE','CREATE','HS-101'),(1,3,'RECYCLE','CREATE','HS-102')");
+        jdbc.update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id) values(1,'EXPENSE','RECYCLE',1,'CASH','HS-103',2)");
+        var migration = new com.dajin.system.config.SchemaCompatibilityMigration(jdbc);
+        migration.run();
+        migration.run();
+        assertEquals(2L,jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=100",Long.class));
+        assertEquals(3L,jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=101",Long.class));
+        assertNull(jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=102",Long.class));
+        assertNull(jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=103",Long.class));
+        assertEquals(99L,jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=104",Long.class));
+        assertNull(jdbc.queryForObject("select created_by from recycle_order where recycle_order_id=105",Long.class));
+    }
+
+    @Test void partialPaymentIsRejectedWithoutMutatingOrderOrInventory() {
         long id = create("partial-sale");
-        Map<?,?> first = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "partial-40", "amount", 40,
-                "settlementMode", "PARTIAL", "payMethod", "CASH"), request).data();
-        assertEquals(0, first.get("status"));
-        assertEquals(new BigDecimal("40.00"), first.get("actualPaid"));
-        assertEquals(new BigDecimal("60.00"), first.get("remaining"));
+        BusinessException error = assertThrows(BusinessException.class, () -> payments.pay(Map.of(
+                "orderId", id, "clientRequestId", "partial-40", "amount", 40,
+                "settlementMode", "PARTIAL", "payMethod", "CASH"), request));
+        assertEquals(400102, error.getCode());
+        assertEquals(0, jdbc.queryForObject("select status from sales_order where order_id=?", Integer.class, id));
+        assertEquals(new BigDecimal("0.00"), jdbc.queryForObject("select pay_amount from sales_order where order_id=?", BigDecimal.class, id));
         assertEquals(1, inventory());
         assertEquals(0, jdbc.queryForObject("select count(*) from stock_out where type='SALE'", Integer.class));
-        Map<?,?> replay = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "partial-40", "amount", 40,
-                "settlementMode", "PARTIAL", "payMethod", "CASH"), request).data();
-        assertEquals(true, replay.get("idempotentReplay"));
-        assertEquals(new BigDecimal("40.00"), replay.get("actualPaid"));
-        assertEquals(1, jdbc.queryForObject("select count(*) from finance_record where category='SALE'", Integer.class));
-        Map<?,?> last = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "remaining-60", "amount", 60,
+        assertEquals(0, jdbc.queryForObject("select count(*) from finance_record where category='SALE'", Integer.class));
+        assertEquals(0, jdbc.queryForObject("select count(*) from operation_log where module='PAY'", Integer.class));
+        Map<?,?> last = (Map<?,?>) payments.pay(Map.of("orderId", id, "clientRequestId", "full-100", "amount", 100,
                 "settlementMode", "FULL", "payMethod", "CASH"), request).data();
         assertEquals(1, last.get("status"));
         assertEquals(new BigDecimal("100.00"), last.get("actualPaid"));
-        assertEquals(new BigDecimal("0.00"), last.get("remaining"));
+        assertEquals(0, ((BigDecimal)last.get("remaining")).signum());
         assertEquals(0, inventory());
+        assertEquals(1, jdbc.queryForObject("select count(*) from finance_record where category='SALE'", Integer.class));
         assertEquals(new BigDecimal("100.00"), jdbc.queryForObject("select sum(amount) from finance_record where category='SALE'", BigDecimal.class));
     }
 
@@ -140,8 +209,10 @@ class RepairMysqlTests {
     @Test void paidPendingOrderNeedsRefundApprovalWithoutRestockingUnshippedGoods() {
         jdbc.update("insert into goods_piece(store_id,goods_id,piece_no) values(1,1,'PIECE1')");
         long id = create("partial-refund");
-        payments.pay(Map.of("orderId", id, "clientRequestId", "refund-pay-40", "amount", 40,
-                "settlementMode", "PARTIAL", "payMethod", "CASH"), request);
+        // Legacy paid-pending orders remain refundable; new partial settlements are rejected.
+        jdbc.update("update sales_order set pay_amount=40,pay_method='CASH' where order_id=?", id);
+        jdbc.update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id) "
+                + "select store_id,'INCOME','SALE',40,'CASH',order_no,1 from sales_order where order_id=?", id);
         BusinessException error = assertThrows(BusinessException.class, () -> orders.cancel(id, Map.of(), request));
         assertEquals(409110, error.getCode());
         assertEquals(1, inventory());
@@ -201,7 +272,7 @@ class RepairMysqlTests {
 
     @Test void unsupportedDeductionCannotReduceAmountWithoutMaterial() {
         var q = sale("unbacked");
-        var invalid = new OrderController.Req(q.memberId(), q.discount(), new BigDecimal("1000"), q.laborFee(), null,null,null,1L,"",q.items(),List.of(),q.clientRequestId(),null,false);
+        var invalid = new OrderController.Req(q.memberId(), q.discount(), new BigDecimal("1000"), q.laborFee(), null,null,null,q.salesId(),"",q.items(),List.of(),q.clientRequestId(),null,false);
         assertThrows(BusinessException.class, () -> orders.create(invalid, request));
         assertEquals(0, jdbc.queryForObject("select count(*) from sales_order", Integer.class));
     }
@@ -247,6 +318,64 @@ class RepairMysqlTests {
         assertEquals(new BigDecimal("1.00"),jdbc.queryForObject("select sum(commission_amount) from commission_record",BigDecimal.class));
         refund(id);
         assertEquals(new BigDecimal("0.00"),jdbc.queryForObject("select coalesce(sum(commission_amount),0) from commission_record",BigDecimal.class).setScale(2));
+    }
+
+    @Test void commissionSnapshotSurvivesRuleAndFixedRateChangesIncludingZero() {
+        long id = create("snapshot-sale");
+        pay(id, "snapshot-pay");
+        jdbc.update("insert into commission_rule(store_id,type,rate,`condition`) values(1,'SALE',0.5,'{\"category\":1}')");
+        jdbc.update("update sys_config set config_value='0.3' where config_key='default_commission_rate'");
+        var ledger = new com.dajin.system.commission.CommissionLedger(db);
+        String month = java.time.LocalDate.now().toString().substring(0, 7);
+        ledger.rebuild(1, month);
+        assertEquals(new BigDecimal("1.00"), jdbc.queryForObject("select commission_amount from commission_record", BigDecimal.class));
+        jdbc.update("update sales_order set commission_rate_snapshot=0 where order_id=?", id);
+        ledger.rebuild(1, month);
+        assertEquals(new BigDecimal("0.00"), jdbc.queryForObject("select commission_amount from commission_record", BigDecimal.class));
+        var report = new com.dajin.system.report.ReportController(db);
+        Map<?,?> record = (Map<?,?>)((List<?>)report.commission(month, request).data()).get(0);
+        assertEquals(0, ((BigDecimal)record.get("commission_amount")).signum());
+    }
+
+    @Test void historicalCategoryCommissionRuleUsesOrderGoodsWithoutDuplicatingPayment() {
+        long id = create("historical-rule-sale");
+        pay(id, "historical-rule-pay");
+        jdbc.update("update sales_order set commission_rate_snapshot=null where order_id=?", id);
+        jdbc.update("insert into commission_rule(store_id,type,rate,`condition`) values(1,'SALE',0.7,'{\"category\":999}'),(1,'SALE',0.05,'{\"category\":1,\"minAmount\":50,\"maxAmount\":200}')");
+        new com.dajin.system.commission.CommissionLedger(db).rebuildForOrder(1, id);
+        assertEquals(new BigDecimal("5.00"), jdbc.queryForObject("select commission_amount from commission_record", BigDecimal.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from finance_record where category='SALE'", Integer.class));
+    }
+
+    @Test void salesReportQueriesStayPersonalEvenWithForgedEmployeeAndAllPermissions() {
+        long own = create("own-sales-report");
+        pay(own, "own-sales-pay");
+        jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(8,1,'other-sales','test','Other sales',7)");
+        jdbc.update("update goods set stock=1 where goods_id=1");
+        var q = sale("other-sales-report");
+        var other = new OrderController.Req(q.memberId(), q.discount(), q.oldMaterialDeduct(), q.laborFee(),
+                q.payAmount(), q.payMethod(), q.oldMaterialPayoutMethod(), 8L, q.remark(), q.items(), q.oldMaterials(), q.clientRequestId(), q.version(), q.handover());
+        long otherId = ((Number)((Map<?,?>)orders.create(other, request).data()).get("orderId")).longValue();
+        pay(otherId, "other-sales-pay");
+        request.setAttribute("claims", Jwts.claims(Map.of("role", "SALES", "storeId", 1L)).setSubject("7"));
+        request.setAttribute("permissions", Set.of("*", "report:view:all"));
+        var controller = new com.dajin.system.report.ReportController(db);
+        Map<?,?> performance = (Map<?,?>)controller.performance(8L, null, request).data();
+        assertEquals(new BigDecimal("100.00"), performance.get("amount"));
+        assertEquals(new BigDecimal("1.00"), performance.get("commission"));
+        Map<?,?> overview = (Map<?,?>)controller.overview("month", null, null, 8L, null, request).data();
+        assertEquals("PERSONAL", overview.get("scope"));
+        assertEquals(new BigDecimal("100.00"), ((Map<?,?>)overview.get("summary")).get("sales_amount"));
+        List<?> rows = (List<?>)((Map<?,?>)controller.sales("month", null, null, 8L, null, 1, 20, request).data()).get("records");
+        assertEquals(1, rows.size());
+        assertEquals(own, ((Number)((Map<?,?>)rows.get(0)).get("order_id")).longValue());
+        List<?> employees = (List<?>)((Map<?,?>)controller.employee("month", null, null, 8L, request).data()).get("employees");
+        assertEquals(1, employees.size());
+        assertEquals(7L, ((Number)((Map<?,?>)employees.get(0)).get("user_id")).longValue());
+        List<?> commissions = (List<?>)controller.commission(null, request).data();
+        assertEquals(1, commissions.size());
+        assertEquals(7L, ((Number)((Map<?,?>)commissions.get(0)).get("user_id")).longValue());
+        assertEquals(new BigDecimal("100.00"), ((Map<?,?>)controller.daily(null, request).data()).get("amount"));
     }
 
     @Test void gramProcessingUsesBillingWeight() {
@@ -403,7 +532,7 @@ class RepairMysqlTests {
         jdbc.update("insert into gold_price(store_id,price_type,price,date) values(1,'回收金价',100,curdate())");
         var q=sale("material-refund");
         var item=new OrderController.OldMaterialItem("足金999",BigDecimal.ONE,BigDecimal.ONE,"回收金价",new BigDecimal("100"),"");
-        var body=new OrderController.Req(q.memberId(),q.discount(),BigDecimal.ZERO,q.laborFee(),null,null,null,1L,"",q.items(),List.of(item),q.clientRequestId(),null,false);
+        var body=new OrderController.Req(q.memberId(),q.discount(),BigDecimal.ZERO,q.laborFee(),null,null,null,q.salesId(),"",q.items(),List.of(item),q.clientRequestId(),null,false);
         long id=((Number)((Map<?,?>)orders.create(body,request).data()).get("orderId")).longValue();
         payments.pay(Map.of("orderId",id,"clientRequestId","material-pay","amount",0),request);
         refund(id);
@@ -465,7 +594,7 @@ class RepairMysqlTests {
         Path executable=Path.of("../.build-cache/mysql-test-runtime/mysql-8.4.0-winx64/bin/mysqldump.exe").toAbsolutePath().normalize();
         assertTrue(Files.isRegularFile(executable));
         var env=new org.springframework.mock.env.MockEnvironment()
-                .withProperty("spring.datasource.url",source.getUrl())
+                .withProperty("spring.datasource.url",source.getJdbcUrl())
                 .withProperty("spring.datasource.username","root")
                 .withProperty("BACKUP_DIRECTORY",directory.toString())
                 .withProperty("BACKUP_MYSQLDUMP",executable.toString());
@@ -485,7 +614,7 @@ class RepairMysqlTests {
         jdbc.update("insert into gold_price(store_id,price_type,price,date) values(1,'回收金价',100,curdate())");
         var q=sale("excess-refund");
         var old=new OrderController.OldMaterialItem("足金999",new BigDecimal("2"),BigDecimal.ONE,"回收金价",new BigDecimal("100"),"");
-        var body=new OrderController.Req(q.memberId(),q.discount(),BigDecimal.ZERO,q.laborFee(),null,null,"CASH",1L,"",q.items(),List.of(old),q.clientRequestId(),null,false);
+        var body=new OrderController.Req(q.memberId(),q.discount(),BigDecimal.ZERO,q.laborFee(),null,null,"CASH",q.salesId(),"",q.items(),List.of(old),q.clientRequestId(),null,false);
         long id=((Number)((Map<?,?>)orders.create(body,request).data()).get("orderId")).longValue();
         payments.pay(Map.of("orderId",id,"clientRequestId","excess-pay","amount",0),request);
         assertThrows(BusinessException.class,()->refund(id));

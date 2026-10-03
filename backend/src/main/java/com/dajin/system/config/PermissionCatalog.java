@@ -22,7 +22,10 @@ public final class PermissionCatalog {
             group("processing", "加工管理", item("processing:view", "查看加工订单与看板"), item("processing:manage", "处理加工订单与收款"),
                     item("processing:items", "维护加工项目"), item("processing:commissions", "查看与发放加工提成"), item("processing:loss", "查看与设置损耗考核")),
             group("recycle", "回收以旧换新", item("recycle:view", "查看及处理回收业务")),
-            group("report", "报表", item("report:view", "查看业绩报表"), item("report:view:all", "查看全店报表"), item("commission:manage", "设置与重算销售提成")),
+            group("report", "报表", item("report:view", "查看业绩报表"), item("report:view:all", "查看全店报表"),
+                    item("report:store-performance", "本门店业绩"), item("report:monthly", "月报"), item("report:commission", "提成统计"),
+                    item("report:daily", "经营日报"), item("report:processing", "加工统计"), item("report:recycle", "回收统计"),
+                    item("commission:manage", "设置与重算销售提成")),
             group("staff", "人员管理", item("staff:manage", "员工与角色管理")),
             group("shift", "交班结算", item("shift:confirm", "交班结算")),
             group("notification", "消息通知", item("notification:view", "查看消息")),
@@ -31,7 +34,7 @@ public final class PermissionCatalog {
 
     private static final Map<String, Set<String>> DEFAULTS = Map.of(
             "ADMIN", Set.of("*"),
-            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:view:all", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
+            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:commission", "report:daily", "report:processing", "report:recycle", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
             "SALES", Set.of("dashboard:view", "goods:search", "stock:inbound:create", "stock:check:view", "stock:check:create", "stock:check:submit", "member:view", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "notification:view", "gold:view"),
             "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "processing:view", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view", "gold:view"),
             "CRAFTSMAN", Set.of("processing:view")
@@ -70,6 +73,7 @@ public final class PermissionCatalog {
         if (result.contains("processing:items") || result.contains("processing:commissions") || result.contains("processing:loss")) result.add("processing:view");
         if (result.contains("commission:manage")) result.add("report:view:all");
         if (result.contains("report:view:all")) result.add("report:view");
+        if (result.stream().anyMatch(code -> code.startsWith("report:"))) result.add("report:view");
         return result;
     }
 

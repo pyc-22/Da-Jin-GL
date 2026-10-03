@@ -20,7 +20,7 @@ public class CommissionController {
     public CommissionController(DbSupport db,SyncWebSocketHandler ws) { this.db=db; this.ws=ws; }
 
     @GetMapping("/settings")
-    @RequirePermission("report:view:all")
+    @RequirePermission(value = {"report:commission", "commission:manage"}, anyOf = true)
     public ApiResponse<?> settings(HttpServletRequest request) {
         long store = db.store(request);
         Map<String, Object> result = new LinkedHashMap<>();

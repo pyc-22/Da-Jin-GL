@@ -107,6 +107,9 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("recycle_order", "gold_quote_time", "VARCHAR(32) NULL AFTER gold_recycle_price_snapshot");
         addColumn("recycle_order", "gold_quote_source", "VARCHAR(20) NULL AFTER gold_quote_time");
         addColumn("recycle_order", "gold_market_status", "VARCHAR(16) NULL AFTER gold_quote_source");
+        addColumn("recycle_order", "created_by", "BIGINT NULL AFTER bill_no");
+        addIndex("recycle_order", "idx_recycle_creator_time", "store_id,created_by,create_time");
+        migrateRecycleCreators();
         addIndex("processing_order", "idx_processing_order_sales", "store_id,sales_id,status");
         replaceProcessingCommissionUniqueIndex();
         addIndex("processing_order", "uk_processing_voucher", "store_id,promotion_channel,voucher_no", true);
@@ -151,6 +154,21 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','gold_market_freeze_threshold','0.05','行情异常冻结阈值（5%）',7,1 from sys_store");
         createGoldPricingTables();
         migrateGoldDefinitions();
+    }
+
+    // Payment operators may be approvers. Only unambiguous creation evidence establishes ownership.
+    void migrateRecycleCreators() {
+        jdbc.update("update recycle_order ro left join ("
+                + "select store_id,biz_id,min(applicant_id) creator from approval "
+                + "where type='RECYCLE' and applicant_id>0 group by store_id,biz_id having count(distinct applicant_id)=1"
+                + ") a on a.store_id=ro.store_id and a.biz_id=ro.recycle_order_id left join ("
+                + "select store_id,content,min(user_id) creator from operation_log "
+                + "where module='RECYCLE' and action='CREATE' and user_id>0 "
+                + "group by store_id,content having count(distinct user_id)=1"
+                + ") l on l.store_id=ro.store_id and l.content=ro.bill_no "
+                + "set ro.created_by=coalesce(a.creator,l.creator) where ro.created_by is null "
+                + "and (a.creator is not null or l.creator is not null) "
+                + "and (a.creator is null or l.creator is null or a.creator=l.creator)");
     }
 
     private void createGoldPricingTables() {

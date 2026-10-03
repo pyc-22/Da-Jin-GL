@@ -45,36 +45,44 @@ public class AdminController {
     @GetMapping("/dashboard") @RequirePermission("dashboard:view")
     public ApiResponse<?> dashboard(HttpServletRequest r) {
         MapSqlParameterSource p = p(r);
-        Map<String, Object> kpi = db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=curdate() and oi.status=1),0) weight from sales_order o where o.store_id=:s and date(o.create_time)=curdate() and o.status=1", p);
-        Number dayGross = db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and date(o.create_time)=curdate() and o.status=1", p, Number.class);
+        boolean salesVisible = dashboardSalesVisible(r);
+        Map<String, Object> kpi = salesVisible ? db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=curdate() and oi.status=1),0) weight from sales_order o where o.store_id=:s and date(o.create_time)=curdate() and o.status=1", p) : Map.of();
+        Number dayGross = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and date(o.create_time)=curdate() and o.status=1", p, Number.class) : 0;
         // 营业额口径与交班合计一致：商品销售 + 加工费收入（毛利/毛利率仍按商品销售算）
-        Number processingToday = db.jdbc().queryForObject("select coalesce(sum(amount),0) from finance_record where store_id=:s and type='INCOME' and category='PROCESSING_FEE' and date(create_time)=curdate()", p, Number.class);
+        Number processingToday = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(amount),0) from finance_record where store_id=:s and type='INCOME' and category='PROCESSING_FEE' and date(create_time)=curdate()", p, Number.class) : 0;
         Number revenue = (Number) kpi.getOrDefault("revenue", 0);
         BigDecimal turnover = new BigDecimal(String.valueOf(revenue)).add(new BigDecimal(String.valueOf(processingToday)));
         Number gross = dayGross == null ? 0 : dayGross;
         Map<String,Object> result = new LinkedHashMap<>();
-        result.put("revenue", turnover); result.put("salesRevenue", revenue); result.put("processingRevenue", processingToday); result.put("orderCount", kpi.get("order_count")); result.put("weight", kpi.get("weight"));
-        result.put("grossMargin", revenue.doubleValue() == 0 ? 0 : gross.doubleValue() / revenue.doubleValue());
+        if (salesVisible) { result.put("revenue", turnover); result.put("salesRevenue", revenue); result.put("processingRevenue", processingToday); result.put("orderCount", kpi.get("order_count")); result.put("weight", kpi.get("weight")); result.put("grossMargin", revenue.doubleValue() == 0 ? 0 : gross.doubleValue() / revenue.doubleValue()); }
         result.put("pendingApproval", db.jdbc().queryForObject("select count(*) from approval where store_id=:s and status=1", p, Integer.class));
         result.put("stockWarnings", db.jdbc().queryForObject("select count(*) from goods where store_id=:s and stock<=5", p, Integer.class));
         Map<String, BigDecimal> processingByDay = new LinkedHashMap<>();
-        for (Map<String,Object> row : db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and f.create_time>=date_sub(curdate(),interval 6 day) group by date(f.create_time)", p)) {
+        for (Map<String,Object> row : salesVisible ? db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and f.create_time>=date_sub(curdate(),interval 6 day) group by date(f.create_time)", p) : List.<Map<String,Object>>of()) {
             processingByDay.put(String.valueOf(row.get("day")), new BigDecimal(String.valueOf(row.get("amount"))));
         }
         List<Map<String,Object>> trend = new ArrayList<>();
-        for (Map<String,Object> row : db.list("select date(o.create_time) day,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o where o.store_id=:s and o.status=1 and o.create_time>=date_sub(curdate(),interval 6 day) group by date(o.create_time)", p)) {
+        for (Map<String,Object> row : salesVisible ? db.list("select date(o.create_time) day,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o where o.store_id=:s and o.status=1 and o.create_time>=date_sub(curdate(),interval 6 day) group by date(o.create_time)", p) : List.<Map<String,Object>>of()) {
             String day = String.valueOf(row.get("day"));
             BigDecimal merged = new BigDecimal(String.valueOf(row.get("amount"))).add(processingByDay.getOrDefault(day, BigDecimal.ZERO));
+            row.put("sales_amount", row.get("amount"));
+            row.put("processing_amount", processingByDay.getOrDefault(day, BigDecimal.ZERO));
             row.put("amount", merged);
             trend.add(row); processingByDay.remove(day);
         }
         for (Map.Entry<String, BigDecimal> extra : processingByDay.entrySet()) {
-            trend.add(new LinkedHashMap<>(Map.of("day", extra.getKey(), "amount", extra.getValue(), "order_count", 0)));
+            trend.add(new LinkedHashMap<>(Map.of("day", extra.getKey(), "amount", extra.getValue(), "sales_amount", BigDecimal.ZERO, "processing_amount", extra.getValue(), "order_count", 0)));
         }
         trend.sort(Comparator.comparing(a -> String.valueOf(((Map<?,?>) a).get("day"))));
-        result.put("trend", trend);
-        result.put("ranking", db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and date(o.create_time)>=date_sub(curdate(),interval 6 day) group by o.sales_id,u.real_name order by amount desc limit 10", p));
-        return ApiResponse.ok(result);
+        if (salesVisible) { result.put("trend", trend); result.put("ranking", db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and date(o.create_time)>=date_sub(curdate(),interval 6 day) group by o.sales_id,u.real_name order by amount desc limit 10", p)); }
+        return ApiResponse.ok(com.dajin.system.config.ReportAccess.filter(r, result));
+    }
+
+    private boolean dashboardSalesVisible(HttpServletRequest request) {
+        Object claims = request.getAttribute("claims");
+        if (!(claims instanceof io.jsonwebtoken.Claims c) || !"MANAGER".equalsIgnoreCase(String.valueOf(c.get("role")))) return true;
+        Object raw = request.getAttribute("permissions");
+        return raw instanceof Set<?> granted && (granted.contains("*") || granted.contains("report:store-performance"));
     }
 
     @GetMapping("/categories") @RequirePermission("goods:search")

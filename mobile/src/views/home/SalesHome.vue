@@ -1,6 +1,6 @@
 <template>
   <section class="page home-page">
-    <Panel dark class="performance-card" title="本月业绩与提成">
+    <Panel v-if="auth.can('report:view')" dark class="performance-card" title="本月业绩与提成">
       <template #actions><small>{{ monthLabel }}</small></template>
       <div class="performance-amounts"><div><small>本月销售</small><b class="money">¥{{ money(performance.amount) }}</b></div><div><small>本月提成</small><b class="money accent">¥{{ money(performance.commission) }}</b></div></div>
       <div class="target-track" role="progressbar" aria-label="本月目标完成度" :aria-valuenow="Math.min(100, performance.progress || 0)" aria-valuemin="0" aria-valuemax="100"><i :style="{width: Math.min(100, performance.progress || 0) + '%'}" /></div>
@@ -18,7 +18,7 @@
       <button v-if="auth.can('member:view')" class="home-task" @click="router.push('/sales/birthday')"><span class="entry-symbol">生</span><span><b>生日提醒</b><small>查看会员生日并安排回访</small></span><span>›</span></button>
     </Panel>
     <Panel title="常用功能"><div class="function-grid home-functions"><button v-for="item in salesFunctions" :key="item.key" v-permission="item.permission" class="function-entry" @click="openFunction(item)"><b>{{ SALES_FUNCTION_ICONS[item.key] || '▣' }}</b><span>{{ item.label }}</span></button></div></Panel>
-    <Panel v-if="trendValues.length" title="近期趋势"><TrendBars :values="trendValues" :labels="salesTrendLabels" /></Panel>
+    <Panel v-if="auth.can('report:view') && trendValues.length" title="近期趋势"><TrendBars :values="trendValues" :labels="salesTrendLabels" /></Panel>
   </section>
 </template>
 <script setup>

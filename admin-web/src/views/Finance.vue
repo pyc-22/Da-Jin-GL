@@ -1,11 +1,16 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import { financeApi } from '../api/modules'
 import { financeBusinessType, formatFinanceBusiness, formatFinanceType, formatMoney, formatPaymentMethod, formatShiftContent, formatTime } from '../utils/format'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
+import { ElMessage } from 'element-plus'
 
-const period = ref('daily')
+const auth = useAuthStore()
+const tabs = computed(() => [{key:'daily',permission:'report:daily'},{key:'monthly',permission:'report:monthly'},{key:'recycle',permission:'report:recycle'},{key:'shifts',permission:'shift:confirm'}].filter(tab=>auth.can(tab.permission)))
+const period = ref(tabs.value[0]?.key || '')
+const error = ref('')
 const summary = ref([])
 const records = ref([])
 const shifts = ref([])
@@ -78,38 +83,54 @@ const expenseTotal = computed(() => summary.value
   .filter(row => row.type === 'EXPENSE')
   .reduce((total, row) => total + Number(row.amount || 0), 0))
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
+  const scope = JSON.stringify(auth.user?.permissions)
+  const current = () => version === loadVersion && scope === JSON.stringify(auth.user?.permissions)
+  error.value = ''
+  summary.value=[]; records.value=[]; report.value=null; profit.value=[]; recycle.value={}; recycleRows.value=[]; shifts.value=[]
+  if (!tabs.value.some(tab=>tab.key===period.value)) period.value=tabs.value[0]?.key||''
+  if (!period.value) return
+  try {
   if (period.value === 'recycle') {
     const data = await financeApi.recycle({})
+    if (!current()) return
     recycle.value = data || {}
     recycleRows.value = data?.records || []
     return
   }
   if (period.value === 'shifts') {
-    shifts.value = await financeApi.shifts()
+    const rows = await financeApi.shifts()
+    if (current()) shifts.value = rows || []
     return
   }
 
-  const params = financeRange.value
+  const params = { ...financeRange.value, reportType: period.value }
   const reportRequest = period.value === 'daily'
     ? financeApi.daily({ date: params.start })
     : financeApi.monthly({ month: params.start.slice(0, 7) })
   const [summaryData, recordData, profitData, reportData] = await Promise.all([
     financeApi.summary(params),
     financeApi.records(params),
-    financeApi.grossProfit(params),
+    auth.can('report:store-performance') ? financeApi.grossProfit(params) : Promise.resolve([]),
     reportRequest
   ])
+  if (!current()) return
   summary.value = summaryData || []
   records.value = recordData || []
   profit.value = profitData || []
   report.value = reportData
+  } catch (err) { if (current()) error.value=err?.message||'财务报表加载失败' }
 }
 
 async function exportXlsx() {
+  if (exportLoading.value || !auth.can(period.value === 'monthly' ? 'report:monthly' : 'report:daily')) return
+  const scope = JSON.stringify(auth.user?.permissions)
   exportLoading.value = true
   try {
-    const exportRows = await financeApi.records({ ...financeRange.value, all: true })
+    const exportRows = await financeApi.records({ ...financeRange.value, reportType: period.value, all: true })
+    if (scope !== JSON.stringify(auth.user?.permissions)) return
     const ws = XLSX.utils.json_to_sheet((Array.isArray(exportRows) ? exportRows : []).map(row => ({
       流水号: row.finance_id,
       收支类型: formatFinanceType(row.type),
@@ -126,12 +147,13 @@ async function exportXlsx() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '收支流水')
     XLSX.writeFile(wb, `财务报表_${financeRange.value.start}_${financeRange.value.end}.xlsx`)
-  } finally {
+  } catch (err) { ElMessage.error(err?.message||'导出失败，请重试') } finally {
     exportLoading.value = false
   }
 }
 
 function exportRecycle() {
+  if (!auth.can('report:recycle')) return
   const ws = XLSX.utils.json_to_sheet(recycleRows.value.map(row => ({ ...row, create_time: formatTime(row.create_time) })))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '回收报表')
@@ -140,17 +162,20 @@ function exportRecycle() {
 
 onMounted(load)
 watch(() => app.eventVersion, load)
+watch(()=>JSON.stringify(auth.user?.permissions), load)
+onBeforeUnmount(()=>{loadVersion++})
 </script>
 
 <template>
   <el-tabs v-model="period" @tab-change="load">
-    <el-tab-pane label="营业日报" name="daily" />
-    <el-tab-pane label="营业月报" name="monthly" />
-    <el-tab-pane label="回收业务报表" name="recycle" />
-    <el-tab-pane label="交班记录" name="shifts" />
+    <el-tab-pane v-if="auth.can('report:daily')" label="营业日报" name="daily" />
+    <el-tab-pane v-if="auth.can('report:monthly')" label="营业月报" name="monthly" />
+    <el-tab-pane v-if="auth.can('report:recycle')" label="回收业务报表" name="recycle" />
+    <el-tab-pane v-if="auth.can('shift:confirm')" label="交班记录" name="shifts" />
   </el-tabs>
 
-  <div v-if="period !== 'recycle' && period !== 'shifts'" class="grid-2">
+  <el-alert v-if="error" :title="error" type="error" /><el-button v-if="error" @click="load">重试</el-button>
+  <div v-if="period && period !== 'recycle' && period !== 'shifts'" class="grid-2">
     <section class="panel">
       <div class="panel-title">
         <div class="finance-title-group"><span>经营汇总</span><el-tag type="info" effect="plain">{{ rangeLabel }}</el-tag></div>
@@ -179,7 +204,7 @@ watch(() => app.eventVersion, load)
       </el-table>
     </section>
 
-    <section class="panel">
+    <section v-if="auth.can('report:store-performance')" class="panel">
       <div class="panel-title"><span>毛利分析</span><span class="muted">{{ rangeLabel }}</span></div>
       <el-table :data="profit" empty-text="当前范围暂无销售数据">
         <el-table-column prop="category" label="品类" min-width="120" />
@@ -208,12 +233,12 @@ watch(() => app.eventVersion, load)
     </el-table>
   </section>
 
-  <section v-else class="panel">
+  <section v-else-if="period === 'shifts'" class="panel">
     <div class="panel-title">交班记录</div>
     <el-table :data="shifts" empty-text="暂无交班记录"><el-table-column prop="shift_id" label="交班单号" width="110" /><el-table-column prop="user_id" label="操作员" width="90" /><el-table-column label="交班内容" min-width="560"><template #default="s">{{ formatShiftContent(s.row.content) }}</template></el-table-column><el-table-column label="确认时间" min-width="170"><template #default="s">{{ formatTime(s.row.create_time) }}</template></el-table-column></el-table>
   </section>
 
-  <section v-if="period !== 'recycle' && period !== 'shifts'" class="panel" style="margin-top:16px">
+  <section v-if="period && period !== 'recycle' && period !== 'shifts'" class="panel" style="margin-top:16px">
     <div class="panel-title"><span>收支流水</span><span class="muted">{{ rangeLabel }} · 页面最多显示 500 条，导出为完整结果</span></div>
     <el-table :data="records" empty-text="当前范围暂无收支流水">
       <el-table-column prop="finance_id" label="流水号" width="90" />

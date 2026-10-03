@@ -106,7 +106,7 @@ async function loadShared() {
     needsCatalog ? processingApi.items() : Promise.resolve([]),
     needsCraftsmen ? processingApi.craftsmen() : Promise.resolve([]),
     needsMembers ? memberApi.list({ page: 1, size: 500 }) : Promise.resolve({ records: [] }),
-    tab.value === 'orders' || tab.value === 'dashboard' ? processingApi.salespeople() : Promise.resolve([])
+    tab.value === 'orders' ? processingApi.salespeople() : Promise.resolve([])
   ])
   if (needsCatalog) {
     categories.value = categoryRows || []
@@ -114,14 +114,16 @@ async function loadShared() {
   }
   if (needsCraftsmen) craftsmen.value = craftsmanRows || []
   if (needsMembers) members.value = memberResult?.records || []
-  if (tab.value === 'orders' || tab.value === 'dashboard') salespeople.value = salesRows || []
+  if (tab.value === 'orders') salespeople.value = salesRows || []
 }
 async function loadOrders() {
   orders.value = await processingApi.orders({ keyword: orderFilters.keyword || undefined, status: orderFilters.status || undefined, craftsmanId: orderFilters.craftsmanId || undefined, salesId: orderFilters.salesId || undefined, ...dateRange(orderFilters.dates) }) || []
 }
 async function loadDashboard() {
-  if (!auth.can('processing:view')) return
-  statistics.value = await processingApi.statistics({ craftsmanId: dashboardFilters.craftsmanId || undefined, ...dateRange(dashboardFilters.dates) }) || {}
+  if (!auth.can('report:processing')) { statistics.value = {}; return }
+  const scope = JSON.stringify(auth.user?.permissions)
+  const result = await processingApi.statistics({ craftsmanId: dashboardFilters.craftsmanId || undefined, ...dateRange(dashboardFilters.dates) }) || {}
+  if (scope === JSON.stringify(auth.user?.permissions) && auth.can('report:processing')) statistics.value = result
 }
 async function loadCommissions() {
   if (!auth.can('processing:commissions')) return
@@ -296,13 +298,14 @@ async function markCommissionPaid(row) {
 }
 
 watch(() => route.fullPath, loadCurrent)
+watch(()=>JSON.stringify(auth.user?.permissions),()=>{statistics.value={};loadCurrent()})
 watch(()=>app.eventVersion,async()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_LOSS_OVER','PROCESSING_LOSS_CONFIG_UPDATED','COMMISSION_UPDATED','MEMBER_UPDATED'].includes(app.lastEventType))await loadCurrent();if(['PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){await loadShared();await loadCurrent()}})
 onMounted(loadCurrent)
 </script>
 
 <template>
   <section v-loading="loading" class="processing-page">
-    <template v-if="tab === 'dashboard'">
+    <template v-if="tab === 'dashboard' && auth.can('report:processing')">
       <div class="page-toolbar"><div><span class="muted">按加工单创建时间统计</span></div><div class="inline-actions"><el-date-picker v-model="dashboardFilters.dates" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期"/><el-select v-model="dashboardFilters.craftsmanId" clearable placeholder="全部师傅" style="width:150px"><el-option v-for="staff in craftsmen" :key="staff.user_id" :label="staff.real_name" :value="staff.user_id"/></el-select><el-button @click="loadDashboard">查询</el-button></div></div>
       <div class="stat-grid"><div class="stat-card"><span>加工单数</span><strong>{{ statistics.order_count || 0 }}</strong></div><div class="stat-card"><span>工费应收</span><strong>{{ formatMoney(statistics.due_amount) }}</strong></div><div class="stat-card"><span>实际收款</span><strong>{{ formatMoney(statistics.paid_amount) }}</strong></div><div class="stat-card"><span>待收尾款</span><strong>{{ formatMoney(statistics.outstanding) }}</strong></div><div class="stat-card"><span>加工中</span><strong>{{ statistics.processing_count || 0 }}</strong></div><div v-if="auth.can('processing:commissions')" class="stat-card"><span>提成支出</span><strong>{{ formatMoney(statistics.commission_expense) }}</strong></div></div>
       <section class="panel"><div class="panel-title">加工项目排行 <el-button v-if="auth.can('processing:view')" link type="primary" @click="go('orders')">查看订单</el-button></div><el-table :data="statistics.item_ranking || []"><el-table-column prop="item_name" label="加工项目"/><el-table-column prop="order_count" label="订单数"/><el-table-column label="工费应收" align="right"><template #default="s">{{ formatMoney(s.row.labor_fee) }}</template></el-table-column><el-table-column label="实际收款" align="right"><template #default="s">{{ formatMoney(s.row.paid_amount) }}</template></el-table-column></el-table></section>

@@ -4,6 +4,7 @@ import com.dajin.system.common.ApiResponse;
 import com.dajin.system.common.DbSupport;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.RequireRoles;
+import com.dajin.system.config.ReportAccess;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,7 +28,7 @@ public class AdminFinanceController {
     }
 
     @GetMapping("/finance/records")
-    @RequirePermission("report:view:all")
+    @RequirePermission(value = {"report:daily", "report:monthly"}, anyOf = true)
     public ApiResponse<?> records(@RequestParam(required = false) String payMethod,
                                   @RequestParam(required = false) String start,
                                   @RequestParam(required = false) String end,
@@ -35,6 +36,7 @@ public class AdminFinanceController {
                                   @RequestParam(defaultValue = "500") int pageSize,
                                   @RequestParam(defaultValue = "false") boolean all,
                                   HttpServletRequest request) {
+        requireFinanceReport(request);
         int size = Math.max(1, Math.min(pageSize, 500));
         int offset = Math.max(0, page - 1) * size;
         MapSqlParameterSource query = params(request)
@@ -49,23 +51,24 @@ public class AdminFinanceController {
                 + "p.promotion_channel processing_promotion_channel,p.voucher_no processing_voucher_no "
                 + "from finance_record f left join processing_order p on p.store_id=f.store_id "
                 + "and p.order_no=f.related_bill_no and f.category='PROCESSING_FEE' "
-                + "where f.store_id=:s and (:m is null or f.pay_method=:m) "
+                + "where f.store_id=:s" + financeFilter(request, "f.") + " and (:m is null or f.pay_method=:m) "
                 + "and (:start is null or f.create_time>=:start) "
                 + "and (:end is null or f.create_time<date_add(:end,interval 1 day)) "
                 + "order by f.finance_id desc" + limitSql, query));
     }
 
     @GetMapping("/finance/shifts")
-    @RequirePermission(value = {"shift:confirm", "report:view:all"}, anyOf = true)
+    @RequirePermission(value = {"shift:confirm", "report:daily", "report:monthly"}, anyOf = true)
     public ApiResponse<?> shifts(HttpServletRequest request) {
         return ApiResponse.ok(db.list("select log_id shift_id,user_id,content,create_time from operation_log where store_id=:s and module='SHIFT' and action='CONFIRM' order by log_id desc limit 200", params(request)));
     }
 
     @GetMapping("/finance/summary")
-    @RequirePermission("report:view:all")
+    @RequirePermission(value = {"report:daily", "report:monthly"}, anyOf = true)
     public ApiResponse<?> summary(@RequestParam(required = false) String start,
                                   @RequestParam(required = false) String end,
                                   HttpServletRequest request) {
+        requireFinanceReport(request);
         String rangeStart = start;
         String rangeEnd = end;
         if ((start == null || start.isBlank()) && (end == null || end.isBlank())) {
@@ -82,7 +85,7 @@ public class AdminFinanceController {
                 + "else 'OTHER_INCOME' end";
         return ApiResponse.ok(db.list("select type," + businessType + " business_type,"
                 + "coalesce(pay_method,'未指定') pay_method,sum(amount) amount,count(*) count "
-                + "from finance_record where store_id=:s "
+                + "from finance_record where store_id=:s " + financeFilter(request, "")
                 + "and (:start is null or create_time>=:start) "
                 + "and (:end is null or create_time<date_add(:end,interval 1 day)) "
                 + "group by type," + businessType + ",pay_method "
@@ -90,7 +93,7 @@ public class AdminFinanceController {
     }
 
     @GetMapping("/finance/gross-profit")
-    @RequirePermission("report:view:all")
+    @RequirePermission("report:store-performance")
     public ApiResponse<?> grossProfit(@RequestParam(required = false) String start,
                                       @RequestParam(required = false) String end,
                                       HttpServletRequest request) {
@@ -113,14 +116,29 @@ public class AdminFinanceController {
     }
 
     @GetMapping("/commission/rules")
-    @RequirePermission("report:view:all")
+    @RequirePermission(value = {"report:commission", "commission:manage"}, anyOf = true)
     public ApiResponse<?> commissionRules(HttpServletRequest request) {
         return ApiResponse.ok(db.list("select * from commission_rule where store_id=:s order by rule_id desc", params(request)));
     }
 
     @GetMapping("/commission/records")
-    @RequirePermission("report:view:all")
+    @RequirePermission("report:commission")
     public ApiResponse<?> commissionRecords(@RequestParam(required = false) String month, HttpServletRequest request) {
         return ApiResponse.ok(db.list("select cr.*,u.real_name from commission_record cr left join sys_user u on u.user_id=cr.user_id and u.store_id=cr.store_id where cr.store_id=:s and cr.month=coalesce(:m,date_format(curdate(),'%Y-%m')) order by commission_amount desc", params(request).addValue("m", month)));
+    }
+
+    private void requireFinanceReport(HttpServletRequest request) {
+        String kind = request.getParameter("reportType");
+        if (kind != null && !java.util.Set.of("daily", "monthly").contains(kind))
+            throw new com.dajin.system.common.BusinessException(400431, "财务报表类型不正确");
+        ReportAccess.require(request, "monthly".equals(kind) ? "report:monthly" : "report:daily");
+    }
+
+    private String financeFilter(HttpServletRequest request, String prefix) {
+        String filter = "";
+        if (!ReportAccess.enabled(request, "report:processing")) filter += " and " + prefix + "category<>'PROCESSING_FEE'";
+        if (!ReportAccess.enabled(request, "report:recycle")) filter += " and " + prefix + "category<>'RECYCLE'";
+        if (!ReportAccess.enabled(request, "report:commission")) filter += " and " + prefix + "category not in ('COMMISSION','PROCESSING_COMMISSION')";
+        return filter;
     }
 }

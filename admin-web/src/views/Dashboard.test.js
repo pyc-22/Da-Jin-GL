@@ -7,6 +7,7 @@ import * as echarts from 'echarts/core'
 
 const chart = vi.hoisted(() => ({ setOption: vi.fn(), dispose: vi.fn(), resize: vi.fn() }))
 vi.mock('echarts/core', () => ({ use: vi.fn(), init: vi.fn(() => chart) }))
+vi.mock('../stores/auth', () => ({useAuthStore: () => ({ can: () => true })}))
 vi.mock('../stores/app', () => ({ useAppStore: () => ({ eventVersion: 0 }) }))
 vi.mock('../api/modules', () => ({ dashboardApi: { get: vi.fn() } }))
 const stubs = {

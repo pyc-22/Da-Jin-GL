@@ -28,9 +28,9 @@ let requestVersion=0
 async function load(){
   const version=++requestVersion; loading.value=true; errors.value=[]; documents.value=[]; selected.value=null
   const sources=[
-    {allowed:auth.can('report:view'),label:'销售',fetch:()=>api.reportSales({timeType:'month'})},
+    {allowed:canReport('report:store-performance'),label:'销售',fetch:()=>api.reportSales({timeType:'month'})},
     {allowed:auth.can('processing:view'),label:'加工',fetch:()=>api.processingOrders()},
-    {allowed:auth.can('report:view'),label:'回收',fetch:()=>api.reportRecycle({timeType:'month'})}
+    {allowed:canReport('report:recycle'),label:'回收',fetch:()=>api.reportRecycle({timeType:'month'})}
   ]
   const results=await Promise.allSettled(sources.map(source=>source.allowed?source.fetch():Promise.resolve([])))
   if(version!==requestVersion)return
@@ -38,7 +38,8 @@ async function load(){
   documents.value=mergeDocuments(...results.map(result=>result.status==='fulfilled'?result.value:[]));loading.value=false
 }
 function open(row){if(row.type==='processing')router.push('/processing?id='+encodeURIComponent(row.id));else selected.value=row}
+function canReport(permission){return auth.can('report:view')&&(auth.role!=='MANAGER'||auth.can(permission))}
 onMounted(load)
 watch(()=>app.eventVersion,load)
-watch(()=>auth.permissions?.join('|'),load)
+watch(()=>[auth.role,auth.permissions?.join('|')],load)
 </script>

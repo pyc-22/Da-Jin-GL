@@ -16,8 +16,9 @@ public final class ManagerPermissionPolicy {
             if (name.startsWith("approval/")) return "approval:view";
             if (name.startsWith("sales")) return "order:checkout";
             if (name.startsWith("staff") || name.startsWith("roles") || name.startsWith("schedules")) return "staff:manage";
-            if (name.startsWith("commission")) return read ? "report:view:all" : "commission:manage";
-            if (name.startsWith("finance")) return "report:view:all";
+            if (name.startsWith("commission/rules")) return read ? "report:commission|commission:manage" : "commission:manage";
+            if (name.startsWith("commission")) return read ? "report:commission" : "commission:manage";
+            if (name.startsWith("finance")) return null; // endpoint annotations select the independent report permission
             if (name.startsWith("store") || name.startsWith("config") || name.startsWith("logs") || name.startsWith("backups")) return "system:manage";
         }
         if (path.startsWith("/api/gold-price/")) {
@@ -35,7 +36,8 @@ public final class ManagerPermissionPolicy {
             if (name.startsWith("commissions")) return "processing:commissions";
             if (name.startsWith("loss-")) return "processing:loss";
             if (name.startsWith("categories") || name.startsWith("items") || name.startsWith("craftsmen")) return read ? "processing:view|processing:items" : "processing:items";
-            if (name.startsWith("statistics") || name.startsWith("handovers")) return "processing:view";
+            if (name.startsWith("statistics")) return null; // independent report permission is checked by annotation
+            if (name.startsWith("handovers")) return "processing:view";
             if (name.startsWith("orders")) return read ? "processing:view" : "processing:manage";
             return "processing:manage";
         }
@@ -48,7 +50,7 @@ public final class ManagerPermissionPolicy {
         if (path.equals("/api/member")) return read ? "member:view" : "member:create";
         if (path.startsWith("/api/visit/")) return "member:follow";
         if (path.startsWith("/api/notification")) return "notification:view";
-        if (path.startsWith("/api/commission/")) return "commission:manage";
+        if (path.startsWith("/api/commission/")) return read ? "report:commission|commission:manage" : "commission:manage";
         if (path.startsWith("/api/order/")) return read ? "order:checkout" : null;
         return null;
     }

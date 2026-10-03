@@ -68,9 +68,11 @@ public final class CommissionLedger {
 
         String paid = SalesAmounts.actualPaid("o");
         String sales = "select o.store_id,o.sales_id user_id,sum(" + paid + ") sales_amount,0 processing_base,0 processing_commission,"
-                + "sum(round((" + paid + ")*coalesce(nullif(o.commission_rate_snapshot,0),"
+                + "sum(round((" + paid + ")*coalesce(o.commission_rate_snapshot,"
                 + "coalesce((select cr.rate from commission_rule cr where cr.store_id=o.store_id and cr.type='SALE' and cr.status=1 "
-                + "and (json_extract(cr.condition,'$.category') is null or json_unquote(json_extract(cr.condition,'$.category'))=cast(o.category_id as char)) "
+                + "and (json_extract(cr.condition,'$.category') is null or exists (select 1 from sales_order_item soi "
+                + "join goods g on g.goods_id=soi.goods_id and g.store_id=soi.store_id where soi.store_id=o.store_id and soi.order_id=o.order_id "
+                + "and json_unquote(json_extract(cr.condition,'$.category'))=cast(g.category_id as char))) "
                 + "and (json_extract(cr.condition,'$.minAmount') is null or " + paid + ">=cast(json_unquote(json_extract(cr.condition,'$.minAmount')) as decimal(12,2))) "
                 + "and (json_extract(cr.condition,'$.maxAmount') is null or " + paid + "<=cast(json_unquote(json_extract(cr.condition,'$.maxAmount')) as decimal(12,2))) order by cr.rule_id limit 1),:rate)),2)) sales_commission,count(*) sales_orders,0 processing_orders "
                 + "from sales_order o where o.store_id=:s and o.status=1 and o.sales_id is not null "
@@ -78,7 +80,7 @@ public final class CommissionLedger {
 
         String base = ProcessingAmounts.laborBase("p");
         String processing = "select p.store_id,p.sales_id user_id,0 sales_amount,sum(" + base + ") processing_base,"
-                + "sum(round((" + base + ")*coalesce(nullif(p.sales_commission_rate_snapshot,0),"
+                + "sum(round((" + base + ")*coalesce(p.sales_commission_rate_snapshot,"
                 + "coalesce((select cr.rate from commission_rule cr where cr.store_id=p.store_id and cr.type='PROCESSING' and cr.status=1 order by cr.rule_id limit 1),:processingRate)),2)) processing_commission,"
                 + "0 sales_commission,0 sales_orders,count(*) processing_orders from processing_order p "
                 + "where p.store_id=:s and p.status='PICKED_UP' and p.sales_id is not null "

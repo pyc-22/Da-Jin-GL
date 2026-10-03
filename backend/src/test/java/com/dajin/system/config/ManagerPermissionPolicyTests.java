@@ -19,7 +19,9 @@ class ManagerPermissionPolicyTests {
         assertEquals("member:follow", ManagerPermissionPolicy.required("/api/member/3/claim", "POST"));
         assertEquals("stock:transfer", ManagerPermissionPolicy.required("/api/stock/old-material/3", "PUT"));
         assertEquals("system:manage", ManagerPermissionPolicy.required("/api/system/config", "GET"));
-        assertEquals("report:view:all", ManagerPermissionPolicy.required("/api/admin/finance/summary", "GET"));
+        assertNull(ManagerPermissionPolicy.required("/api/admin/finance/summary", "GET"));
+        assertNull(ManagerPermissionPolicy.required("/api/processing/statistics", "GET"));
+        assertEquals("report:commission", ManagerPermissionPolicy.required("/api/admin/commission/records", "GET"));
         assertNull(ManagerPermissionPolicy.required("/api/system/store-info", "GET"));
     }
 

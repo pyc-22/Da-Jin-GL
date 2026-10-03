@@ -68,4 +68,34 @@ describe('document aggregation', () => {
     expect(wrapper.text()).toContain('暂无单据')
     expect(state.processing).toHaveBeenCalledTimes(1)
   })
+
+  it('honors independent manager permissions without blocking operational processing documents', async () => {
+    state.auth.role = 'MANAGER'
+    state.auth.permissions = ['report:view', 'processing:view', 'report:recycle']
+    wrapper = mount(DocumentsSection)
+    await flushPromises()
+    expect(state.sales).not.toHaveBeenCalled()
+    expect(state.recycle).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.document-card')).toHaveLength(2)
+    state.auth.permissions = ['report:view', 'processing:view', 'report:store-performance']
+    await flushPromises()
+    expect(state.sales).toHaveBeenCalledTimes(1)
+    expect(state.recycle).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('XS001')
+    expect(wrapper.text()).not.toContain('HS003')
+  })
+
+  it('drops a late sales response after a manager permission is revoked', async () => {
+    state.auth.role = 'MANAGER'
+    state.auth.permissions = ['report:view', 'report:store-performance']
+    let resolveSales
+    state.sales.mockReturnValueOnce(new Promise(resolve => { resolveSales = resolve }))
+    wrapper = mount(DocumentsSection)
+    state.auth.permissions = ['report:view']
+    await flushPromises()
+    resolveSales({ records: [sale] })
+    await flushPromises()
+    expect(wrapper.findAll('.document-card')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('XS001')
+  })
 })

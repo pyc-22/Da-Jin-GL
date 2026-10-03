@@ -14,8 +14,8 @@ public final class ProcessingAmounts {
     }
 
     public static String commission(String alias, String rateExpression) {
-        return "round((" + laborBase(alias) + ")*coalesce(nullif(" + alias
-                + ".sales_commission_rate_snapshot,0)," + rateExpression + "),2)";
+        return "round((" + laborBase(alias) + ")*coalesce(" + alias
+                + ".sales_commission_rate_snapshot," + rateExpression + "),2)";
     }
 
     public static String settledDate(String alias) {

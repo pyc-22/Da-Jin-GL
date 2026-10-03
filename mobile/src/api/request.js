@@ -79,7 +79,7 @@ export const api = {
   reports: (period = 'daily') => period === 'weekly'
     ? http.get('/api/report/overview', { params: { timeType: 'week' } })
     : http.get(`/api/report/${period}`),
-  commission: () => http.get('/api/report/commission'),
+  commission: (params = {}) => http.get('/api/report/commission', { params }),
   stock: () => http.get('/api/admin/stock/overview'),
   warnings: () => http.get('/api/admin/stock/warnings'),
   goods: (params = {}) => http.get('/api/goods/list', { params }),
@@ -100,6 +100,8 @@ export const api = {
   shiftRecords: () => http.get('/api/admin/finance/shifts'),
   paySummary: () => http.get('/api/admin/finance/summary'),
   recycleStats: (params = {}) => http.get('/api/report/recycle', { params }),
+  reportDaily: (params = {}) => http.get('/api/report/daily', { params }),
+  reportMonthly: (params = {}) => http.get('/api/report/monthly', { params }),
   reportOverview: (params = {}) => http.get('/api/report/overview', { params }),
   reportSales: (params = {}) => http.get('/api/report/sales', { params }),
   reportEmployee: (params = {}) => http.get('/api/report/employee', { params }),

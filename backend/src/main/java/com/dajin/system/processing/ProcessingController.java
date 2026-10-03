@@ -917,6 +917,7 @@ public class ProcessingController {
 
     @GetMapping("/statistics")
     @RequireRoles({"ADMIN", "MANAGER"})
+    @RequirePermission("report:processing")
     public ApiResponse<?> statistics(@RequestParam(required = false) String from, @RequestParam(required = false) String to,
                                      @RequestParam(required = false) Long craftsmanId, HttpServletRequest request) {
         long storeId = store(request);

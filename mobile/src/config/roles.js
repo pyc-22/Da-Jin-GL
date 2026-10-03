@@ -30,14 +30,17 @@ export const permissionForSection = (section, role) => {
   return ({
   dashboard: 'dashboard:view', home: 'dashboard:view', report: 'report:view', performance: 'report:view',
   member: 'member:view', members: 'member:view', goods: 'goods:manage', order: 'order:create',
-  inbound: 'stock:inbound:create', stockCheck: 'stock:check:create', notifications: 'notification:view', approval: 'approval:handle+stock:check:approve'
+  inbound: 'stock:inbound:create', stockCheck: 'stock:check:create', notifications: 'notification:view', approval: 'approval:view'
   })[section]
 }
+
+export const canViewReports = auth => auth.can('report:view') && (auth.role !== 'MANAGER' ||
+  ['report:store-performance', 'report:monthly', 'report:commission', 'report:processing', 'report:recycle'].some(code => auth.can(code)))
 
 // 移动端统一功能清单：所有角色共用，入口显示与否完全由角色权限（管理端-人员-角色权限）控制
 export const mobileFunctions = [
   { key: 'order', label: '移动开单', section: 'order', permission: 'order:create' },
-  { key: 'approval', label: '审批中心', section: 'approval', permission: 'approval:handle+stock:check:approve' },
+  { key: 'approval', label: '审批中心', section: 'approval', permission: 'approval:view' },
   { key: 'goods-manage', label: '货品管理', section: 'goods', permission: 'goods:manage' },
   { key: 'inventory', label: '库存概览', path: '/inventory', permission: 'stock:view' },
   { key: 'inbound', label: '盘点入库', path: '/inbound/create', permission: 'stock:inbound:create' },
@@ -49,7 +52,7 @@ export const mobileFunctions = [
   { key: 'processing', label: '加工订单', path: '/processing', permission: 'processing:view' },
   { key: 'todo', label: '待处理', path: '/todo', permission: 'processing:view' },
   { key: 'deposit', label: '客存金台账', path: '/manager/deposit', permission: 'processing:view' },
-  { key: 'daily', label: '经营日报', path: '/manager/daily', permission: 'report:view:all' },
+  { key: 'daily', label: '经营日报', path: '/manager/daily', permission: 'report:daily' },
   { key: 'report', label: '经营报表', path: '/report', permission: 'report:view' },
   { key: 'gold-settings', label: '金价设置', path: '/gold-settings', permission: 'gold:manage' },
   { key: 'member-overview', label: '会员总览', section: 'member', permission: 'member:view' },

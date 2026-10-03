@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { goldApi, notificationApi, systemApi } from '../api/modules'
 import { formatTime } from '../utils/format'
-import { pagePermissions, firstAllowedPage } from '../permissions'
+import { pagePermissions, firstAllowedPage, canAccessPage } from '../permissions'
 import { LayoutDashboard, Package, CircleDollarSign, Boxes, ClipboardCheck, Receipt, Users, UserCog, Percent, BarChart3, Settings, Bell, LogOut, ChevronDown, ClipboardList, Wrench, BadgeDollarSign, PhoneCall, Scale } from 'lucide-vue-next'
 const auth = useAuthStore(); const app = useAppStore(); const router = useRouter(); const route = useRoute(); const connected = ref(true); let timer
 const notificationItems = ref([])
@@ -18,8 +18,8 @@ const menus = [
 const processingMenus = [
   ['processing-dashboard', '加工看板', LayoutDashboard], ['processing-orders', '加工订单', ClipboardList], ['processing-items', '加工项目', Wrench], ['processing-commissions', '加工提成', BadgeDollarSign], ['processing-loss', '损耗考核', Scale]
 ]
-const visibleMenus = computed(() => menus.filter(m => auth.can(pagePermissions[m[0]])))
-const visibleProcessingMenus = computed(() => processingMenus.filter(m => auth.can(pagePermissions[m[0]])))
+const visibleMenus = computed(() => menus.filter(m => canAccessPage(m[0], code => auth.can(code))))
+const visibleProcessingMenus = computed(() => processingMenus.filter(m => canAccessPage(m[0], code => auth.can(code))))
 const processingExpanded = computed(() => route.path.startsWith('/processing-'))
 const pageTitle = computed(() => [...menus, ...processingMenus].find(x => x[0] === route.path.slice(1))?.[1] || '仪表盘')
 async function loadContext() {
@@ -50,9 +50,9 @@ watch(() => app.eventVersion, () => {
   if (app.lastEventType === 'PAY_CHANNELS_UPDATED') loadPaymentChannels()
   if (app.lastEventType === 'BARGAIN_RECORDED' && ['ADMIN', 'MANAGER'].includes(auth.role)) loadNotifications()
   if (['ROLE_PERMISSIONS_UPDATED', 'USER_PERMISSIONS_UPDATED'].includes(app.lastEventType)) {
-    auth.refresh().then(() => {
+    auth.refresh(true).then(() => {
       const required = pagePermissions[route.path.slice(1)]
-      if (required && !auth.can(required)) router.replace(`/${firstAllowedPage(code => auth.can(code)) || 'no-access'}`)
+      if (required && !canAccessPage(route.path.slice(1), code => auth.can(code))) router.replace(`/${firstAllowedPage(code => auth.can(code)) || 'no-access'}`)
     }).catch(() => { auth.logout(); router.replace('/login') })
   }
 })

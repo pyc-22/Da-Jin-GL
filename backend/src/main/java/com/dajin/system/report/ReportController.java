@@ -4,6 +4,7 @@ import com.dajin.system.common.ApiResponse;
 import com.dajin.system.common.BusinessException;
 import com.dajin.system.common.DbSupport;
 import com.dajin.system.config.RequirePermission;
+import com.dajin.system.config.ReportAccess;
 import com.dajin.system.order.SalesAmounts;
 import com.dajin.system.processing.ProcessingAmounts;
 import io.jsonwebtoken.Claims;
@@ -24,37 +25,41 @@ public class ReportController {
     private final DbSupport db;
     public ReportController(DbSupport db) { this.db = db; }
 
-    @GetMapping("/daily") @RequirePermission("report:view:all")
+    @GetMapping("/daily") @RequirePermission("report:view")
     public ApiResponse<?> daily(@RequestParam(required = false) String date, HttpServletRequest request) {
+        requireManagerReport(request, "report:daily");
         String day = date == null || date.isBlank() ? LocalDate.now().toString() : date;
         Map<String,Object> result = db.one("select count(*) order_count,coalesce(sum(" + actualPaid("o") + "),0) amount,coalesce(sum(o.labor_fee),0) labor from sales_order o where o.store_id=:s" + salesWhere(request,"o.sales_id") + " and date(o.create_time)=:day and (o.status=1 or (o.status=0 and o.pay_amount>0))", scope(request).addValue("day", day));
         String processingScope = isSales(request) ? " and exists (select 1 from processing_order po where po.store_id=f.store_id and po.order_no=f.related_bill_no and po.sales_id=:uid)" : "";
         BigDecimal processing = db.jdbc().queryForObject("select coalesce(sum(f.amount),0) from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)=:day" + processingScope, scope(request).addValue("day", day), BigDecimal.class);
         result.put("processing_amount", processing);
         result.put("turnover", new BigDecimal(String.valueOf(result.getOrDefault("amount", "0"))).add(processing));
-        return ApiResponse.ok(result);
+        return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
-    @GetMapping("/monthly") @RequirePermission("report:view:all")
+    @GetMapping("/monthly") @RequirePermission("report:view")
     public ApiResponse<?> monthly(@RequestParam(required = false) String month, HttpServletRequest request) {
+        requireManagerReport(request, "report:monthly");
         String value = month == null || month.isBlank() ? LocalDate.now().toString().substring(0,7) : month;
         String processingScope = isSales(request) ? " and exists (select 1 from processing_order po where po.store_id=f.store_id and po.order_no=f.related_bill_no and po.sales_id=:uid)" : "";
-        return ApiResponse.ok(db.list("select day,sum(order_count) order_count,sum(amount)+sum(processing_amount) amount,sum(amount) sales_amount,sum(processing_amount) processing_amount,sum(amount)+sum(processing_amount) turnover from ("
+        return ApiResponse.ok(ReportAccess.filter(request, db.list("select day,sum(order_count) order_count,sum(amount)+sum(processing_amount) amount,sum(amount) sales_amount,sum(processing_amount) processing_amount,sum(amount)+sum(processing_amount) turnover from ("
                 + "select date(o.create_time) day,count(*) order_count,coalesce(sum(" + actualPaid("o") + "),0) amount,0 processing_amount from sales_order o where o.store_id=:s"
                 + salesWhere(request,"o.sales_id") + " and date_format(o.create_time,'%Y-%m')=:month and (o.status=1 or (o.status=0 and o.pay_amount>0)) group by date(o.create_time)"
                 + " union all select date(f.create_time) day,0 order_count,0 amount,coalesce(sum(f.amount),0) processing_amount from finance_record f where f.store_id=:s"
                 + processingScope + " and f.type='INCOME' and f.category='PROCESSING_FEE' and date_format(f.create_time,'%Y-%m')=:month group by date(f.create_time)"
-                + ") daily group by day order by day", scope(request).addValue("month", value)));
+                + ") daily group by day order by day", scope(request).addValue("month", value))));
     }
 
-    @GetMapping("/commission") @RequirePermission("report:view:all")
+    @GetMapping("/commission") @RequirePermission("report:view")
     public ApiResponse<?> commission(@RequestParam(required = false) String month, HttpServletRequest request) {
+        requireManagerReport(request, "report:commission");
         String value = month == null || month.isBlank() ? LocalDate.now().toString().substring(0,7) : month;
-        return ApiResponse.ok(db.list("select cr.*,u.real_name employee_name from commission_record cr left join sys_user u on u.user_id=cr.user_id and u.store_id=cr.store_id where cr.store_id=:s" + salesWhere(request,"cr.user_id") + " and cr.month=:month order by cr.commission_amount desc", scope(request).addValue("month", value)));
+        return ApiResponse.ok(ReportAccess.filter(request, db.list("select cr.*,u.real_name employee_name from commission_record cr left join sys_user u on u.user_id=cr.user_id and u.store_id=cr.store_id where cr.store_id=:s" + salesWhere(request,"cr.user_id") + " and cr.month=:month order by cr.commission_amount desc", scope(request).addValue("month", value))));
     }
 
     @GetMapping("/performance")
     public ApiResponse<?> performance(@RequestParam(required = false) Long userId, @RequestParam(required = false) String month, HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Long selected = selectedEmployee(request,userId); String value = month == null || month.isBlank() ? LocalDate.now().toString().substring(0,7) : month;
         MapSqlParameterSource p = scope(request).addValue("selectedUid",selected).addValue("month",value); String where = selected == null ? "" : " and o.sales_id=:selectedUid";
         Map<String,Object> result = new LinkedHashMap<>(db.one("select coalesce(sum(" + actualPaid("o") + "),0) amount,count(*) order_count,coalesce(avg(" + actualPaid("o") + "),0) avg_order from sales_order o where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0)) and date_format(o.create_time,'%Y-%m')=:month"+ (selected == null ? "" : " and o.sales_id=:selectedUid"),p));
@@ -68,11 +73,12 @@ public class ReportController {
         List<Map<String,Object>> performanceEmployees = db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') employee_name,coalesce(sum(" + actualPaid("o") + "),0) sales_amount,count(o.order_id) order_count,0 processing_base,0 processing_commission,0 commission_amount from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0)) and o.sales_id is not null and date_format(o.create_time,'%Y-%m')=:month"+where+" group by o.sales_id,u.real_name order by sales_amount desc",p);
         mergeCommission(performanceEmployees, commissionRows(request, monthRange, selected));
         result.put("employees", performanceEmployees);
-        return ApiResponse.ok(result);
+        return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
     @GetMapping("/overview")
     public ApiResponse<?> overview(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,@RequestParam(required = false) String category,HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Range range=range(timeType,startDate,endDate); MapSqlParameterSource p=params(request,range,employeeId); String scope=orderScope(request,employeeId,"o"); String categoryFilter=category==null||category.isBlank()?"":" and coalesce(root.name,'未分类')=:category"; p.addValue("category",category);
         String orderFilter=" from sales_order o1 where o1.store_id=:s and (o1.status=1 or (o1.status=0 and o1.pay_amount>0))"+range.sql("o1.create_time")+orderScope(request,employeeId,"o1");
         String itemFilter=" from sales_order_item oi1 join sales_order o2 on o2.order_id=oi1.order_id and o2.store_id=oi1.store_id where o2.store_id=:s and (o2.status=1 or (o2.status=0 and o2.pay_amount>0))"+range.sql("o2.create_time")+orderScope(request,employeeId,"o2");
@@ -88,17 +94,19 @@ public class ReportController {
         mergeCommission(overviewEmployees, commissionRows(request, range, employeeId));
         result.put("employees", overviewEmployees);
         result.put("records",db.list("select o.order_id,o.order_no,date_format(o.create_time,'%Y-%m-%d %H:%i') date,coalesce(group_concat(distinct oi.item_name order by oi.item_name separator '、'),'订单') goods_name,coalesce(max(root.name),'未分类') category,"+originalDue("o")+" original_amount,coalesce(o.settlement_discount,0) settlement_discount,"+discountedDue("o")+" discounted_amount,"+actualPaid("o")+" actual_paid,"+remainingDue("o")+" remaining_amount,o.settlement_discount_reason,coalesce(o.pay_method,'') pay_method,coalesce(u.real_name,'未分配') employee_name,"+actualPaid("o")+" amount,coalesce(sum(oi.weight*oi.qty),0) weight from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id left join sales_order_item oi on oi.order_id=o.order_id and oi.store_id=o.store_id left join goods g on g.goods_id=oi.goods_id and g.store_id=oi.store_id left join goods_category child on child.category_id=g.category_id and child.store_id=g.store_id left join goods_category root on root.category_id=case when child.level=2 then child.parent_id else child.category_id end and root.store_id=child.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+scope+categoryFilter+" group by o.order_id,o.order_no,o.create_time,o.settlement_discount,o.settlement_discount_reason,o.pay_method,o.total_amount,o.discount,o.labor_fee,o.old_material_deduct,o.pay_amount,u.real_name order by o.create_time desc limit 20",p));
-        return ApiResponse.ok(result);
+        return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
     @GetMapping("/sales")
     public ApiResponse<?> sales(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,@RequestParam(required = false) String category,@RequestParam(defaultValue = "1") int page,@RequestParam(defaultValue = "20") int pageSize,HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Range range=range(timeType,startDate,endDate); MapSqlParameterSource p=params(request,range,employeeId).addValue("category",category).addValue("limit",Math.max(1,Math.min(pageSize,100))).addValue("offset",Math.max(0,page-1)*Math.max(1,Math.min(pageSize,100))); String scope=orderScope(request,employeeId,"o"); String cf=category==null||category.isBlank()?"":" and coalesce(root.name,'未分类')=:category";
-        Map<String,Object> result=new LinkedHashMap<>(); result.put("summary",overview(timeType,startDate,endDate,employeeId,category,request).data()); result.put("records",db.list("select o.order_id,o.order_no,date_format(o.create_time,'%Y-%m-%d %H:%i') date,coalesce(group_concat(distinct oi.item_name order by oi.item_name separator '、'),'订单') goods_name,coalesce(max(root.name),'未分类') category,"+originalDue("o")+" original_amount,coalesce(o.settlement_discount,0) settlement_discount,"+discountedDue("o")+" discounted_amount,"+actualPaid("o")+" actual_paid,"+remainingDue("o")+" remaining_amount,o.settlement_discount_reason,coalesce(o.pay_method,'') pay_method,coalesce(u.real_name,'未分配') employee_name,"+actualPaid("o")+" amount,coalesce(sum(oi.weight*oi.qty),0) weight,coalesce(sum(oi.qty),0) quantity from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id left join sales_order_item oi on oi.order_id=o.order_id and oi.store_id=o.store_id left join goods g on g.goods_id=oi.goods_id and g.store_id=oi.store_id left join goods_category child on child.category_id=g.category_id and child.store_id=g.store_id left join goods_category root on root.category_id=case when child.level=2 then child.parent_id else child.category_id end and root.store_id=child.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+scope+cf+" group by o.order_id,o.order_no,o.create_time,o.settlement_discount,o.settlement_discount_reason,o.pay_method,o.total_amount,o.discount,o.labor_fee,o.old_material_deduct,o.pay_amount,u.real_name order by o.create_time desc limit :limit offset :offset",p)); return ApiResponse.ok(result);
+        Map<String,Object> result=new LinkedHashMap<>(); result.put("summary",overview(timeType,startDate,endDate,employeeId,category,request).data()); result.put("records",db.list("select o.order_id,o.order_no,date_format(o.create_time,'%Y-%m-%d %H:%i') date,coalesce(group_concat(distinct oi.item_name order by oi.item_name separator '、'),'订单') goods_name,coalesce(max(root.name),'未分类') category,"+originalDue("o")+" original_amount,coalesce(o.settlement_discount,0) settlement_discount,"+discountedDue("o")+" discounted_amount,"+actualPaid("o")+" actual_paid,"+remainingDue("o")+" remaining_amount,o.settlement_discount_reason,coalesce(o.pay_method,'') pay_method,coalesce(u.real_name,'未分配') employee_name,"+actualPaid("o")+" amount,coalesce(sum(oi.weight*oi.qty),0) weight,coalesce(sum(oi.qty),0) quantity from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id left join sales_order_item oi on oi.order_id=o.order_id and oi.store_id=o.store_id left join goods g on g.goods_id=oi.goods_id and g.store_id=oi.store_id left join goods_category child on child.category_id=g.category_id and child.store_id=g.store_id left join goods_category root on root.category_id=case when child.level=2 then child.parent_id else child.category_id end and root.store_id=child.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+scope+cf+" group by o.order_id,o.order_no,o.create_time,o.settlement_discount,o.settlement_discount_reason,o.pay_method,o.total_amount,o.discount,o.labor_fee,o.old_material_deduct,o.pay_amount,u.real_name order by o.create_time desc limit :limit offset :offset",p)); return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
     @GetMapping("/employee")
     public ApiResponse<?> employee(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Range range=range(timeType,startDate,endDate); MapSqlParameterSource p=params(request,range,employeeId); String scope=orderScope(request,employeeId,"o"); List<Map<String,Object>> rows=db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+actualPaid("o")+"),0) sales_amount,coalesce(sum("+actualPaid("o")+"),0) actual_paid,count(*) order_count,coalesce((select sum(oi2.qty) from sales_order_item oi2 where oi2.store_id=o.store_id and oi2.order_id in (select o2.order_id from sales_order o2 where o2.store_id=o.store_id and o2.sales_id=o.sales_id and (o2.status=1 or (o2.status=0 and o2.pay_amount>0))"+range.sql("o2.create_time")+")),0) item_count,coalesce((select sum(oi2.weight*oi2.qty) from sales_order_item oi2 where oi2.store_id=o.store_id and oi2.order_id in (select o2.order_id from sales_order o2 where o2.store_id=o.store_id and o2.sales_id=o.sales_id and (o2.status=1 or (o2.status=0 and o2.pay_amount>0))"+range.sql("o2.create_time")+")),0) weight,0 processing_base,0 processing_commission,0 commission from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0)) and o.sales_id is not null"+range.sql("o.create_time")+scope+" group by o.sales_id,u.real_name order by sales_amount desc",p);
         mergeCommission(rows, commissionRows(request, range, employeeId));
         if (!isSales(request)) {
@@ -109,14 +117,14 @@ public class ReportController {
         } else if (rows.isEmpty()) {
             Map<String,Object> me = db.one("select user_id,real_name name from sys_user where user_id=:uid and store_id=:s", scope(request)); me.put("sales_amount",0); me.put("order_count",0); me.put("item_count",0); me.put("weight",0); me.put("commission",0); rows.add(me);
         }
-        for(Map<String,Object> row:rows){if(row.get("user_id")==null){row.put("categories",List.of());row.put("trend",List.of());row.put("member_count",0);row.put("recycle_amount",0);continue;} p.addValue("uidRow",row.get("user_id")); String ew=" and o.sales_id=:uidRow"; row.put("categories",db.list("select coalesce(root.name,'未分类') category,coalesce(sum(oi.subtotal),0) amount,coalesce(sum(oi.qty),0) item_count,coalesce(sum(oi.weight*oi.qty),0) weight from sales_order o join sales_order_item oi on oi.order_id=o.order_id and oi.store_id=o.store_id left join goods g on g.goods_id=oi.goods_id and g.store_id=oi.store_id left join goods_category child on child.category_id=g.category_id and child.store_id=g.store_id left join goods_category root on root.category_id=case when child.level=2 then child.parent_id else child.category_id end and root.store_id=child.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+ew+" group by root.category_id,root.name order by amount desc",p)); row.put("trend",db.list("select date(o.create_time) day,coalesce(sum("+actualPaid("o")+"),0) amount from sales_order o where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+ew+" group by date(o.create_time) order by day",p)); row.put("member_count",db.jdbc().queryForObject("select count(distinct o.member_id) from sales_order o where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0)) and o.member_id is not null"+range.sql("o.create_time")+ew,p,Number.class)); row.put("recycle_amount",db.jdbc().queryForObject("select coalesce(sum(ro.total_amount),0) from recycle_order ro where ro.store_id=:s"+range.sql("ro.create_time")+" and exists (select 1 from finance_record fr where fr.store_id=ro.store_id and fr.related_bill_no=ro.bill_no and fr.category='RECYCLE' and fr.operator_id=:uidRow)",p,Number.class)); }
-        return ApiResponse.ok(Map.of("scope",isSales(request)?"PERSONAL":"STORE","employees",rows));
+        for(Map<String,Object> row:rows){if(row.get("user_id")==null){row.put("categories",List.of());row.put("trend",List.of());row.put("member_count",0);row.put("recycle_amount",0);continue;} p.addValue("uidRow",row.get("user_id")); String ew=" and o.sales_id=:uidRow"; row.put("categories",db.list("select coalesce(root.name,'未分类') category,coalesce(sum(oi.subtotal),0) amount,coalesce(sum(oi.qty),0) item_count,coalesce(sum(oi.weight*oi.qty),0) weight from sales_order o join sales_order_item oi on oi.order_id=o.order_id and oi.store_id=o.store_id left join goods g on g.goods_id=oi.goods_id and g.store_id=oi.store_id left join goods_category child on child.category_id=g.category_id and child.store_id=g.store_id left join goods_category root on root.category_id=case when child.level=2 then child.parent_id else child.category_id end and root.store_id=child.store_id where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+ew+" group by root.category_id,root.name order by amount desc",p)); row.put("trend",db.list("select date(o.create_time) day,coalesce(sum("+actualPaid("o")+"),0) amount from sales_order o where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0))"+range.sql("o.create_time")+ew+" group by date(o.create_time) order by day",p)); row.put("member_count",db.jdbc().queryForObject("select count(distinct o.member_id) from sales_order o where o.store_id=:s and (o.status=1 or (o.status=0 and o.pay_amount>0)) and o.member_id is not null"+range.sql("o.create_time")+ew,p,Number.class)); row.put("recycle_amount",db.jdbc().queryForObject("select coalesce(sum(ro.total_amount),0) from recycle_order ro where ro.store_id=:s"+range.sql("ro.create_time")+" and ro.created_by=:uidRow",p,Number.class)); }
+        return ApiResponse.ok(ReportAccess.filter(request, Map.of("scope",isSales(request)?"PERSONAL":"STORE","employees",rows)));
     }
 
     @GetMapping("/recycle")
-    public ApiResponse<?> recycle(@RequestParam(required = false) String start,@RequestParam(required = false) String end,HttpServletRequest request){ MapSqlParameterSource p=scope(request).addValue("start",start).addValue("end",end); String range=" and (:start is null or ro.create_time>=:start) and (:end is null or ro.create_time<date_add(:end,interval 1 day))"; String user=isSales(request)?" and exists (select 1 from finance_record fr where fr.store_id=ro.store_id and fr.related_bill_no=ro.bill_no and fr.category='RECYCLE' and fr.operator_id=:uid)":""; String tradeInUser=isSales(request)?" and ti.operator_id=:uid":""; Map<String,Object> summary=db.one("select count(*) order_count,coalesce(sum(ro.weight),0) weight,coalesce(sum(ro.total_amount),0) amount,coalesce(sum(ro.deduct_loss),0) deduct_loss from recycle_order ro where ro.store_id=:s"+range+user,p); Map<String,Object> result=new LinkedHashMap<>(summary); result.put("trend",db.list("select date(ro.create_time) day,coalesce(sum(ro.weight),0) weight,count(*) order_count from recycle_order ro where ro.store_id=:s"+range+user+" group by date(ro.create_time) order by day",p)); result.put("records",db.list("select ro.recycle_order_id,ro.bill_no,ro.material_type,ro.weight,ro.purity,ro.deduct_loss,ro.total_amount,ro.status,ro.create_time from recycle_order ro where ro.store_id=:s"+range+user+" order by ro.recycle_order_id desc limit 200",p)); result.put("trade_in_count",db.jdbc().queryForObject("select count(*) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class)); result.put("trade_in_amount",db.jdbc().queryForObject("select coalesce(sum(ti.diff_amount),0) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class));
+    public ApiResponse<?> recycle(@RequestParam(required = false) String start,@RequestParam(required = false) String end,HttpServletRequest request){ requireManagerReport(request, "report:recycle"); MapSqlParameterSource p=scope(request).addValue("start",start).addValue("end",end); String range=" and (:start is null or ro.create_time>=:start) and (:end is null or ro.create_time<date_add(:end,interval 1 day))"; String user=isSales(request)?" and ro.created_by=:uid":""; String tradeInUser=isSales(request)?" and ti.operator_id=:uid":""; Map<String,Object> summary=db.one("select count(*) order_count,coalesce(sum(ro.weight),0) weight,coalesce(sum(ro.total_amount),0) amount,coalesce(sum(ro.deduct_loss),0) deduct_loss from recycle_order ro where ro.store_id=:s"+range+user,p); Map<String,Object> result=new LinkedHashMap<>(summary); result.put("trend",db.list("select date(ro.create_time) day,coalesce(sum(ro.weight),0) weight,count(*) order_count from recycle_order ro where ro.store_id=:s"+range+user+" group by date(ro.create_time) order by day",p)); result.put("records",db.list("select ro.recycle_order_id,ro.bill_no,ro.material_type,ro.weight,ro.purity,ro.deduct_loss,ro.total_amount,ro.status,ro.create_time from recycle_order ro where ro.store_id=:s"+range+user+" order by ro.recycle_order_id desc limit 200",p)); result.put("trade_in_count",db.jdbc().queryForObject("select count(*) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class)); result.put("trade_in_amount",db.jdbc().queryForObject("select coalesce(sum(ti.diff_amount),0) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class));
         result.put("trade_in_records",db.list("select ti.trade_in_id,ti.bill_no,ti.old_material_info,ti.new_goods_info,ti.diff_amount,ti.status,date_format(ti.create_time,'%Y-%m-%d %H:%i') create_time from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser+" order by ti.trade_in_id desc limit 100",p));
-        return ApiResponse.ok(result); }
+        return ApiResponse.ok(ReportAccess.filter(request, result)); }
     @GetMapping("/recycle-detail") public ApiResponse<?> recycleDetail(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,HttpServletRequest request){ Range r=range(timeType,startDate,endDate); return recycle(r.start,r.end,request); }
 
     @GetMapping("/member")
@@ -124,6 +132,7 @@ public class ReportController {
                                  @RequestParam(required = false) String startDate,
                                  @RequestParam(required = false) String endDate,
                                  HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Range r = range(timeType, startDate, endDate);
         MapSqlParameterSource p = params(request, r, null);
         String memberScope = salesWhere(request, "m.sales_id");
@@ -146,7 +155,7 @@ public class ReportController {
                 "select m.member_id,m.name,m.phone,m.gender,m.total_consume,m.create_time "
                         + "from member m where m.store_id=:s" + memberScope + r.sql("m.create_time")
                         + " order by m.total_consume desc limit 100", p));
-        return ApiResponse.ok(result);
+        return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
     @GetMapping("/gold")
@@ -155,6 +164,7 @@ public class ReportController {
                                @RequestParam(required = false) String endDate,
                                @RequestParam(required = false) String priceType,
                                HttpServletRequest request) {
+        requireManagerReport(request, "report:store-performance");
         Range r = range(timeType, startDate, endDate);
         MapSqlParameterSource p = params(request, r, null).addValue("priceType", priceType);
         String type = priceType == null || priceType.isBlank() ? "" : " and gp.price_type=:priceType";
@@ -199,9 +209,10 @@ public class ReportController {
                         + "where o.status=1" + r.sql("o.create_time") + orderScope(request, null, "o")
                         + " group by floor(gp.price/10)*10 order by price_bucket",
                 p));
-        return ApiResponse.ok(result);
+        return ApiResponse.ok(ReportAccess.filter(request, result));
     }
 
+    private void requireManagerReport(HttpServletRequest request, String permission) { ReportAccess.require(request, permission); }
     private MapSqlParameterSource scope(HttpServletRequest r){ return new MapSqlParameterSource().addValue("s",db.store(r)).addValue("uid",userId(r)); }
     private MapSqlParameterSource params(HttpServletRequest r,Range range,Long employee){ return scope(r).addValue("startDate",range.start).addValue("endDate",range.end).addValue("employeeId",selectedEmployee(r,employee)); }
     private String orderScope(HttpServletRequest r,Long employee,String alias){ return selectedEmployee(r,employee)==null?"":" and "+alias+".sales_id=:employeeId"; }
@@ -235,6 +246,7 @@ public class ReportController {
     }
 
     private List<Map<String,Object>> commissionRows(HttpServletRequest request, Range range, Long employee) {
+        if (!ReportAccess.enabled(request, "report:commission")) return List.of();
         Long selected = selectedEmployee(request, employee);
         MapSqlParameterSource p = params(request, range, employee);
         String employeeFilter = selected == null ? "" : " and o.sales_id=:employeeId";
@@ -242,7 +254,7 @@ public class ReportController {
         String salesRate = "(select coalesce(max(cast(c.config_value as decimal(10,6))),0.02) from sys_config c where c.store_id=o.store_id and c.config_key='default_commission_rate' and c.enabled=1)";
         String processingRate = "(select coalesce(max(cast(c.config_value as decimal(10,6))),0.01) from sys_config c where c.store_id=p.store_id and c.config_key='processing_sales_commission_rate' and c.enabled=1)";
         String paid = actualPaid("o");
-        String salesSql = "select o.sales_id user_id,coalesce(u.real_name,'未分配') employee_name,sum(round((" + paid + ")*coalesce(nullif(o.commission_rate_snapshot,0)," + salesRate + "),2)) sales_commission,0 processing_base,0 processing_commission,count(*) sales_orders,0 processing_orders "
+        String salesSql = "select o.sales_id user_id,coalesce(u.real_name,'未分配') employee_name,sum(round((" + paid + ")*coalesce(o.commission_rate_snapshot," + salesRate + "),2)) sales_commission,0 processing_base,0 processing_commission,count(*) sales_orders,0 processing_orders "
                 + "from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and o.sales_id is not null "
                 + range.sql("coalesce(o.paid_time,o.create_time)") + employeeFilter + " group by o.sales_id,u.real_name";
         String processingBase = ProcessingAmounts.laborBase("p");
