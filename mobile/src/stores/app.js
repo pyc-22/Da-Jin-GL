@@ -4,9 +4,12 @@ import { api } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
 import { getStorage, setStorage, scopedStorage } from '../utils/storage.js'
 import { useAuthStore } from './auth.js'
+import { createMessageSocket } from '../utils/messageSocket.js'
+
+const messageConnections = new WeakMap()
 
 export const useAppStore = defineStore('app', {
-  state: () => ({ tradeInDraft: null, gold: [], dashboard: null, approvals: [], unread: 0, ws: null, wsConnected: false, heartbeatEpoch: 0, heartbeatBusy: false, heartbeatTimer: null, eventVersion: 0, lastEventType: '', offline: typeof navigator !== 'undefined' ? !navigator.onLine : false, pendingInboundCount: 0, wsToken: '', wsRetries: 0, wsRetryTimer: null }),
+  state: () => ({ tradeInDraft: null, gold: [], dashboard: null, approvals: [], unread: 0, ws: null, wsConnected: false, wsStatus: 'stopped', wsDisconnectReason: '', heartbeatEpoch: 0, heartbeatBusy: false, heartbeatTimer: null, eventVersion: 0, lastEventType: '', offline: typeof navigator !== 'undefined' ? !navigator.onLine : false, pendingInboundCount: 0, wsToken: '', wsRetries: 0, wsRetryTimer: null }),
   getters: {
     primaryGold: (s) => Array.isArray(s.gold) ? (s.gold.find(x => String(x.price_type || x.priceType).includes('足金')) || s.gold[0]) : s.gold,
     silverSale: (s) => Array.isArray(s.gold) ? s.gold.find(x => String(x.price_type || x.priceType).trim() === '银' || String(x.type_code || x.code || '').toUpperCase() === 'SILVER') : null,
@@ -137,11 +140,27 @@ export const useAppStore = defineStore('app', {
     },
     connectWs(token) {
       if (typeof WebSocket === 'undefined' || !token) return
-      if (this.wsToken === token && ((this.ws && this.ws.readyState < 2) || this.wsRetryTimer)) return
+      if (this.wsToken === token && messageConnections.has(this)) return
       this.closeWs()
       this.wsToken = token
       this.wsRetries = 0
-      this.openWs()
+      const connection = createMessageSocket({
+        url: () => this.buildWsUrl(), probe: () => this.checkConnectivity(),
+        onState: ({ status, reason, socket, retries, retryTimer }) => {
+          this.ws = socket ? markRaw(socket) : null
+          this.wsStatus = status; this.wsDisconnectReason = reason
+          this.wsConnected = status === 'connected'; this.wsRetries = retries; this.wsRetryTimer = retryTimer
+        },
+        onOpen: () => {
+          void this.checkConnectivity()
+          useAuthStore().refreshSession().catch(() => {})
+          this.eventVersion++
+        },
+        onMessage: event => this.receiveWsMessage(event)
+      })
+      messageConnections.set(this, connection)
+      if (typeof navigator !== 'undefined') connection.setOnline(navigator.onLine)
+      connection.start()
     },
     buildWsUrl() {
       const configured = import.meta.env.VITE_WS_URL
@@ -157,55 +176,42 @@ export const useAppStore = defineStore('app', {
       }
       return `${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(this.wsToken)}`
     },
-    openWs() {
-      if (typeof WebSocket === 'undefined' || !this.wsToken) return
-      if (this.ws && this.ws.readyState < 2) return
-      try {
-        const ws = markRaw(new WebSocket(this.buildWsUrl()))
-        this.ws = ws
-        ws.onopen = () => {
-          if (this.ws !== ws) return
-          this.wsConnected = true; this.wsRetries = 0
-          this.checkConnectivity()
-          useAuthStore().refreshSession().catch(() => {})
-          this.eventVersion++
-        }
-        ws.onclose = () => { if (this.ws !== ws) return; this.wsConnected = false; this.ws = null; this.scheduleWsReconnect() }
-        ws.onerror = () => {}
-        ws.onmessage = async (e) => {
-          if (this.ws !== ws) return
-          let m; try { m = JSON.parse(e.data) } catch { return }
-          if (!m || typeof m.type !== 'string') return
-          this.lastEventType = m.type
-          const data = m.data || {}
-          if (m.type === 'GOLD_PRICE_UPDATED') {
-            const rows = Array.isArray(this.gold) ? [...this.gold] : []
-            const i = rows.findIndex(x => String(x.price_type || x.priceType) === String(data.priceType))
-            if (i >= 0) rows[i] = { ...rows[i], price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode }; else rows.push({ price_type: data.priceType, price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode })
-            this.gold = rows; setStorage('dajin-gold', JSON.stringify(rows))
-          }
-          if (m.type === 'GOLD_TYPES_UPDATED') await this.loadGold()
-          if (m.type === 'APPROVAL_CREATED') { this.unread++; this.approvals = [...this.approvals, data] }
-          if (m.type === 'STOCK_IN_COMPLETED') this.refreshLocalPendingInbounds()
-          const auth = useAuthStore()
-          const ownPermission = m.type === 'USER_PERMISSIONS_UPDATED' && String(data.userId) === String(auth.user?.user_id ?? auth.user?.userId)
-          const rolePermission = m.type === 'ROLE_PERMISSIONS_UPDATED' && (!data.roleCode || String(data.roleCode).toUpperCase() === auth.role)
-          if (ownPermission || rolePermission) { try { await auth.refreshSession() } catch { /* Backend still enforces permissions. Recheck on resume/reconnect. */ } }
-          if (this.ws === ws) this.eventVersion++
-        }
-      } catch { this.scheduleWsReconnect() }
+    async receiveWsMessage(e) {
+      const ws = this.ws
+      let m; try { m = JSON.parse(e.data) } catch { return }
+      if (!m || typeof m.type !== 'string') return
+      this.lastEventType = m.type
+      const data = m.data || {}
+      if (m.type === 'GOLD_PRICE_UPDATED') {
+        const rows = Array.isArray(this.gold) ? [...this.gold] : []
+        const i = rows.findIndex(x => String(x.price_type || x.priceType) === String(data.priceType))
+        if (i >= 0) rows[i] = { ...rows[i], price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode }; else rows.push({ price_type: data.priceType, price: data.price, salePrice: data.salePrice, recyclePrice: data.recyclePrice, source: data.source, quoteTime: data.quoteTime, marketStatus: data.marketStatus, pricingMode: data.pricingMode })
+        this.gold = rows; setStorage('dajin-gold', JSON.stringify(rows))
+      }
+      if (m.type === 'GOLD_TYPES_UPDATED') await this.loadGold()
+      if (m.type === 'APPROVAL_CREATED') { this.unread++; this.approvals = [...this.approvals, data] }
+      if (m.type === 'STOCK_IN_COMPLETED') this.refreshLocalPendingInbounds()
+      const auth = useAuthStore()
+      const ownPermission = m.type === 'USER_PERMISSIONS_UPDATED' && String(data.userId) === String(auth.user?.user_id ?? auth.user?.userId)
+      const rolePermission = m.type === 'ROLE_PERMISSIONS_UPDATED' && (!data.roleCode || String(data.roleCode).toUpperCase() === auth.role)
+      if (ownPermission || rolePermission) { try { await auth.refreshSession() } catch { /* Backend still enforces permissions. Recheck on resume/reconnect. */ } }
+      if (this.ws === ws) this.eventVersion++
     },
-    scheduleWsReconnect() {
-      if (!this.wsToken || this.wsRetryTimer) return
-      const delay = Math.min(30000, 1000 * Math.pow(2, Math.min(this.wsRetries, 5)))
-      this.wsRetries++
-      this.wsRetryTimer = setTimeout(() => { this.wsRetryTimer = null; this.openWs() }, delay)
+    resumeWs() {
+      const token = useAuthStore().token
+      if (!token) return
+      if (token !== this.wsToken || !messageConnections.has(this)) this.connectWs(token)
+      else messageConnections.get(this).reconnect('app-resumed')
+    },
+    setWsOnline(online) {
+      if (!online) this.offline = true
+      messageConnections.get(this)?.setOnline(online)
     },
     closeWs() {
-      this.wsConnected = false
+      messageConnections.get(this)?.stop()
+      messageConnections.delete(this)
+      this.wsConnected = false; this.wsStatus = 'stopped'; this.ws = null; this.wsRetryTimer = null
       this.wsToken = ''
-      if (this.wsRetryTimer) { clearTimeout(this.wsRetryTimer); this.wsRetryTimer = null }
-      if (this.ws) { try { const ws = this.ws; ws.onclose = null; ws.onopen = null; ws.onmessage = null; ws.onerror = null; ws.close() } catch {} this.ws = null }
     },
     setOffline(value) { this.offline = value }
   }

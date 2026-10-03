@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Notifications from './Notifications.vue'
+import { createPinia, setActivePinia } from 'pinia'
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), back: vi.fn(), notifications: vi.fn() }))
 
@@ -11,6 +12,7 @@ vi.mock('../api/request.js', () => ({ api: { notifications: mocks.notifications,
 
 describe('Notifications navigation', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     mocks.push.mockReset()
     mocks.notifications.mockReset().mockResolvedValue([{ notification_id: 1, action: 'READ', content: '库存提醒', create_time: '2026-09-17 03:23:12' }])
   })
