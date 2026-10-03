@@ -20,7 +20,8 @@ const APPROVAL_REASON_LABELS = Object.freeze({
   RECYCLE: '大额回收审批申请',
   STOCK_CHECK: '库存盘点差异审批',
   TRADE_IN: '以旧换新审批申请',
-  STOCK_OUT: '手动出库审批'
+  STOCK_OUT: '手动出库审批',
+  MEMBER_CLAIM: '会员认领申请'
 })
 
 export function formatApprovalReason(record = {}) {

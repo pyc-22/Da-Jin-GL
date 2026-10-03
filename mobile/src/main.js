@@ -63,7 +63,7 @@ const routes = [
   { path: '/todo', component: PendingTasks, meta: { auth: true, permission: 'processing:view' } },
   { path: '/manager/processing', redirect: '/processing' },
   { path: '/manager/approval', redirect: to => ({ path: '/manager/approval-center', query: to.query }) },
-  { path: '/manager/approval-center', component: RoleHome, meta: { auth: true, permission: 'stock:check:approve' }, props: { section: 'approval' } },
+  { path: '/manager/approval-center', component: RoleHome, meta: { auth: true, permission: 'approval:handle+stock:check:approve' }, props: { section: 'approval' } },
   { path: '/manager/deposit', component: DepositLedger, meta: { auth: true, permission: 'processing:view' } },
   { path: '/manager/daily', component: DailyReport, meta: { auth: true, permission: 'report:view:all' } },
   { path: '/sales/calc', component: SalesCalculator, meta: { auth: true, permission: 'order:create' } },

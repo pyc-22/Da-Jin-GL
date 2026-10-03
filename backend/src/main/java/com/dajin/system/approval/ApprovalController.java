@@ -121,6 +121,8 @@ public class ApprovalController {
             decideTradeIn(bizId, status, q == null ? null : String.valueOf(q.get("remark")), r);
         } else if ("STOCK_OUT".equals(type)) {
             decideStockOut(approval, status, q == null ? null : String.valueOf(q.get("remark")), r);
+        } else if ("MEMBER_CLAIM".equals(type)) {
+            decideMemberClaim(approval, status, q == null ? null : String.valueOf(q.get("remark")), r);
         } else if ("REFUND".equals(type) && status == 3) {
             refundOrder(bizId, q, r);
         }
@@ -162,6 +164,21 @@ public class ApprovalController {
         result.put("status", status);
         result.put("remark", q == null ? null : q.get("remark"));
         return ApiResponse.ok(result);
+    }
+
+    private void decideMemberClaim(Map<String,Object> approval, int status, String remark, HttpServletRequest r) {
+        if (status != 3) return;
+        Map<String,Object> request;
+        try { request = objectMapper.readValue(String.valueOf(approval.get("reason")), new TypeReference<Map<String,Object>>() {}); }
+        catch (Exception e) { throw new BusinessException(400214, "会员认领申请格式错误"); }
+        long salesId = Long.parseLong(String.valueOf(request.get("salesId")));
+        long memberId = ((Number) approval.get("biz_id")).longValue();
+        long storeId = db.store(r);
+        Integer sales = db.jdbc().queryForObject("select count(*) from sys_user u join sys_role role on role.role_id=u.role_id and role.store_id=u.store_id where u.user_id=:sales and u.store_id=:s and u.status=1 and role.status=1 and role.role_code='SALES'", Map.of("sales", salesId, "s", storeId), Integer.class);
+        if (sales == null || sales == 0) throw new BusinessException(400215, "申请销售不属于当前门店或已停用");
+        int changed = db.jdbc().update("update member set sales_id=:sales,update_time=now() where member_id=:id and store_id=:s and (sales_id is null or sales_id=0)", Map.of("sales", salesId, "id", memberId, "s", storeId));
+        if (changed == 0) throw new BusinessException(409203, "会员已被认领或不存在");
+        ws.broadcast("MEMBER_UPDATED", Map.of("storeId", storeId, "action", "CLAIM_APPROVED", "memberId", memberId));
     }
 
     private Map<String,Object> parsePaymentReason(Object raw) {

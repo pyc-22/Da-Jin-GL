@@ -14,6 +14,9 @@ class ManagerPermissionPolicyTests {
         assertEquals("processing:manage", ManagerPermissionPolicy.required("/api/processing/orders/3/payments", "POST"));
         assertEquals("processing:commissions", ManagerPermissionPolicy.required("/api/processing/commissions/3/pay", "PATCH"));
         assertEquals("member:manage", ManagerPermissionPolicy.required("/api/member/3/balance", "POST"));
+        assertEquals("member:manage", ManagerPermissionPolicy.required("/api/member/3/assign", "POST"));
+        assertEquals("member:manage", ManagerPermissionPolicy.required("/api/member/3", "PUT"));
+        assertEquals("member:follow", ManagerPermissionPolicy.required("/api/member/3/claim", "POST"));
         assertEquals("stock:transfer", ManagerPermissionPolicy.required("/api/stock/old-material/3", "PUT"));
         assertEquals("system:manage", ManagerPermissionPolicy.required("/api/system/config", "GET"));
         assertEquals("report:view:all", ManagerPermissionPolicy.required("/api/admin/finance/summary", "GET"));

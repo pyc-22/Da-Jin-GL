@@ -40,7 +40,8 @@ public final class ManagerPermissionPolicy {
             return "processing:manage";
         }
         if (path.startsWith("/api/member/")) {
-            if (path.endsWith("/balance") || path.endsWith("/assign")) return "member:manage";
+            if (path.endsWith("/balance") || path.endsWith("/assign") || path.matches(".*/\\d+$")) return "member:manage";
+            if (path.endsWith("/claim")) return "member:follow";
             if ("PUT".equalsIgnoreCase(method)) return "member:manage";
             return read ? "member:view" : "member:follow";
         }

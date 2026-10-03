@@ -43,7 +43,8 @@ export const useAuthStore = defineStore('auth', {
     can(permission) {
       if (!permission) return true
       if (this.role === 'ADMIN') return true
-      return this.permissions.includes('*') || this.permissions.includes(permission)
+      const required = String(permission).split('+').filter(Boolean)
+      return this.permissions.includes('*') || required.every(code => this.permissions.includes(code))
     },
     logout() {
       this.token = ''; this.user = null; this.refreshToken = ''

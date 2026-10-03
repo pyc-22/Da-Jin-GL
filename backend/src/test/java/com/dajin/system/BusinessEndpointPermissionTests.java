@@ -4,6 +4,7 @@ import com.dajin.system.config.RequirePermission;
 import com.dajin.system.recycle.RecycleController;
 import com.dajin.system.shift.ShiftController;
 import com.dajin.system.approval.ApprovalController;
+import com.dajin.system.member.MemberController;
 import org.junit.jupiter.api.Test;
 
 import javax.servlet.http.HttpServletRequest;
@@ -29,6 +30,14 @@ class BusinessEndpointPermissionTests {
     void approvalEndpointsRequireGenericHandlingPermission() throws Exception {
         assertPermission(ApprovalController.class.getMethod("approve", long.class, java.util.Map.class, HttpServletRequest.class), "approval:handle");
         assertPermission(ApprovalController.class.getMethod("reject", long.class, java.util.Map.class, HttpServletRequest.class), "approval:handle");
+    }
+
+    @Test
+    void memberManagementEndpointsUseSpecificPermissions() throws Exception {
+        assertPermission(MemberController.class.getMethod("update", long.class, MemberController.Req.class, HttpServletRequest.class), "member:manage");
+        assertPermission(MemberController.class.getMethod("balance", long.class, java.util.Map.class, HttpServletRequest.class), "member:manage");
+        assertPermission(MemberController.class.getMethod("assign", long.class, java.util.Map.class, HttpServletRequest.class), "member:manage");
+        assertPermission(MemberController.class.getMethod("claim", long.class, HttpServletRequest.class), "member:follow");
     }
 
     private void assertPermission(Method method, String expected) {
