@@ -1,6 +1,6 @@
 <template>
   <header class="design-header">
-    <button v-if="back" class="design-header-back" type="button" aria-label="返回" @click="$emit('back')">‹</button>
+    <button v-if="back" class="design-header-back" type="button" aria-label="返回" @click="$emit('back')"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7" /></svg></button>
     <div class="design-header-copy">
       <span v-if="eyebrow" class="design-eyebrow">{{ eyebrow }}</span>
       <h1>{{ title }}</h1>

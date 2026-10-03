@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:h5": "vite build",
     "build:android": "vite build --mode android && cap sync android",
+    "build:android:local": "powershell -ExecutionPolicy Bypass -File scripts/build-local-android.ps1",
     "android:open": "cap open android",
     "preview": "vite preview --host 127.0.0.1 --port 5175",
     "test": "vitest run"

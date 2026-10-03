@@ -454,7 +454,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 button:disabled{cursor:not-allowed;opacity:.5}
 .design-header{padding:var(--s-2) var(--s-3);margin:0;min-height:64px;background:var(--bg)}
 .design-header h1{font-size:var(--f-lg);overflow-wrap:anywhere}
-.design-header-back{border:1px solid var(--line-strong);border-radius:50%;background:var(--card);flex-shrink:0}
+.design-header-back{border:1px solid var(--line-strong);border-radius:50%;background:var(--card);flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.design-header-back svg{width:22px;height:22px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .design-header-actions{flex-wrap:wrap;justify-content:flex-end;min-width:0}
 .panel{min-width:0;overflow-wrap:anywhere}
 .panel-dark{background:var(--dark-gradient);color:var(--dark-ink);border-color:transparent}
