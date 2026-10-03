@@ -19,7 +19,7 @@ vi.mock('../utils/messagePermissions.js', () => ({
 import { useMessageRuntime } from './useMessageRuntime.js'
 import { useMessagesStore } from '../stores/messages.js'
 
-const notice = id => ({ notification_id: id, action: 'APPROVAL_CREATED', read: false })
+const notice = id => ({ notification_id: id, action: 'APPROVAL_CREATED', approvalId: id + 100, read: false })
 let wrapper
 async function start() {
   wrapper = mount(defineComponent({ setup() { useMessageRuntime({ push: mocks.push, replace: mocks.replace }); return () => null } }))
@@ -54,8 +54,8 @@ describe('Capacitor message integration', () => {
     await vi.advanceTimersByTimeAsync(15000)
     expect(mocks.show).toHaveBeenCalledExactlyOnceWith({ owner: '2:7', count: 2, sound: false })
     expect(mocks.sound).not.toHaveBeenCalled()
-    mocks.events.notificationAction({ owner: '2:7' })
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/notifications')
+    mocks.events.notificationAction({ owner: '2:7', notification: notice(2) })
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith({ path: '/manager/approval-center', query: { approvalId: '102' } })
   })
   it('reconnects after resume and coalesces messages that arrived while JS was suspended', async () => {
     const messages = await start(); mocks.events.appStateChange({ isActive: false })

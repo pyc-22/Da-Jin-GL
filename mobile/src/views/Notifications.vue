@@ -2,7 +2,7 @@
   <div :class="embedded ? 'messages-section' : 'shell'">
     <DesignHeader v-if="!embedded" title="消息" :back="true" @back="router.back()"><button class="text-action" @click="markAll">全部已读</button></DesignHeader>
     <main class="content page"><div v-if="embedded" class="summary-line"><span class="muted">消息通知</span><button class="text-action" @click="markAll">全部已读</button></div>
-      <button type="button" v-for="n in notices" :key="n.id" class="list-card" :class="{ unread: !n.read }" @click="markRead(n)"><span class="entry-symbol" :class="{'message-unread':!n.read}">{{ n.title.slice(0,1) }}</span>
+      <button type="button" v-for="n in notices" :key="n.id" class="list-card" :class="{ unread: !n.read }" @click="openNotice(n)"><span class="entry-symbol" :class="{'message-unread':!n.read}">{{ n.title.slice(0,1) }}</span>
         <div><b>{{ n.title }}</b><p>{{ n.text }}</p><small>{{ n.time }}</small></div><StatusPill :tone="n.read ? 'muted' : 'gold'">{{ n.read ? '已读' : '未读' }}</StatusPill>
       </button>
       <p v-if="error || messages.error" role="alert" class="error">{{ error || messages.error }}</p><EmptyState v-if="!notices.length && !messages.loading" title="暂无消息" />
@@ -23,6 +23,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api/request.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useMessagesStore } from '../stores/messages.js'
+import { navigateNotification } from '../utils/notificationNavigation.js'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -49,6 +50,12 @@ const fmtTime = value => {
   const date = new Date(source)
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 16).replace('T', ' ')
   return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date).replace(/\//g, '-')
+}
+
+async function openNotice(notice) {
+  await markRead(notice)
+  const source = messages.rows.find(row => String(row.notification_id ?? row.id ?? row.log_id) === String(notice.id)) || notice
+  await navigateNotification(router, source)
 }
 
 

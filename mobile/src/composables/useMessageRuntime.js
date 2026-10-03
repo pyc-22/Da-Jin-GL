@@ -9,6 +9,7 @@ import { readMessagePreferences } from '../utils/messagePreferences.js'
 import { isAndroidMessages, messageNative, backgroundSettings, requestMessagePermission } from '../utils/messagePermissions.js'
 import { installSoundUnlock, playMessageSound } from '../utils/messageSound.js'
 import { getStorage, setStorage } from '../utils/storage.js'
+import { navigateNotification } from '../utils/notificationNavigation.js'
 
 export function useMessageRuntime(router) {
   const auth = useAuthStore(), app = useAppStore(), messages = useMessagesStore()
@@ -42,7 +43,10 @@ export function useMessageRuntime(router) {
   function openTappedMessage() {
     if (!pendingTap || !auth.token) return
     const owner = account(), tap = pendingTap; pendingTap = null
-    if (owner && tap.owner === owner && auth.can('notification:view')) void router.push('/notifications')
+    if (owner && tap.owner === owner && auth.can('notification:view')) {
+      const row = tap.notification || tap.message || tap.row || tap
+      void navigateNotification(router, row)
+    }
   }
   async function syncSession() {
     const current = ++session, owner = account()
