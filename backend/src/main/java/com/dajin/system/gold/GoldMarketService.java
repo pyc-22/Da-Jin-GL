@@ -172,22 +172,30 @@ public class GoldMarketService {
     }
 
     public Map<String, Object> saveManual(long storeId, long userId, String priceType, BigDecimal price) {
+        return saveManual(storeId, userId, priceType, price, null, null);
+    }
+
+    public Map<String, Object> saveManual(long storeId, long userId, String priceType, BigDecimal price,
+                                          BigDecimal salePrice, BigDecimal recyclePrice) {
         List<Map<String, Object>> definitions = readDefinitions(storeId);
         Map<String, Object> item = find(definitions, priceType);
         if (item == null) {
             item = new LinkedHashMap<>();
             item.put("name", priceType); item.put("code", priceType); item.put("purity", 100);
-            item.put("price", price); item.put("sort", definitions.size() + 1); item.put("status", 1);
+            item.put("price", price != null ? price : (salePrice != null ? salePrice : recyclePrice)); item.put("sort", definitions.size() + 1); item.put("status", 1);
             definitions.add(item);
         }
-        item.put("price", price);
-        item.put("pricingMode", "MANUAL");
-        persistDefinitions(storeId, definitions);
         Map<String, Object> previous = latestPrices(storeId).get(String.valueOf(item.get("name")));
         BigDecimal previousSale = previous == null ? null : decimal(previous.get("sale_price"));
         BigDecimal previousRecycle = previous == null ? null : decimal(previous.get("recycle_price"));
-        BigDecimal sale = isRecycleType(item) ? previousSale : price;
-        BigDecimal recycle = isRecycleType(item) ? price : previousRecycle;
+        boolean recycleType = isRecycleType(item);
+        BigDecimal sale = salePrice != null ? salePrice : (recycleType ? previousSale : (price != null ? price : previousSale));
+        BigDecimal recycle = recyclePrice != null ? recyclePrice : (recycleType ? (price != null ? price : previousRecycle) : previousRecycle);
+        if (sale == null && recycle == null) throw new BusinessException(400302, "至少填写卖价或回收价");
+        BigDecimal legacyPrice = recycleType ? recycle : sale;
+        if (legacyPrice != null) item.put("price", legacyPrice);
+        item.put("pricingMode", "MANUAL");
+        persistDefinitions(storeId, definitions);
         insertPrice(storeId, item, recycle, sale, previous == null ? null : decimal(previous.get("base_price")), "MANUAL", null, "MANUAL", false);
         logChange(storeId, userId, item, previous, sale, recycle, "MANUAL");
         broadcastPrice(storeId, item, sale, recycle, "MANUAL", null);

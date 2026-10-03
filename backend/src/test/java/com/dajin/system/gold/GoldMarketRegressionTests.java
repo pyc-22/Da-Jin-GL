@@ -74,6 +74,38 @@ class GoldMarketRegressionTests {
         assertEquals("960", String.valueOf(row.get("salePrice")));
     }
 
+    @Test void manualPriceCanUpdateSaleAndRecycleTogether() {
+        Map<String, Object> oldPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("940.00"),
+                "recycle_price", new BigDecimal("870.00"), "price", new BigDecimal("940.00")));
+        Map<String, Object> updatedPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("950.00"),
+                "recycle_price", new BigDecimal("880.00"), "price", new BigDecimal("950.00")));
+        when(db.list(contains("select gp.*"), anyMap())).thenReturn(List.of(oldPrice), List.of(updatedPrice));
+
+        Map<String, Object> result = service.saveManual(9105, 1, "GOLD", null,
+                new BigDecimal("950.00"), new BigDecimal("880.00"));
+
+        assertEquals(new BigDecimal("950.00"), result.get("salePrice"));
+        assertEquals(new BigDecimal("880.00"), result.get("recyclePrice"));
+        verify(jdbc).update(contains("insert into gold_price("), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
+    }
+
+    @Test void legacyManualPriceOnlyChangesItsMappedSide() {
+        Map<String, Object> oldPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("940.00"),
+                "recycle_price", new BigDecimal("870.00"), "price", new BigDecimal("940.00")));
+        Map<String, Object> updatedPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("950.00"),
+                "recycle_price", new BigDecimal("870.00"), "price", new BigDecimal("950.00")));
+        when(db.list(contains("select gp.*"), anyMap())).thenReturn(List.of(oldPrice), List.of(updatedPrice));
+
+        Map<String, Object> result = service.saveManual(9105, 1, "GOLD", new BigDecimal("950.00"));
+
+        assertEquals(new BigDecimal("950.00"), result.get("salePrice"));
+        assertEquals(new BigDecimal("870.00"), result.get("recyclePrice"));
+    }
+
     @Test void invalidAutoIsRejectedBeforeConfigPersistence() {
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.updateType(9105, 1, "GOLD", Map.of("pricingMode", "AUTO")));

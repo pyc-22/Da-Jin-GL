@@ -28,10 +28,16 @@ public class GoldPriceController {
     @GetMapping("/types/all") @RequirePermission("gold:manage")
     public ApiResponse<?> allTypes(HttpServletRequest request) { return ApiResponse.ok(market.current(db.store(request), true)); }
 
-    public record Req(@NotBlank String priceType, @NotNull @DecimalMin("0") BigDecimal price) {}
+    public record Req(@NotBlank String priceType,
+                      @DecimalMin("0") BigDecimal price,
+                      @DecimalMin("0") BigDecimal salePrice,
+                      @DecimalMin("0") BigDecimal recyclePrice) {}
 
     @PostMapping @RequirePermission("gold:manage")
-    public ApiResponse<?> save(@Valid @RequestBody Req body, HttpServletRequest request) { return ApiResponse.ok(market.saveManual(db.store(request), userId(request), body.priceType(), body.price())); }
+    public ApiResponse<?> save(@Valid @RequestBody Req body, HttpServletRequest request) {
+        if (body.price() == null && body.salePrice() == null && body.recyclePrice() == null) throw new BusinessException(400302, "至少填写卖价或回收价");
+        return ApiResponse.ok(market.saveManual(db.store(request), userId(request), body.priceType(), body.price(), body.salePrice(), body.recyclePrice()));
+    }
     @PostMapping("/types") @RequirePermission("gold:manage")
     public ApiResponse<?> createType(@RequestBody Map<String, Object> body, HttpServletRequest request) { return ApiResponse.ok(market.createType(db.store(request), userId(request), body)); }
     @PutMapping("/types/{id}") @RequirePermission("gold:manage")
