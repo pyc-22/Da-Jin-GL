@@ -20,7 +20,6 @@ const props=defineProps({embedded:Boolean})
 
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '../api/request.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useMessagesStore } from '../stores/messages.js'
 import { navigateNotification } from '../utils/notificationNavigation.js'
@@ -61,23 +60,14 @@ async function openNotice(notice) {
 
 
 onMounted(async () => {
-  const owner = messages.owner, token = auth.token
-  try {
-    const server = await api.notifications() || []
-    if (messages.owner === owner && auth.token === token) { messages.rows = server; messages.loading = false }
-  } catch {
-    if (messages.owner === owner && auth.token === token) { error.value = '消息加载失败，请稍后刷新'; messages.loading = false }
-  }
+  try { await messages.refresh() } catch { error.value = messages.error }
 })
 
 async function markRead(notice) {
   if (notice.read) return
-  const owner = messages.owner
   try {
-    await api.markNotificationRead(notice.id)
-    if (owner !== messages.owner) return
-    messages.rows = messages.rows.map(row => String(row.notification_id ?? row.id ?? row.log_id) === String(notice.id) ? { ...row, read: true } : row)
-  } catch { if (owner === messages.owner) error.value='标记已读失败，请重试' }
+    await messages.markRead(notice)
+  } catch { error.value='标记已读失败，请重试' }
 }
 async function markAll(){await Promise.all(notices.value.filter(n=>!n.read).map(markRead))}
 </script>

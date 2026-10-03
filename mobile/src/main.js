@@ -30,6 +30,7 @@ import SalesCalculator from './views/SalesCalculator.vue'
 import RecycleCreate from './views/RecycleCreate.vue'
 import GoldSettings from './views/GoldSettings.vue'
 import BirthdayReminder from './views/BirthdayReminder.vue'
+import MemberRegister from './views/MemberRegister.vue'
 import { permissionForSection } from './config/roles.js'
 import { useAuthStore } from './stores/auth.js'
 import { permission } from './directives/permission.js'
@@ -38,6 +39,7 @@ import { isNativeApp, setupNativeNavigation } from './utils/nativeDevice.js'
 
 const routes = [
   { path: '/login', component: Login },
+  { path: '/member-register', component: MemberRegister },
   { path: '/forbidden', component: Forbidden, meta: { auth: true } },
   { path: '/member/:id', component: MemberDetail, meta: { auth: true } },
   { path: '/activity', component: ActivityLibrary, meta: { auth: true, permission: 'member:follow' } },

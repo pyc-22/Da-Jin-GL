@@ -148,5 +148,6 @@ export const api = {
   ,tradeInCreate: (payload) => http.post('/api/trade-in/create', payload)
   ,recycleCreate: (payload) => http.post('/api/recycle/create', payload)
   ,memberCreate: (payload) => http.post('/api/member', payload)
+  ,memberRegister: (payload) => http.post('/api/public/member/register', payload)
   ,visitCreateTask: (payload) => http.post('/api/visit/tasks', payload)
 }

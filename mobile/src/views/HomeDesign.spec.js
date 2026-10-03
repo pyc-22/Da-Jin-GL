@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RoleHome from './RoleHome.vue'
+import { createPinia, setActivePinia } from 'pinia'
 const state=vi.hoisted(()=>({auth:null,app:null,route:null,push:vi.fn(),createOrder:vi.fn()}))
 vi.mock('../stores/auth.js',()=>({useAuthStore:()=>state.auth}))
 vi.mock('../stores/app.js',()=>({useAppStore:()=>state.app}))
@@ -10,6 +11,7 @@ vi.mock('vue-router',()=>({useRoute:()=>state.route,useRouter:()=>({push:state.p
 vi.mock('../api/request.js',()=>({http:{defaults:{baseURL:''}},api:new Proxy({}, {get:(_,name)=>name==='createOrder'?state.createOrder:async()=>name==='dashboard'?{amount:2500,order_count:2,trend:[]}:name==='goods'?{records:[{goods_id:1,name:'按克足金',barcode:'G001',gold_type:'足金',price_type:1,weight:2,available_stock:20}]}:name==='processingSalespeople'?[{user_id:7,real_name:'导购测试'}]:name==='performance'?{amount:500,commission:10}:name==='systemTarget'?{monthlySalesTarget:2000}:[]})}))
 let wrapper
 beforeEach(()=>{
+ setActivePinia(createPinia())
  state.route={params:{role:'manager',section:'dashboard'}}
  state.auth=reactive({role:'MANAGER',permissions:['*'],user:{user_id:7,real_name:'测试店长'},can:()=>true})
  const gold={price_type:'足金',salePrice:800,recyclePrice:750,basePrice:780,markup:20,recycleDeduction:30,marketStatus:'CLOSED'}

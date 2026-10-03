@@ -27,9 +27,6 @@ export const tabsForRole = (role, permissions = []) => {
 }
 
 export const permissionForSection = (section, role) => {
-  // Legacy section routes keep the stricter manager-only permission; the detailed
-  // report page uses the dedicated report:view route for sales accounts.
-  if (section === 'report' && role === 'SALES') return 'report:view:all'
   return ({
   dashboard: 'dashboard:view', home: 'dashboard:view', report: 'report:view', performance: 'report:view',
   member: 'member:view', members: 'member:view', goods: 'goods:manage', order: 'order:create',

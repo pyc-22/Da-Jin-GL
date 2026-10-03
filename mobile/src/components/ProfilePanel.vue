@@ -5,7 +5,7 @@
     <button v-if="isManager && auth.can('stock:check:approve')" class="entry" @click="$emit('go','approval')"><span class="entry-main"><i v-if="pendingCount" class="entry-badge">{{ pendingCount }}</i>审批中心</span><span class="entry-sub">{{ pendingCount ? `${pendingCount} 条待审批` : '暂无待审批' }} ›</span></button>
     <button v-else-if="!isManager && auth.can('report:view')" class="entry" @click="$emit('go','performance')"><span class="entry-main">个人业绩</span><span class="entry-sub">本月销售与提成 ›</span></button>
   </div>
-  <section class="profile-card qr-card"><canvas ref="qrCanvas" width="200" height="200"></canvas><p class="qr-title">我的专属二维码</p><small class="muted">客户扫码登记会员并绑定专属顾问（登记页待后端支持）</small><button class="outline" @click="saveQr">保存二维码</button></section>
+  <section class="profile-card qr-card"><template v-if="registrationUrl"><canvas ref="qrCanvas" width="200" height="200"></canvas><p class="qr-title">我的专属二维码</p><small class="muted">客户扫码登记会员并绑定专属顾问</small><button class="outline" @click="saveQr">保存二维码</button></template><template v-else><p class="qr-title">会员登记二维码</p><small class="muted">当前环境未配置会员登记地址，请联系管理员配置后使用。</small></template></section>
   <div class="settings"><button @click="pwDialog=true">修改密码 <span>›</span></button><button @click="openNotify">消息设置 <span>›</span></button><button @click="showVersion">关于与版本 <span>v1.0.0-rc.3 ›</span></button></div><button class="danger full" @click="logout">退出登录</button>
   <div v-if="pwDialog" class="mobile-modal"><div class="mobile-modal-card"><h3>修改密码</h3><label class="form-label">旧密码<input v-model="pwForm.oldPassword" type="password" autocomplete="current-password"/></label><label class="form-label">新密码<input v-model="pwForm.newPassword" type="password" autocomplete="new-password" placeholder="至少6位"/></label><label class="form-label">确认新密码<input v-model="pwForm.confirm" type="password" autocomplete="new-password"/></label><p v-if="pwError" class="error">{{ pwError }}</p><p v-if="pwOk" class="success-text">{{ pwOk }}</p><div class="action-row"><button class="outline" @click="closePw">取消</button><button class="primary" :disabled="pwSubmitting" @click="submitPw">{{ pwSubmitting ? '提交中...' : '确认修改' }}</button></div></div></div><MessageSettings v-if="notifyDialog" @close="notifyDialog=false" />
 </section></template>
@@ -46,9 +46,12 @@ function logout(){
   auth.logout();router.replace('/login')
 }
 const qrCanvas=ref(null); const qrDataUrl=ref('')
+const registrationUrl = computed(() => String(import.meta.env.VITE_MEMBER_REGISTER_URL || '').trim())
 onMounted(async()=>{
+  if (!registrationUrl.value) return
   try{
-    const text=`${location.origin}/member-register?salesId=${auth.user?.user_id||''}&store=${encodeURIComponent(auth.user?.store_name||'')}`
+    const separator = registrationUrl.value.includes('?') ? '&' : '?'
+    const text=`${registrationUrl.value}${separator}salesId=${encodeURIComponent(auth.user?.user_id||'')}&storeId=${encodeURIComponent(auth.user?.store_id||auth.user?.storeId||'')}`
     await QRCode.toCanvas(qrCanvas.value,text,{width:200,margin:1,color:{dark:'#1a1a1a',light:'#ffffff'}})
     qrDataUrl.value=qrCanvas.value.toDataURL('image/png')
   }catch{ if(qrCanvas.value) qrCanvas.value.style.display='none' }

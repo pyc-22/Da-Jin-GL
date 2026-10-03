@@ -44,7 +44,7 @@ describe('mobile role navigation', () => {
 
   it('removes a tab as soon as its permission is absent', () => {
     expect(tabsForRole('MANAGER', ['dashboard:view', 'member:view']).map(x => x.key)).toEqual(['dashboard', 'documents', 'profile'])
-    expect(permissionForSection('report', 'SALES')).toBe('report:view:all')
+    expect(permissionForSection('report', 'SALES')).toBe('report:view')
     expect(permissionForSection('performance', 'SALES')).toBe('report:view')
   })
 })

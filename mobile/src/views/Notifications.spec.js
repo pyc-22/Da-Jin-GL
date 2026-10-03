@@ -23,7 +23,7 @@ describe('Notifications navigation', () => {
     expect(wrapper.findAll('.tabbar button')).toHaveLength(5)
     expect(wrapper.get('.tabbar button:nth-child(3)').text()).toContain('开单')
     expect(wrapper.get('.tabbar button.active').text()).toContain('消息')
-    expect(wrapper.text()).toContain('通知')
+    expect(wrapper.text()).toContain('库存提醒')
     expect(wrapper.text()).not.toContain('READ')
   })
 
