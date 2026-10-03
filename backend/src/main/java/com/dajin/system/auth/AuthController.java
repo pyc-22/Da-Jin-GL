@@ -5,12 +5,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate; import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.HttpServletRequest; import javax.validation.Valid; import javax.validation.constraints.*; import java.util.*;
 import io.jsonwebtoken.Claims;
+import com.dajin.system.config.RequirePermission;
 
 @RestController @RequestMapping({"/api/auth", "/api/user"})
 public class AuthController {
     private final NamedParameterJdbcTemplate jdbc; private final JwtService jwt; private final PermissionService permissionService; private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     public AuthController(NamedParameterJdbcTemplate jdbc, JwtService jwt, PermissionService permissionService){this.jdbc=jdbc;this.jwt=jwt;this.permissionService=permissionService;}
     public record LoginReq(@NotBlank String username,@NotBlank String password, String clientType){}
+    public record ChangePasswordReq(@NotBlank String oldPassword,@NotBlank @Size(min=6,max=128) String newPassword){}
     @PostMapping("/login") public ApiResponse<?> login(@Valid @RequestBody LoginReq req){
         List<Map<String,Object>> rows=jdbc.queryForList("select u.user_id,u.username,u.password,u.real_name,u.role_id,u.store_id,u.status,u.phone,u.entry_date,u.remark,r.role_code,r.role_name,s.store_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id join sys_store s on s.store_id=u.store_id where u.username=:u and r.status=1 limit 1",Map.of("u",req.username()));
         if(rows.isEmpty()) throw new BusinessException(401001,"用户名或密码错误");
@@ -42,6 +44,18 @@ public class AuthController {
         return ApiResponse.ok(result);
     }
     @PostMapping("/logout") public ApiResponse<Void> logout(){return ApiResponse.ok();}
+    @PostMapping("/change-password") @RequirePermission("dashboard:view")
+    public ApiResponse<?> changePassword(@Valid @RequestBody ChangePasswordReq req,HttpServletRequest request){
+        Claims claims=(Claims)request.getAttribute("claims");
+        if(claims==null) throw new BusinessException(401001,"登录状态已失效");
+        long userId=Long.parseLong(claims.getSubject()); long storeId=((Number)claims.get("storeId")).longValue();
+        Map<String,Object> row=jdbc.queryForMap("select password from sys_user where user_id=:id and store_id=:s and status=1",Map.of("id",userId,"s",storeId));
+        String stored=String.valueOf(row.get("password"));
+        if(!encoder.matches(req.oldPassword(),stored)) throw new BusinessException(401002,"旧密码错误");
+        if(encoder.matches(req.newPassword(),stored)) return ApiResponse.ok(Map.of("changed",true,"alreadyCurrent",true));
+        jdbc.update("update sys_user set password=:p where user_id=:id and store_id=:s and status=1",Map.of("p",encoder.encode(req.newPassword()),"id",userId,"s",storeId));
+        return ApiResponse.ok(Map.of("changed",true));
+    }
     @GetMapping("/me") public ApiResponse<?> currentUser(HttpServletRequest request){
         Claims claims=(Claims)request.getAttribute("claims");
         long userId=Long.parseLong(claims.getSubject()); long storeId=((Number)claims.get("storeId")).longValue();

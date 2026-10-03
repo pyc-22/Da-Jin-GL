@@ -37,7 +37,7 @@ const pendingCount=computed(()=>app.approvals.length)
 const pwDialog=ref(false); const pwSubmitting=ref(false); const pwError=ref(''); const pwOk=ref(''); const pwForm=reactive({oldPassword:'',newPassword:'',confirm:''})
 const notifyDialog=ref(false)
 function closePw(){pwDialog.value=false;pwError.value='';pwOk.value='';pwForm.oldPassword='';pwForm.newPassword='';pwForm.confirm=''}
-async function submitPw(){pwError.value='';pwOk.value='';if(!pwForm.oldPassword||!pwForm.newPassword)return pwError.value='请填写完整';if(pwForm.newPassword.length<6)return pwError.value='新密码至少6位';if(pwForm.newPassword!==pwForm.confirm)return pwError.value='两次输入的新密码不一致';pwSubmitting.value=true;try{await api.changePassword({oldPassword:pwForm.oldPassword,newPassword:pwForm.newPassword});pwOk.value='密码修改成功，请重新登录';setTimeout(()=>{closePw();auth.logout();router.replace('/login')},1200)}catch(e){pwError.value=e?.response?.status===404?'修改密码接口暂未上线，待后端支持后可用':(e.message||'修改失败')}finally{pwSubmitting.value=false}}
+async function submitPw(){pwError.value='';pwOk.value='';if(!pwForm.oldPassword||!pwForm.newPassword)return pwError.value='请填写完整';if(pwForm.newPassword.length<6)return pwError.value='新密码至少6位';if(pwForm.newPassword!==pwForm.confirm)return pwError.value='两次输入的新密码不一致';pwSubmitting.value=true;try{await api.changePassword({oldPassword:pwForm.oldPassword,newPassword:pwForm.newPassword});pwOk.value='密码修改成功，请重新登录';setTimeout(()=>{closePw();auth.logout();router.replace('/login')},1200)}catch(e){pwError.value=e?.response?.status===401002?'旧密码错误，请重新输入':(e.message||'修改失败')}finally{pwSubmitting.value=false}}
 function showVersion(){toast('打金店移动端 1.0.0-rc.3\n请通过门店管理员获取更新安装包，覆盖安装以保留本账号草稿。')}
 function openNotify(){notifyDialog.value=true}
 
