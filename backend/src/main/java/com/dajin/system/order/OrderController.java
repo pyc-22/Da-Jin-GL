@@ -7,6 +7,7 @@ import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.gold.GoldMarketService;
 import com.dajin.system.stock.GoodsInventoryUnit;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -222,6 +223,12 @@ public class OrderController {
             if (count == null || count == 0) throw new BusinessException(409113, "单件码不在库或不属于该商品: " + pieceNo);
         }
     }
+    private List<String> pieceNos(Object raw) {
+        if (raw == null || String.valueOf(raw).isBlank()) return List.of();
+        try { return objectMapper.readValue(String.valueOf(raw), new TypeReference<List<String>>() {}); }
+        catch (Exception e) { throw new BusinessException(409114, "订单单件码格式不正确"); }
+    }
+
     private String pieceNosJson(List<String> pieceNos) {
         try { return objectMapper.writeValueAsString(pieceNos == null ? List.of() : pieceNos.stream().map(String::trim).toList()); }
         catch (Exception e) { throw new BusinessException(400112, "单件码格式不正确"); }
@@ -313,6 +320,69 @@ public class OrderController {
         ws.broadcast("ORDER_UPDATED", event);
         ws.broadcast("STOCK_UPDATED", event);
         return ApiResponse.ok(Map.of("orderId", id, "status", 4));
+    }
+
+    /**
+     * Reopens a cashier sale while retaining the original order and ledger rows.
+     * Every compensating row carries a deterministic client id so retries are safe.
+     */
+    @PostMapping("/{id}/withdraw")
+    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+    @RequirePermission("order:withdraw")
+    @Transactional
+    public ApiResponse<?> withdraw(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest request) {
+        long storeId = db.store(request);
+        Map<String,Object> order = db.one("select o.*," + SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:id and o.store_id=:s for update", Map.of("id", id, "s", storeId));
+        if (order == null) throw new BusinessException(404108, "销售订单不存在");
+        long operator = userId(request);
+        Integer expectedVersion = body == null || body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version")));
+        int version = ((Number) order.getOrDefault("version", 0)).intValue();
+        if (expectedVersion != null && expectedVersion != version) throw new BusinessException(409107, "订单版本已变化，请刷新后重试");
+        List<Map<String,Object>> prior = db.list("select log_id from operation_log where store_id=:s and module='ORDER' and action='WITHDRAW' and content like :content limit 1", Map.of("s", storeId, "content", "%订单=" + order.get("order_no") + "%"));
+        if (!prior.isEmpty()) return ApiResponse.ok(Map.of("orderId", id, "status", 0, "idempotentReplay", true, "message", "订单已撤回"));
+        int status = ((Number) order.get("status")).intValue();
+        if (status == 4 || status == 5) return ApiResponse.ok(Map.of("orderId", id, "status", status, "idempotentReplay", true, "message", "订单已处于终态，未执行撤回"));
+        if (status != 0 && status != 1 && status != 3) throw new BusinessException(409109, "当前订单状态不支持撤回");
+        BigDecimal paid = new BigDecimal(String.valueOf(order.getOrDefault("actual_paid", 0)));
+        if (status == 1) {
+            for (Map<String,Object> item : db.list("select i.order_item_id,i.goods_id,i.qty,i.weight,i.piece_nos,g.price_type from sales_order_item i join goods g on g.goods_id=i.goods_id and g.store_id=i.store_id where i.order_id=:o and i.store_id=:s and i.goods_id is not null order by i.goods_id,i.order_item_id", Map.of("o", id, "s", storeId))) {
+                BigDecimal qty = GoodsInventoryUnit.quantity(item.get("price_type"), item.get("weight"), item.get("qty"));
+                db.jdbc().update("update goods set stock=stock+:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s", new MapSqlParameterSource().addValue("qty", qty).addValue("g", item.get("goods_id")).addValue("s", storeId));
+                if (!GoodsInventoryUnit.isGramPriced(item.get("price_type")) && qty.signum() > 0) {
+                    List<String> pieces = pieceNos(item.get("piece_nos"));
+                    MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("g", item.get("goods_id")).addValue("o", id).addValue("qty", qty.intValue());
+                    if (!pieces.isEmpty()) db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where store_id=:s and goods_id=:g and sales_order_id=:o and status=0 and piece_no in (:pieces)", p.addValue("pieces", pieces));
+                    else db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where piece_id in (select piece_id from (select piece_id from goods_piece where store_id=:s and goods_id=:g and sales_order_id=:o and status=0 order by piece_id desc limit :qty) t)", p);
+                }
+                db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:no,'SALE_WITHDRAW',:g,:qty,0,:uid,now()) on duplicate key update qty=values(qty)", new MapSqlParameterSource().addValue("s", storeId).addValue("no", "WITHDRAW-SALE-" + item.get("order_item_id")).addValue("g", item.get("goods_id")).addValue("qty", qty).addValue("uid", operator));
+            }
+            new com.dajin.system.stock.OldMaterialLedgerService(db).returnAndRecord(storeId, "ORDER:" + id, operator);
+            List<Map<String,Object>> income = db.list("select pay_method,sum(amount) amount from finance_record where store_id=:s and related_bill_no=:no and type='INCOME' and category='SALE' group by pay_method", Map.of("s", storeId, "no", order.get("order_no")));
+            for (Map<String,Object> line : income) {
+                BigDecimal amount = new BigDecimal(String.valueOf(line.get("amount"))); if (amount.signum() == 0) continue;
+                String method = String.valueOf(line.get("pay_method"));
+                db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','SALE_WITHDRAW',:a,:m,:no,:uid,'销售单撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)", new MapSqlParameterSource().addValue("s",storeId).addValue("a",amount).addValue("m",method).addValue("no",order.get("order_no")).addValue("uid",operator).addValue("shift",order.get("shift_no")).addValue("client","WITHDRAW-SALE-" + id + "-" + method));
+                if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
+                    db.jdbc().update("update member set balance=balance+:a,update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("a",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
+                    new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "SALE_WITHDRAW", String.valueOf(id), operator);
+                }
+            }
+            if (order.get("member_id") != null) {
+                db.jdbc().update("update member set total_consume=greatest(total_consume-:a,0),update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("a",paid).addValue("m",order.get("member_id")).addValue("s",storeId));
+                db.jdbc().update("delete from member_consume where store_id=:s and order_id=:o", Map.of("s",storeId,"o",id));
+            }
+            db.jdbc().update("update visit_task set status=2,call_result='ORDER_WITHDRAWN',update_time=now() where store_id=:s and order_id=:o and status=1", Map.of("s",storeId,"o",id));
+            new com.dajin.system.commission.CommissionLedger(db).rebuildForOrder(storeId, id);
+        } else {
+            db.jdbc().update("update goods_piece set status=1,sales_order_id=null,update_time=now() where store_id=:s and sales_order_id=:o and status=2", Map.of("s",storeId,"o",id));
+            db.jdbc().update("delete from old_material where store_id=:s and source=concat('ORDER:',:o) and status=0", Map.of("s",storeId,"o",id));
+        }
+        db.jdbc().update("update approval set status=4,approver_id=:uid,approve_remark='订单已撤回',approve_time=now() where store_id=:s and ((type='DISCOUNT' and biz_id=:id) or (type='REFUND' and biz_id=:id)) and status=1", new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("uid",operator));
+        db.jdbc().update("update sales_order set status=0,pay_amount=0,pay_method=null,settlement_discount=0,settlement_discount_reason=null,old_material_payout_method=null,old_material_payout_amount=0,approval_id=null,paid_time=null,shift_no=null,version=version+1,update_time=now() where order_id=:id and store_id=:s", Map.of("id",id,"s",storeId));
+        log(storeId, operator, "WITHDRAW", "订单=" + order.get("order_no") + ",原状态=" + status + ",原实收=" + paid);
+        Map<String,Object> event = Map.of("storeId",storeId,"orderId",id,"orderNo",order.get("order_no"),"action","WITHDRAW");
+        ws.broadcast("ORDER_UPDATED", event); ws.broadcast("STOCK_UPDATED", event); ws.broadcast("REPORT_UPDATED", event); ws.broadcast("COMMISSION_UPDATED", event); ws.broadcast("MEMBER_UPDATED", event);
+        Map<String,Object> result = new LinkedHashMap<>(); result.put("orderId",id); result.put("status",0); result.put("withdrawn",true); result.put("clientRefundRequired",paid.signum()>0); result.put("message",paid.signum()>0?"系统已完成账务冲销，客户款项需线下退还":"订单已撤回到草稿"); return ApiResponse.ok(result);
     }
 
     @PostMapping("/cancel-by-client")

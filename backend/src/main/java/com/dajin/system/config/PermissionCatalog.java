@@ -17,9 +17,9 @@ public final class PermissionCatalog {
                     item("stock:check:view", "查看盘点"), item("stock:check:create", "发起盘点"),
                     item("stock:check:submit", "提交盘点"), item("stock:check:approve", "审批盘点")),
             group("approval", "审批中心", item("approval:view", "查看审批"), item("approval:handle", "处理审批")),
-            group("order", "销售收银", item("order:create", "销售开单"), item("order:checkout", "订单结算"), item("order:refund", "退款申请")),
+            group("order", "销售收银", item("order:create", "销售开单"), item("order:checkout", "订单结算"), item("order:refund", "退款申请"), item("order:withdraw", "撤回成品销售单")),
             group("member", "会员管理", item("member:view", "查看会员"), item("member:view:all", "查看全店会员"), item("member:create", "新增会员"), item("member:follow", "会员跟进回访"), item("member:manage", "编辑会员与储值")),
-            group("processing", "加工管理", item("processing:view", "查看加工订单与看板"), item("processing:manage", "处理加工订单与收款"),
+            group("processing", "加工管理", item("processing:view", "查看加工订单与看板"), item("processing:manage", "处理加工订单与收款"), item("processing:withdraw", "撤回已完成加工单"),
                     item("processing:items", "维护加工项目"), item("processing:commissions", "查看与发放加工提成"), item("processing:loss", "查看与设置损耗考核")),
             group("recycle", "回收以旧换新", item("recycle:view", "查看及处理回收业务")),
             group("report", "报表", item("report:view", "查看业绩报表"), item("report:view:all", "查看全店报表"),
@@ -34,9 +34,9 @@ public final class PermissionCatalog {
 
     private static final Map<String, Set<String>> DEFAULTS = Map.of(
             "ADMIN", Set.of("*"),
-            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:commission", "report:daily", "report:processing", "report:recycle", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
+            "MANAGER", Set.of("dashboard:view", "goods:search", "goods:manage", "stock:view", "stock:inbound:create", "stock:transfer", "stock:check:view", "stock:check:create", "stock:check:submit", "stock:check:approve", "approval:view", "approval:handle", "order:create", "order:checkout", "order:refund", "order:withdraw", "member:view", "member:view:all", "member:create", "member:follow", "member:manage", "processing:view", "processing:manage", "processing:withdraw", "processing:items", "processing:commissions", "processing:loss", "recycle:view", "report:view", "report:commission", "report:daily", "report:processing", "report:recycle", "commission:manage", "staff:manage", "shift:confirm", "notification:view", "gold:view", "gold:manage"),
             "SALES", Set.of("dashboard:view", "goods:search", "stock:inbound:create", "stock:check:view", "stock:check:create", "stock:check:submit", "member:view", "member:create", "member:follow", "processing:view", "recycle:view", "report:view", "notification:view", "gold:view"),
-            "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "processing:view", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view", "gold:view"),
+            "CASHIER", Set.of("dashboard:view", "goods:search", "order:create", "order:checkout", "order:withdraw", "processing:view", "processing:withdraw", "member:view", "member:view:all", "member:create", "shift:confirm", "notification:view", "gold:view"),
             "CRAFTSMAN", Set.of("processing:view")
     );
 
