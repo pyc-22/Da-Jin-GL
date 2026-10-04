@@ -6,6 +6,7 @@
         <div><span>未完成订单</span><b>{{ pendingCount }} 笔</b></div>
         <div><span>待取货</span><b>{{ readyCount }} 笔</b></div>
         <div><span>未收尾款</span><b class="due">{{ money(outstandingTotal) }}</b></div>
+        <div><span>待返款</span><b class="due">{{ money(refundOutstandingTotal) }}</b></div>
       </section>
       <p v-if="!loading && !error && rows.length" class="muted small">未结加工单按状态排列，款项由收银端处理。</p>
       <EmptyState v-if="loading" title="加载中..." />
@@ -18,11 +19,12 @@
         </div>
         <p>{{ row.customer_name || row.member_name || '散客' }} · {{ row.customer_phone || '—' }}</p>
         <p>{{ row.order_no }}</p>
-        <p>应收 {{ money(row.due_amount) }} · 已收 {{ money(row.paid_amount) }} · <b class="due">未收 {{ money(outstanding(row)) }}</b></p>
+        <p>整单应收 {{ money(row.settlement_due_amount ?? row.due_amount) }} · 已收 {{ money(row.actual_paid_amount ?? row.paid_amount) }} · <b class="due">未收 {{ money(outstanding(row)) }}（尾款）</b> · 待返款 {{ money(refundOutstanding(row)) }}</p>
         <p class="muted">师傅：{{ row.craftsman_name || '未指派' }} · 取货 {{ date(row.pickup_date) }}</p>
         <div class="todo-actions">
           <button v-if="row.customer_phone" class="outline" @click="call(row.customer_phone)">拨号</button>
           <button v-if="['PROCESSING', 'COMPLETED'].includes(row.status)" class="outline" @click="notify(row)">通知取货</button>
+          <button v-if="canRefund && refundOutstanding(row) > 0" class="outline" @click="refund(row)">登记返款</button>
           <button v-if="canManage && String(row.status).toUpperCase() === 'COMPLETED'" class="outline" @click="openPickupPhotos(row)">取货拍照</button>
           <button v-if="canManage && String(row.status).toUpperCase() === 'PENDING' && Number(row.handover) !== 1" class="primary" @click="advance(row)">确认加工</button>
         </div>
@@ -63,17 +65,20 @@ import { uploadImage } from '../api/upload.js'
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
 const canManage = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
+const canRefund = computed(() => ['ADMIN', 'MANAGER', 'FRONT', 'CASHIER'].includes(auth.role))
 const rows = ref([]), loading = ref(false), error = ref('')
 const photoOrder = ref(null), photoBusy = ref(false), photoError = ref('')
 const STATUS_ORDER = { PENDING: 0, PROCESSING: 1, COMPLETED: 2 }
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const outstanding = row => Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
+const outstanding = row => row?.tail_due_amount != null ? Math.max(Number(row.tail_due_amount || 0), 0) : Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
+const refundOutstanding = row => row?.refund_outstanding != null ? Math.max(Number(row.refund_outstanding || 0), 0) : Math.max(Number(row?.refund_amount || 0) - Number(row?.refund_paid_amount || 0), 0)
 const date = v => (v ? String(v).slice(0, 10) : '—')
 const statusLabel = v => ({ PENDING: '待加工', PROCESSING: '加工中', COMPLETED: '已完成待取货', PICKED_UP: '已取货' }[String(v || '').toUpperCase()] || '未知')
 const statusClass = v => String(v || '').toLowerCase()
 const pendingCount = computed(() => rows.value.filter(row => ['PENDING', 'PROCESSING'].includes(String(row.status))).length)
 const readyCount = computed(() => rows.value.filter(row => String(row.status) === 'COMPLETED').length)
 const outstandingTotal = computed(() => rows.value.reduce((sum, row) => sum + outstanding(row), 0))
+const refundOutstandingTotal = computed(() => rows.value.reduce((sum, row) => sum + refundOutstanding(row), 0))
 async function load() {
   loading.value = true; error.value = ''
   try {
@@ -92,6 +97,17 @@ async function advance(row) {
 }
 async function notify(row) {
   try { await api.processingNotify(row.processing_order_id); toast(`已记录通知 ${row.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
+}
+async function refund(row) {
+  const amount = Number(window.prompt(`请输入返款金额（待返 ${refundOutstanding(row).toFixed(2)} 元）`, refundOutstanding(row).toFixed(2)))
+  if (!Number.isFinite(amount) || amount <= 0 || amount > refundOutstanding(row)) return
+  const payMethod = window.prompt('请输入返款方式（如 CASH / WECHAT / ALIPAY）', 'CASH')
+  if (!payMethod) return
+  try {
+    const result = await api.processingRefund(row.processing_order_id, { amount, payMethod, clientRequestId: `${Date.now()}-${Math.random()}` })
+    toast(result?.approvalRequired ? '返款超过审批上限，已提交审批' : '客户返款已登记')
+    await load()
+  } catch (e) { toast(e?.message || '返款失败') }
 }
 function parsePhotos(value) {
   if (Array.isArray(value)) return value.filter(Boolean).map(String)

@@ -19,7 +19,8 @@ const typeOptions = [
   { value: 'PROCESSING_PAYMENT_DISCOUNT', label: '加工优惠审批' },
   { value: 'REFUND', label: '退货审批' },
   { value: 'RECYCLE', label: '回收审批' },
-  { value: 'STOCK_CHECK', label: '盘点审批' }
+  { value: 'STOCK_CHECK', label: '盘点审批' },
+  { value: 'PROCESSING_REFUND', label: '加工返款审批' }
   ,{ value: 'MEMBER_CLAIM', label: '会员认领' }
 ]
 const typeLabel = (type) => typeOptions.find(item => item.value === type)?.label || type || '-'
@@ -146,6 +147,16 @@ onMounted(load)
         <el-descriptions-item label="优惠金额">{{ formatMoney(detail.payment?.discount) }}</el-descriptions-item>
         <el-descriptions-item label="实际折扣">{{ detail.payment?.discountRate == null ? '-' : `${(Number(detail.payment.discountRate) * 100).toFixed(2)}折` }}</el-descriptions-item>
         <el-descriptions-item label="收款原因" :span="2">{{ detail.payment?.reason || '顾客优惠' }}</el-descriptions-item>
+      </el-descriptions>
+    </template>
+    <template v-if="detail?.approval?.type === 'PROCESSING_REFUND'">
+      <el-divider content-position="left">加工返款明细</el-divider>
+      <el-descriptions :column="2" border style="margin-bottom: 16px">
+        <el-descriptions-item label="加工单号">{{ detail.processingOrder?.order_no || detail.approval?.biz_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="返款金额">{{ formatMoney(detail.refund?.amount ?? detail.approval?.amount) }}</el-descriptions-item>
+        <el-descriptions-item label="整单应收">{{ formatMoney(detail.processingOrder?.settlement_due_amount ?? detail.processingOrder?.due_amount) }}</el-descriptions-item>
+        <el-descriptions-item label="已收金额">{{ formatMoney(detail.processingOrder?.actual_paid_amount ?? detail.processingOrder?.paid_amount) }}</el-descriptions-item>
+        <el-descriptions-item label="申请原因" :span="2">{{ detail.refund?.reason || formatApprovalReason(detail.approval) }}</el-descriptions-item>
       </el-descriptions>
     </template>
     <template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-if="detail?.approval?.status === 1 && canHandle(detail?.approval)" type="success" :disabled="submitting" @click="approve(detail.approval.approval_id)">通过</el-button><el-button v-if="detail?.approval?.status === 1 && canHandle(detail?.approval)" type="danger" :disabled="submitting" @click="reject(detail.approval.approval_id)">驳回</el-button></template>

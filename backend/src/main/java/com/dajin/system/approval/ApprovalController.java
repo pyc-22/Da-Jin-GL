@@ -56,6 +56,9 @@ public class ApprovalController {
         } else if ("PROCESSING_PAYMENT_DISCOUNT".equals(approval.get("type"))) {
             result.put("processingOrder", db.one("select * from processing_order where processing_order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
             result.put("payment", parsePaymentReason(approval.get("reason")));
+        } else if ("PROCESSING_REFUND".equals(approval.get("type"))) {
+            result.put("processingOrder", db.one("select * from processing_order where processing_order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
+            result.put("refund", parsePaymentReason(approval.get("reason")));
         }
         if ("STOCK_CHECK".equals(approval.get("type"))) {
             Map<String,Object> check = db.one("select sc.*,u.real_name operator_name,case when sc.scope_type='STORE' then st.store_name "
@@ -130,6 +133,8 @@ public class ApprovalController {
             decideMemberClaim(approval, status, q == null ? null : String.valueOf(q.get("remark")), r);
         } else if ("REFUND".equals(type) && status == 3) {
             refundOrder(bizId, q, r);
+        } else if ("PROCESSING_REFUND".equals(type)) {
+            decideProcessingRefund(bizId, status, id, q == null ? null : String.valueOf(q.get("remark")), r);
         }
 
         Map<String,Object> decidedEvent = Map.of("storeId", db.store(r), "approvalId", id, "id", id, "status", status, "type", type, "bizId", bizId);
@@ -144,6 +149,10 @@ public class ApprovalController {
             ws.broadcast("REPORT_UPDATED", decidedEvent);
         }
         if ("PROCESSING_PAYMENT_DISCOUNT".equals(type)) {
+            ws.broadcast("PROCESSING_ORDER_UPDATED", decidedEvent);
+            ws.broadcast("REPORT_UPDATED", decidedEvent);
+        }
+        if ("PROCESSING_REFUND".equals(type)) {
             ws.broadcast("PROCESSING_ORDER_UPDATED", decidedEvent);
             ws.broadcast("REPORT_UPDATED", decidedEvent);
         }
@@ -184,6 +193,23 @@ public class ApprovalController {
         int changed = db.jdbc().update("update member set sales_id=:sales,update_time=now() where member_id=:id and store_id=:s and (sales_id is null or sales_id=0)", Map.of("sales", salesId, "id", memberId, "s", storeId));
         if (changed == 0) throw new BusinessException(409203, "会员已被认领或不存在");
         ws.broadcast("MEMBER_UPDATED", Map.of("storeId", storeId, "action", "CLAIM_APPROVED", "memberId", memberId));
+    }
+
+    private void decideProcessingRefund(long orderId, int status, long approvalId, String remark, HttpServletRequest r) {
+        long storeId = db.store(r);
+        Map<String,Object> order = db.one("select refund_amount,refund_paid_amount from processing_order where processing_order_id=:id and store_id=:s for update",
+                Map.of("id", orderId, "s", storeId));
+        if (status == 3) {
+            BigDecimal total = new BigDecimal(String.valueOf(order.getOrDefault("refund_amount", 0)));
+            BigDecimal paid = new BigDecimal(String.valueOf(order.getOrDefault("refund_paid_amount", 0)));
+            if (paid.compareTo(total) >= 0) throw new BusinessException(409726, "该加工单已无待返款金额");
+        }
+        db.jdbc().update("update processing_order set refund_approval_id=:approval,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+                new MapSqlParameterSource().addValue("approval", approvalId).addValue("id", orderId).addValue("s", storeId));
+        db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:u,'PROCESSING',:action,:content,'',now())",
+                new MapSqlParameterSource().addValue("s", storeId).addValue("u", userId(r))
+                        .addValue("action", status == 3 ? "REFUND_APPROVE" : "REFUND_REJECT")
+                        .addValue("content", "加工返款审批=" + approvalId + (remark == null || remark.isBlank() ? "" : ",备注=" + remark)));
     }
 
     private Map<String,Object> parsePaymentReason(Object raw) {

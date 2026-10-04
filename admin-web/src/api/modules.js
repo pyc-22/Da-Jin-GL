@@ -34,6 +34,7 @@ export const processingApi = {
   assign: (id, data) => http.post(`/api/processing/orders/${id}/assign`, data),
   updateStatus: (id, data) => http.patch(`/api/processing/orders/${id}/status`, data),
   pay: (id, data) => http.post(`/api/processing/orders/${id}/payments`, data),
+  refund: (id, data) => http.post(`/api/processing/orders/${id}/refund`, data),
   storeGold: (id, data) => http.post(`/api/processing/orders/${id}/store-gold`, data),
   weighing: (id, data) => http.post(`/api/processing/orders/${id}/weighing`, data),
   commissions: params => http.get('/api/processing/commissions', { params }),

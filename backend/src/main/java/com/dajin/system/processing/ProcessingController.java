@@ -133,7 +133,9 @@ public class ProcessingController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", store(request)).addValue("status", status).addValue("categoryId", categoryId);
         String sql = "select i.*,c.name category_name,c.category_code from processing_item i join processing_category c on c.category_id=i.category_id and c.store_id=i.store_id "
                 + "where i.store_id=:s and (:status is null or i.status=:status) and (:categoryId is null or i.category_id=:categoryId) order by c.sort,i.processing_days,i.item_id";
-        return ApiResponse.ok(db.list(sql, p));
+        List<Map<String, Object>> rows = db.list(sql, p);
+        rows.forEach(this::enrichSettlementFields);
+        return ApiResponse.ok(rows);
     }
 
     @PostMapping("/items")
@@ -399,12 +401,17 @@ public class ProcessingController {
         BigDecimal amount = weight.multiply(price).setScale(2, RoundingMode.HALF_UP);
         long operator = userId(request);
         adjustGoldMaterial(storeId, String.valueOf(order.get("order_no")), weight.subtract(oldWeight), operator);
-        BigDecimal due = decimal(order.get("due_amount")).subtract(oldAmount).add(amount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-        if (due.compareTo(decimal(order.get("paid_amount"))) < 0) throw new BusinessException(409716, "修正后的应收低于已收款，请先核对退款");
-        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,gold_base_instrument=:goldInstrument,gold_base_price=:goldBase,gold_purity_coefficient=:goldPurity,gold_markup=:goldMarkup,gold_recycle_deduction=:goldDeduction,gold_price_snapshot=:goldSnapshot,gold_quote_time=:goldQuoteTime,gold_quote_source=:goldSource,gold_market_status=:goldMarketStatus,due_amount=:due,original_due_amount=case when original_due_amount is null then null else :due+promotion_discount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+        BigDecimal residualDeduction = decimal(order.get("residual_gold_deduction"));
+        BigDecimal grossDue = decimal(order.get("labor_fee")).add(amount).subtract(residualDeduction).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal paid = decimal(order.get("paid_amount"));
+        BigDecimal promotionDiscount = decimal(order.get("promotion_discount"));
+        BigDecimal due = grossDue.subtract(promotionDiscount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal refund = paid.subtract(grossDue).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        db.jdbc().update("update processing_order set store_gold_weight=:w,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,gold_base_instrument=:goldInstrument,gold_base_price=:goldBase,gold_purity_coefficient=:goldPurity,gold_markup=:goldMarkup,gold_recycle_deduction=:goldDeduction,gold_price_snapshot=:goldSnapshot,gold_quote_time=:goldQuoteTime,gold_quote_source=:goldSource,gold_market_status=:goldMarketStatus,due_amount=:due,refund_amount=:refund,refund_paid_amount=least(refund_paid_amount,:refund),original_due_amount=case when promotion_discount>0 then coalesce(original_due_amount,:grossDue) else original_due_amount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("w", weight).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", price).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus")).addValue("due", due)
-                        .addValue("id", id).addValue("s", storeId));
-        log(storeId, operator, "ORDER_STORE_GOLD", "加工单=" + order.get("order_no") + ",补金=" + weight + "g,金额=" + amount + ",应收=" + due);
+                        .addValue("refund", refund).addValue("grossDue", grossDue).addValue("id", id).addValue("s", storeId));
+        ensureProcessingRefundApproval(storeId, id, String.valueOf(order.get("order_no")), refund, grossDue, paid, request);
+        log(storeId, operator, "ORDER_STORE_GOLD", "加工单=" + order.get("order_no") + ",补金=" + weight + "g,金额=" + amount + ",应收=" + due + ",返款=" + refund);
         Map<String, Object> result = orderDetail(id, storeId, request);
         broadcast("PROCESSING_ORDER_UPDATED", processingOrderEvent(result, "STORE_GOLD"));
         broadcast("STOCK_UPDATED", Map.of("storeId", storeId, "processingOrderId", id, "action", "PROCESSING_ADJUST"));
@@ -498,7 +505,13 @@ public class ProcessingController {
         h.append("<div class=\"row\"><span>客户带来旧金</span><b>").append(decimal(o.get("old_gold_weight")).signum() > 0 ? escHtml(decimal(o.get("old_gold_weight")).toPlainString() + "g" + (o.get("old_gold_fineness") == null ? "" : " · " + decimal(o.get("old_gold_fineness")).multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%")) : "无").append("</b></div>");
         h.append("<div class=\"row\"><span>店供补金</span><b>").append(decimal(o.get("store_gold_weight")).signum() > 0 ? escHtml(decimal(o.get("store_gold_weight")).toPlainString() + "g") : "无").append("</b></div>");
         h.append("<div class=\"row\"><span>余料处理</span><b>").append("STORE_DEDUCT".equals(String.valueOf(o.get("residual_gold_handling"))) ? "留店抵扣工费" : "客户带走").append("</b></div></div>");
-        h.append("<h2>费用</h2><div class=\"calc\"><div>加工工费</div><div class=\"v\">").append(decimal(o.get("labor_fee")).toPlainString()).append("</div><div>旧料抵扣</div><div class=\"v\">-").append(decimal(o.get("residual_gold_deduction")).toPlainString()).append("</div><div>应收金额</div><div class=\"v\">").append(decimal(o.get("due_amount")).toPlainString()).append("</div><div>已收定金</div><div class=\"v\">").append(decimal(o.get("paid_amount")).toPlainString()).append("</div><div>尾款待收</div><div class=\"v\">").append(decimal(o.get("due_amount")).subtract(decimal(o.get("paid_amount"))).max(BigDecimal.ZERO).toPlainString()).append("</div></div>");
+        BigDecimal printDue = decimal(o.get("due_amount"));
+        BigDecimal printPaid = decimal(o.get("paid_amount"));
+        BigDecimal printTail = printDue.subtract(printPaid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal printRefund = decimal(o.get("refund_amount"));
+        BigDecimal printRefundPaid = decimal(o.get("refund_paid_amount"));
+        BigDecimal printRefundOutstanding = printRefund.subtract(printRefundPaid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        h.append("<h2>费用</h2><div class=\"calc\"><div>加工工费</div><div class=\"v\">").append(decimal(o.get("labor_fee")).toPlainString()).append("</div><div>补金金额</div><div class=\"v\">").append(decimal(o.get("store_gold_amount")).toPlainString()).append("</div><div>旧料抵扣</div><div class=\"v\">-").append(decimal(o.get("residual_gold_deduction")).toPlainString()).append("</div><div>整单应收</div><div class=\"v\">").append(printDue.toPlainString()).append("</div><div>已收定金/收款</div><div class=\"v\">").append(printPaid.toPlainString()).append("</div><div>尾款待收</div><div class=\"v\">").append(printTail.toPlainString()).append("</div><div>客户返款</div><div class=\"v\">").append(printRefund.toPlainString()).append("</div><div>待返款</div><div class=\"v\">").append(printRefundOutstanding.toPlainString()).append("</div></div>");
         h.append("<h2>称重记录（g）</h2><div class=\"hand\"><div><span>来料折重</span><b>").append(decimal(o.get("old_gold_weight")).multiply(optionalDecimal(o.get("old_gold_fineness"), 4) == null ? BigDecimal.ONE : decimal(o.get("old_gold_fineness"))).toPlainString()).append("</b></div><div><span>成品实重</span><b>").append(o.get("finished_weight") == null ? "" : escHtml(decimal(o.get("finished_weight")).toPlainString())).append("</b></div><div><span>回收屑</span><b>").append(o.get("recovered_weight") == null ? "" : escHtml(decimal(o.get("recovered_weight")).toPlainString())).append("</b></div><div><span>损耗</span><b>").append(o.get("loss_weight") == null ? "" : escHtml(decimal(o.get("loss_weight")).toPlainString() + (o.get("loss_permille") != null ? "（" + decimal(o.get("loss_permille")).toPlainString() + "‰）" : ""))).append("</b></div><div><span>余料（手写）</span><b></b></div><div><span>融后金重（手写）</span><b></b></div><div><span>加料（手写）</span><b></b></div></div>");
         h.append("<div class=\"remark\"><b>备注：</b>").append(escHtml(String.valueOf(o.getOrDefault("remark", "")))).append("</div>");
         h.append("<div class=\"sign\"><div>加工师傅签字：</div><div>客户取货签字：</div></div>");
@@ -568,7 +581,9 @@ public class ProcessingController {
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
     public ApiResponse<?> handovers(HttpServletRequest request) {
         long storeId = store(request);
-        return ApiResponse.ok(db.list("select o.processing_order_id,o.order_no,o.customer_name,o.customer_phone,o.item_name_snapshot,o.quantity,o.labor_fee,o.due_amount,o.paid_amount,o.pickup_date,o.handover_time,u.real_name craftsman_name from processing_order o left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id where o.store_id=:s and o.status='PENDING' order by coalesce(o.handover_time,o.create_time) desc limit 50", Map.of("s", storeId)));
+        List<Map<String, Object>> rows = db.list("select o.processing_order_id,o.order_no,o.customer_name,o.customer_phone,o.item_name_snapshot,o.quantity,o.labor_fee,o.store_gold_amount,o.residual_gold_deduction,o.due_amount,o.paid_amount,o.refund_amount,o.refund_paid_amount,o.refund_pay_method,o.refund_approval_id,o.pickup_date,o.handover_time,u.real_name craftsman_name from processing_order o left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id where o.store_id=:s and o.status='PENDING' order by coalesce(o.handover_time,o.create_time) desc limit 50", Map.of("s", storeId));
+        rows.forEach(this::enrichSettlementFields);
+        return ApiResponse.ok(rows);
     }
 
     @GetMapping("/print-jobs") @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
@@ -740,7 +755,8 @@ public class ProcessingController {
         if (!ORDER_STATUSES.contains(next)) throw new BusinessException(400715, "订单状态不合法");
         long storeId = store(request); Map<String, Object> order = lockedOrder(id, storeId); String current = String.valueOf(order.get("status"));
         if (!canTransition(current, next)) throw new BusinessException(409704, "状态只能按待加工、加工中、已完成、已取货顺序流转");
-        if ("PICKED_UP".equals(next) && decimal(order.get("paid_amount")).compareTo(decimal(order.get("due_amount"))) < 0) throw new BusinessException(409705, "加工单尚有尾款未收，不能取货");
+        if ("PICKED_UP".equals(next) && processingTailDue(order).signum() > 0) throw new BusinessException(409705, "加工单尚有尾款未收，不能取货");
+        if ("PICKED_UP".equals(next)) ensureProcessingRefundSettled(order, storeId);
         if ("PICKED_UP".equals(next) && parsePhotoList(order.get("pickup_photos")).isEmpty()) throw new BusinessException(409715, "请先上传取货照片，上传成功后才能确认取货");
         if ("COMPLETED".equals(next)) order = applyResidualMaterialOnCompletion(order, body, storeId, request);
         if ("COMPLETED".equals(next)) createCommission(order, storeId);
@@ -760,6 +776,48 @@ public class ProcessingController {
             new com.dajin.system.commission.CommissionLedger(db).rebuildForProcessingOrder(storeId, id);
             broadcast("COMMISSION_UPDATED", reportEvent);
         }
+        return ApiResponse.ok(result);
+    }
+
+    /**
+     * Pays the customer when old-gold credit (and any deposit already taken)
+     * exceeds the processing settlement.  The endpoint is intentionally
+     * separate from customer collection so the income and refund ledgers do
+     * not get mixed together.
+     */
+    @PostMapping("/orders/{id}/refund")
+    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+    @Transactional
+    public ApiResponse<?> refund(@PathVariable long id, @RequestBody Map<String, Object> body, HttpServletRequest request) {
+        long storeId = store(request);
+        Map<String, Object> order = lockedOrder(id, storeId);
+        BigDecimal total = decimal(order.get("refund_amount"));
+        BigDecimal paid = decimal(order.get("refund_paid_amount"));
+        BigDecimal outstanding = total.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        if (outstanding.signum() == 0) throw new BusinessException(409719, "该加工单没有待返款");
+        ensureProcessingRefundApproval(storeId, id, String.valueOf(order.get("order_no")), outstanding, grossSettlement(order), decimal(order.get("paid_amount")), request);
+        Map<String, Object> approval = latestPaymentApproval(storeId, id, "PROCESSING_REFUND");
+        BigDecimal limit = processingRefundApprovalLimit(storeId);
+        if (outstanding.compareTo(limit) > 0 && (approval == null || number(approval.get("status")) != 3)) {
+            long approvalId = approval == null ? 0L : ((Number) approval.get("approval_id")).longValue();
+            return ApiResponse.ok(Map.of("processingOrderId", id, "approvalRequired", true, "approvalId", approvalId, "refundAmount", outstanding, "status", "PENDING"));
+        }
+        String payMethod = PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, text(body, "payMethod", "返款方式"));
+        BigDecimal amount = body.containsKey("amount") ? positive(body.get("amount"), "返款金额") : outstanding;
+        if (amount.compareTo(outstanding) > 0) throw new BusinessException(409720, "返款金额不能超过待返金额");
+        if (amount.compareTo(outstanding) < 0) throw new BusinessException(409721, "加工返款必须一次结清");
+        String requestId = text(body, "clientRequestId", "clientRequestId");
+        int duplicate = db.jdbc().queryForObject("select count(*) from finance_record where store_id=:s and related_bill_no=:bill and category='RECYCLE' and remark='加工旧金抵扣返款' and client_request_id=:requestId", Map.of("s", storeId, "bill", order.get("order_no"), "requestId", requestId), Integer.class);
+        if (duplicate > 0) return ApiResponse.ok(orderDetail(id, storeId, request));
+        db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','RECYCLE',:amount,:method,:bill,:uid,'加工旧金抵扣返款',:shift,:requestId,now())",
+                new MapSqlParameterSource().addValue("s", storeId).addValue("amount", amount).addValue("method", payMethod).addValue("bill", order.get("order_no"))
+                        .addValue("uid", userId(request)).addValue("shift", shifts.current(storeId)).addValue("requestId", requestId));
+        db.jdbc().update("update processing_order set refund_paid_amount=refund_amount,refund_pay_method=:method,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+                Map.of("method", payMethod, "id", id, "s", storeId));
+        log(storeId, userId(request), "PROCESSING_REFUND", "加工单=" + order.get("order_no") + ",返款=" + amount);
+        Map<String, Object> result = orderDetail(id, storeId, request);
+        broadcast("PROCESSING_ORDER_UPDATED", processingOrderEvent(result, "REFUND"));
+        broadcast("REPORT_UPDATED", Map.of("storeId", storeId, "processingOrderId", id, "action", "REFUND"));
         return ApiResponse.ok(result);
     }
 
@@ -801,12 +859,19 @@ public class ProcessingController {
         BigDecimal recycle = currentRecyclePrice(storeId);
         if (recycle == null || recycle.signum() <= 0) throw new BusinessException(400722, "未配置回收金价，无法计算旧料抵扣");
         BigDecimal laborFee = decimal(order.get("labor_fee"));
-        BigDecimal deduction = weight.multiply(fineness).multiply(recycle).setScale(2, RoundingMode.HALF_UP).min(laborFee).max(BigDecimal.ZERO);
-        BigDecimal baseDue = laborFee.add(decimal(order.get("store_gold_amount")));
-        BigDecimal due = baseDue.subtract(deduction).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-        if (due.compareTo(decimal(order.get("paid_amount"))) < 0) throw new BusinessException(409716, "旧料抵扣后应收低于已收款，请先核对定金");
-        db.jdbc().update("update processing_order set residual_material_type=:type,residual_gold_weight=:weight,residual_gold_fineness=:fineness,residual_gold_handling='STORE_DEDUCT',residual_gold_deduction=:deduction,due_amount=:due,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
-                new MapSqlParameterSource().addValue("type", materialType).addValue("weight", weight).addValue("fineness", fineness).addValue("deduction", deduction).addValue("due", due).addValue("id", orderId).addValue("s", storeId));
+        // The full old-gold value can exceed the labour fee.  Keep the signed
+        // settlement in the derived refund fields instead of capping it at
+        // zero: labour + top-up - old-gold deduction - deposits is the amount
+        // still owed by the customer (negative means the shop owes a refund).
+        BigDecimal deduction = weight.multiply(fineness).multiply(recycle).setScale(2, RoundingMode.HALF_UP).max(BigDecimal.ZERO);
+        BigDecimal grossDue = laborFee.add(decimal(order.get("store_gold_amount"))).subtract(deduction).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal paid = decimal(order.get("paid_amount"));
+        BigDecimal refund = grossDue.subtract(paid).negate().max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal promotionDiscount = decimal(order.get("promotion_discount"));
+        BigDecimal due = grossDue.subtract(promotionDiscount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        db.jdbc().update("update processing_order set residual_material_type=:type,residual_gold_weight=:weight,residual_gold_fineness=:fineness,residual_gold_handling='STORE_DEDUCT',residual_gold_deduction=:deduction,due_amount=:due,refund_amount=:refund,refund_paid_amount=least(refund_paid_amount,:refund),original_due_amount=case when promotion_discount>0 then coalesce(original_due_amount,:grossDue) else original_due_amount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+                new MapSqlParameterSource().addValue("type", materialType).addValue("weight", weight).addValue("fineness", fineness).addValue("deduction", deduction).addValue("due", due).addValue("refund", refund).addValue("grossDue", grossDue).addValue("id", orderId).addValue("s", storeId));
+        ensureProcessingRefundApproval(storeId, orderId, orderNo, refund, grossDue, paid, request);
         recordResidualMaterial(storeId, orderId, orderNo, materialType, weight, fineness, deduction, operatorId);
         order.put("residual_material_type", materialType);
         order.put("residual_gold_weight", weight);
@@ -814,6 +879,7 @@ public class ProcessingController {
         order.put("residual_gold_handling", "STORE_DEDUCT");
         order.put("residual_gold_deduction", deduction);
         order.put("due_amount", due);
+        order.put("refund_amount", refund);
         order.put("residual_material_recorded", 1);
         return order;
     }
@@ -968,7 +1034,7 @@ public class ProcessingController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("from", blankToNull(from)).addValue("to", blankToNull(to)).addValue("craftsman", craftsmanId);
         String filters = " where o.store_id=:s and (:from is null or date(o.create_time)>=:from) and (:to is null or date(o.create_time)<=:to) and (:craftsman is null or o.craftsman_id=:craftsman)";
         String orderFrom = " from processing_order o" + filters;
-        Map<String, Object> summary = db.one("select count(*) order_count,coalesce(sum(case when status='PENDING' then 1 else 0 end),0) pending_count,coalesce(sum(case when status='PROCESSING' then 1 else 0 end),0) processing_count,coalesce(sum(case when status in ('COMPLETED','PICKED_UP') then 1 else 0 end),0) completed_count,coalesce(sum(labor_fee),0) labor_fee,coalesce(sum(due_amount),0) due_amount,coalesce(sum(paid_amount),0) paid_amount,coalesce(sum(due_amount-paid_amount),0) outstanding" + orderFrom, p);
+        Map<String, Object> summary = db.one("select count(*) order_count,coalesce(sum(case when status='PENDING' then 1 else 0 end),0) pending_count,coalesce(sum(case when status='PROCESSING' then 1 else 0 end),0) processing_count,coalesce(sum(case when status in ('COMPLETED','PICKED_UP') then 1 else 0 end),0) completed_count,coalesce(sum(labor_fee),0) labor_fee,coalesce(sum(due_amount),0) due_amount,coalesce(sum(paid_amount),0) paid_amount,coalesce(sum(greatest(due_amount-paid_amount,0)),0) outstanding,coalesce(sum(refund_amount),0) refund_amount,coalesce(sum(refund_paid_amount),0) refund_paid_amount,coalesce(sum(greatest(refund_amount-refund_paid_amount,0)),0) refund_outstanding" + orderFrom, p);
         if (hasPermission(request, "processing:commissions")) {
             BigDecimal commission = db.jdbc().queryForObject("select coalesce(sum(c.commission_amount),0) from processing_commission c join processing_order o on o.processing_order_id=c.processing_order_id and o.store_id=c.store_id" + filters + " and c.status<>'CANCELLED'", p, BigDecimal.class);
             summary.put("commission_expense", commission == null ? BigDecimal.ZERO : commission);
@@ -982,11 +1048,28 @@ public class ProcessingController {
         try {
             order = db.one("select o.*,m.name member_name,u.real_name craftsman_name,sales.real_name sales_name,creator.real_name creator_name from processing_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id left join sys_user creator on creator.user_id=o.created_by and creator.store_id=o.store_id where o.processing_order_id=:id and o.store_id=:s", Map.of("id", id, "s", storeId));
         } catch (Exception e) { throw new BusinessException(404701, "加工订单不存在"); }
+        enrichSettlementFields(order);
         order.put("payments", db.list("select p.*,u.real_name operator_name from processing_payment p left join sys_user u on u.user_id=p.operator_id and u.store_id=p.store_id where p.store_id=:s and p.processing_order_id=:id order by p.payment_id", Map.of("s", storeId, "id", id)));
         if (hasPermission(request, "processing:commissions")) {
             order.put("commissions", db.list("select c.*,u.real_name employee_name from processing_commission c left join sys_user u on u.user_id=c.employee_id and u.store_id=c.store_id where c.store_id=:s and c.processing_order_id=:id and c.status<>'CANCELLED' order by c.commission_id", Map.of("s", storeId, "id", id)));
         }
         return order;
+    }
+
+    /** Adds stable derived names so all clients can render the same settlement vocabulary. */
+    private void enrichSettlementFields(Map<String, Object> order) {
+        BigDecimal gross = grossSettlement(order);
+        BigDecimal paid = decimal(order.get("paid_amount"));
+        BigDecimal due = decimal(order.get("due_amount"));
+        BigDecimal refund = decimal(order.get("refund_amount"));
+        refund = refund.max(paid.subtract(gross).max(BigDecimal.ZERO));
+        BigDecimal refundPaid = decimal(order.get("refund_paid_amount"));
+        order.put("settlement_due_amount", gross.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+        order.put("actual_paid_amount", paid.setScale(2, RoundingMode.HALF_UP));
+        order.put("tail_due_amount", due.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+        order.put("refund_amount", refund.setScale(2, RoundingMode.HALF_UP));
+        order.put("refund_paid_amount", refundPaid.setScale(2, RoundingMode.HALF_UP));
+        order.put("refund_outstanding", refund.subtract(refundPaid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
     }
 
     private boolean hasPermission(HttpServletRequest request, String permission) {
@@ -1187,6 +1270,78 @@ public class ProcessingController {
     private Map<String,Object> latestPaymentApproval(long storeId, long orderId, String type) {
         List<Map<String,Object>> rows = paymentApprovals(storeId, orderId, type);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** The signed settlement before deposits and negotiated collection adjustments. */
+    private BigDecimal grossSettlement(Map<String, Object> order) {
+        return decimal(order.get("labor_fee"))
+                .add(decimal(order.get("store_gold_amount")))
+                .subtract(decimal(order.get("residual_gold_deduction")))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal processingTailDue(Map<String, Object> order) {
+        return decimal(order.get("due_amount"))
+                .subtract(decimal(order.get("paid_amount")))
+                .max(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** Configurable customer-refund approval threshold; 200 is the local default. */
+    private BigDecimal processingRefundApprovalLimit(long storeId) {
+        try {
+            String value = db.jdbc().queryForObject(
+                    "select config_value from sys_config where store_id=:s and config_key='processing_refund_approval_limit' and enabled=1",
+                    Map.of("s", storeId), String.class);
+            BigDecimal limit = new BigDecimal(value);
+            if (limit.signum() >= 0) return limit.setScale(2, RoundingMode.HALF_UP);
+        } catch (Exception ignored) { }
+        return new BigDecimal("200.00");
+    }
+
+    /** Create or validate the single approval used for an oversized old-gold refund. */
+    private void ensureProcessingRefundApproval(long storeId, long orderId, String orderNo,
+                                                BigDecimal refund, BigDecimal grossDue,
+                                                BigDecimal paid, HttpServletRequest request) {
+        BigDecimal amount = refund == null ? BigDecimal.ZERO : refund.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        if (amount.signum() == 0 || amount.compareTo(processingRefundApprovalLimit(storeId)) <= 0) return;
+        Map<String,Object> existing = latestPaymentApproval(storeId, orderId, "PROCESSING_REFUND");
+        if (existing != null) {
+            int status = number(existing.get("status"));
+            if (status == 3) return;
+            if (status == 4) throw new BusinessException(409723, "客户返款审批已驳回，不能继续返款");
+            return;
+        }
+        Map<String,Object> data = new LinkedHashMap<>();
+        data.put("kind", "PROCESSING_REFUND");
+        data.put("processingOrderId", orderId);
+        data.put("orderNo", orderNo);
+        data.put("refundAmount", amount);
+        data.put("grossSettlement", grossDue);
+        data.put("paidAmount", paid);
+        final String reason;
+        try { reason = JSON.writeValueAsString(data); }
+        catch (Exception e) { throw new BusinessException(500103, "返款审批信息生成失败"); }
+        db.jdbc().update("insert into approval(store_id,type,biz_id,applicant_id,amount,reason,status,create_time) values(:s,'PROCESSING_REFUND',:biz,:uid,:amount,:reason,1,now())",
+                new MapSqlParameterSource().addValue("s", storeId).addValue("biz", orderId)
+                        .addValue("uid", userId(request)).addValue("amount", amount).addValue("reason", reason));
+        Long approvalId = db.jdbc().queryForObject("select approval_id from approval where store_id=:s and type='PROCESSING_REFUND' and biz_id=:biz order by approval_id desc limit 1",
+                Map.of("s", storeId, "biz", orderId), Long.class);
+        db.jdbc().update("update processing_order set refund_approval_id=:approval,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+                Map.of("approval", approvalId, "id", orderId, "s", storeId));
+        broadcast("APPROVAL_CREATED", Map.of("storeId", storeId, "id", approvalId, "approvalId", approvalId, "type", "PROCESSING_REFUND", "bizId", orderId));
+    }
+
+    /** A pickup is blocked until every computed customer refund is paid. */
+    private void ensureProcessingRefundSettled(Map<String,Object> order, long storeId) {
+        BigDecimal total = decimal(order.get("refund_amount"));
+        BigDecimal paid = decimal(order.get("refund_paid_amount"));
+        if (total.signum() <= 0 || paid.compareTo(total) >= 0) return;
+        Map<String,Object> approval = latestPaymentApproval(storeId,
+                ((Number) order.get("processing_order_id")).longValue(), "PROCESSING_REFUND");
+        if (total.compareTo(processingRefundApprovalLimit(storeId)) > 0 && (approval == null || number(approval.get("status")) != 3))
+            throw new BusinessException(409724, "客户返款尚未审批通过");
+        throw new BusinessException(409725, "客户返款尚未完成，不能取货");
     }
     private boolean approvedPaymentMatches(Map<String,Object> approval, BigDecimal actualPaid) {
         try {

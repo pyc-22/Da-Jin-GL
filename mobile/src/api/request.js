@@ -136,6 +136,7 @@ export const api = {
   ,processingNotify: (id) => http.post(`/api/processing/orders/${id}/notify`)
   ,processingCreate: (payload) => http.post('/api/processing/orders', payload)
   ,processingPay: (id, payload) => http.post(`/api/processing/orders/${id}/payments`, payload)
+  ,processingRefund: (id, payload) => http.post(`/api/processing/orders/${id}/refund`, payload)
   ,processingPhotos: (id, payload) => http.post(`/api/processing/orders/${id}/photos`, payload)
   ,processingHandover: (id) => http.post(`/api/processing/orders/${id}/handover`)
   ,processingItems: (params = {}) => http.get('/api/processing/items', { params })

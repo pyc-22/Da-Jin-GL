@@ -24,7 +24,7 @@
           </div>
           <p>{{ order.customer_name || order.member_name || '散客' }} · {{ order.customer_phone || '—' }}</p>
           <p>{{ order.order_no }}</p>
-          <p>{{ order.quantity || 1 }} 件 · 工费 {{ money(order.labor_fee) }} · 应收 {{ money(order.due_amount) }}</p>
+          <p>{{ order.quantity || 1 }} 件 · 工费 {{ money(order.labor_fee) }} · 整单应收 {{ money(order.settlement_due_amount ?? order.due_amount) }} · 待收 {{ money(outstanding(order)) }}</p>
           <p class="muted">师傅：{{ order.craftsman_name || '未指派' }} · 取货 {{ date(order.pickup_date) }}</p>
         </div>
         <div class="timeline">
@@ -63,9 +63,11 @@
               <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料类型</span><b>{{ detail.residual_material_type || '—' }}</b></div>
               <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料克重/成色</span><b>{{ grams(detail.residual_gold_weight) }} · {{ fineness(detail.residual_gold_fineness) }}</b></div>
               <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>留店抵扣</span><b>{{ money(detail.residual_gold_deduction) }}</b></div>
-              <div><span>应收</span><b>{{ money(detail.due_amount) }}</b></div>
-              <div><span>已收</span><b>{{ money(detail.paid_amount) }}</b></div>
-              <div><span>未收</span><b>{{ money(outstanding(detail)) }}</b></div>
+              <div><span>整单应收</span><b>{{ money(detail.settlement_due_amount ?? detail.due_amount) }}</b></div>
+              <div><span>已收</span><b>{{ money(detail.actual_paid_amount ?? detail.paid_amount) }}</b></div>
+              <div><span>尾款</span><b>{{ money(outstanding(detail)) }}</b></div>
+              <div><span>客户返款</span><b>{{ money(detail.refund_amount) }}</b></div>
+              <div><span>待返款</span><b>{{ money(refundOutstanding(detail)) }}</b></div>
               <div><span>加工师傅</span><b>{{ detail.craftsman_name || '未指派' }}</b></div>
               <div><span>预计取货</span><b>{{ date(detail.pickup_date) }}</b></div>
               <div><span>开单人</span><b>{{ detail.creator_name || '—' }}</b></div>
@@ -91,9 +93,11 @@
               </div>
             </div>
             <p v-if="detail.status === 'PROCESSING' && outstanding(detail) > 0" class="muted small">尾款未收清（未收 {{ money(outstanding(detail)) }}），请在收银端「前台待办」收款。</p>
+            <p v-if="refundOutstanding(detail) > 0" class="muted small">客户待返款 {{ money(refundOutstanding(detail)) }}，审批通过后由收银端完成返款。</p>
             <p v-if="detail.status === 'PENDING' && Number(detail.handover) === 1" class="muted small">已转交前台，等待收银端确认加工。</p>
             <div class="sheet-actions">
               <button v-if="detail.customer_phone" class="outline" @click="call(detail.customer_phone)">一键拨号</button>
+              <button v-if="canRefund && refundOutstanding(detail) > 0" class="outline" @click="refund(detail)">登记返款</button>
               <button v-if="detail.status === 'PENDING' && canHandover && Number(detail.handover) !== 1" class="primary" @click="advance(detail)">转交前台</button>
               <p v-if="['PROCESSING', 'COMPLETED'].includes(detail.status)" class="muted small" style="width:100%">加工中的单子请到收银端「前台待办」收尾款、登记补金/损耗、确认取货。</p>
             </div>
@@ -166,6 +170,7 @@ const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
 const canManage = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
+const canRefund = computed(() => ['ADMIN', 'MANAGER', 'FRONT', 'CASHIER'].includes(auth.role))
 const canHandover = computed(() => ['ADMIN', 'MANAGER', 'SALES'].includes(auth.role))
 const statuses = [{ key: '', label: '全部' }, { key: 'PENDING', label: '待加工' }, { key: 'PROCESSING', label: '加工中' }, { key: 'COMPLETED', label: '待取货' }, { key: 'PICKED_UP', label: '已取货' }]
 const steps = [
@@ -184,7 +189,11 @@ const recyclePrice = computed(() => Number(app.primaryGold?.recyclePrice || 0))
 const duePreview = computed(() => Math.max(0, laborFee.value))
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const grams = v => `${Number(v || 0).toFixed(3)}g`
-const outstanding = row => Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
+// 后端返回的 tail_due_amount 已扣除定金/已收款；旧字段仅用于兼容历史接口。
+const outstanding = row => row?.tail_due_amount != null
+  ? Math.max(Number(row.tail_due_amount || 0), 0)
+  : Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
+const refundOutstanding = row => row?.refund_outstanding != null ? Math.max(Number(row.refund_outstanding || 0), 0) : Math.max(Number(row?.refund_amount || 0) - Number(row?.refund_paid_amount || 0), 0)
 const fineness = v => (v === null || v === undefined || v === '' ? '—' : `${(Number(v) * 100).toFixed(1)}%`)
 const date = v => (v ? String(v).slice(0, 10) : '—')
 const dateTime = v => {
@@ -229,6 +238,19 @@ async function openDetail(order) {
 function closeDetail() { detail.value = null }
 async function notify(order) {
   try { await api.processingNotify(order.processing_order_id); toast(`已记录通知 ${order.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
+}
+async function refund(order) {
+  if (!canRefund.value || refundOutstanding(order) <= 0) return
+  const amount = Number(window.prompt(`请输入返款金额（待返 ${refundOutstanding(order).toFixed(2)} 元）`, refundOutstanding(order).toFixed(2)))
+  if (!Number.isFinite(amount) || amount <= 0 || amount > refundOutstanding(order)) return
+  const payMethod = window.prompt('请输入返款方式（如 CASH / WECHAT / ALIPAY）', 'CASH')
+  if (!payMethod) return
+  try {
+    const result = await api.processingRefund(order.processing_order_id, { amount, payMethod, clientRequestId: `${Date.now()}-${Math.random()}` })
+    toast(result?.approvalRequired ? '返款超过审批上限，已提交审批' : '客户返款已登记')
+    await openDetail(order)
+    await load()
+  } catch (e) { toast(e?.message || '返款失败') }
 }
 function call(phone) { if (typeof uni !== 'undefined') uni.makePhoneCall({ phoneNumber: String(phone) }); else window.location.href = `tel:${phone}` }
 async function openCreate() {

@@ -71,18 +71,20 @@ class ProcessingResidualMaterialTests {
     }
 
     @Test
-    void rejectsResidualDeductionBelowExistingDeposit() {
+    void recordsRefundWhenResidualDeductionMakesSettlementBelowExistingDeposit() {
         Fixture f = fixture(60, 0);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.changeStatus(18L, Map.of(
+        f.controller.changeStatus(18L, Map.of(
                 "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT",
                 "residualMaterialType", "足金旧料", "residualGoldWeight", 1,
                 "residualGoldFineness", 0.9
-        ), f.request));
+        ), f.request);
 
-        assertEquals(409716, error.getCode());
-        verifyNoInteractions(f.ledger);
-        verify(f.jdbc, never()).update(contains("set status=:status"), anyMap());
+        verify(f.ledger).recordMaterial(1L, 901L, "PROCESSING:18",
+                new java.math.BigDecimal("1.000"), new java.math.BigDecimal("0.9000"),
+                new java.math.BigDecimal("45.00"), 0L);
+        verify(f.jdbc).update(contains("refund_amount=:refund"), any(SqlParameterSource.class));
+        verify(f.jdbc).update(contains("set status=:status"), anyMap());
     }
 
     @Test
