@@ -1,0 +1,271 @@
+<html style="margin:0;padding:0;">
+<title>鑫铖金匠 · 移动端 UI 重设计方案 A（预览稿）</title>
+<div style="width:100%;box-sizing:border-box;background:#EFE7D8;padding:28px 18px 48px;font-family:'PingFang SC','Microsoft YaHei',sans-serif;color:#221C14;">
+
+  <!-- 封面说明 -->
+  <div style="max-width:1640px;margin:0 auto 26px;">
+    <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;">
+      <div style="width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#C9A24B,#A87F2C);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Songti SC,STSong,SimSun,serif;font-size:26px;font-weight:700;box-shadow:0 6px 16px rgba(168,127,44,.35);">鑫</div>
+      <div>
+        <div style="font-size:24px;font-weight:800;letter-spacing:.5px;">鑫铖金匠 · 移动端 UI 重设计 <span style="color:#A87F2C;">方案 A</span></div>
+        <div style="font-size:13px;color:#7A6D58;margin-top:4px;">暖金质感 · 大字号大按钮 · 店长/导购/收银同端不同首页 ｜ 以下为视觉预览稿（数据为示意），确认风格后再落地代码</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E7DCC6;border-radius:999px;padding:7px 14px;font-size:12px;color:#6B5F4F;"><span style="width:16px;height:16px;border-radius:50%;background:#221C14;display:inline-block;"></span>墨黑 #221C14 主文字</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E7DCC6;border-radius:999px;padding:7px 14px;font-size:12px;color:#6B5F4F;"><span style="width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);display:inline-block;"></span>鎏金 #B0832E 品牌/主按钮</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E7DCC6;border-radius:999px;padding:7px 14px;font-size:12px;color:#6B5F4F;"><span style="width:16px;height:16px;border-radius:50%;background:#F6F1E7;border:1px solid #E7DCC6;display:inline-block;"></span>宣纸白 #F6F1E7 背景</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E7DCC6;border-radius:999px;padding:7px 14px;font-size:12px;color:#6B5F4F;"><span style="width:16px;height:16px;border-radius:50%;background:#C0453B;display:inline-block;"></span>涨/警示 #C0453B</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E7DCC6;border-radius:999px;padding:7px 14px;font-size:12px;color:#6B5F4F;"><span style="width:16px;height:16px;border-radius:50%;background:#2F7D5C;display:inline-block;"></span>跌/成功 #2F7D5C</div>
+    </div>
+  </div>
+
+  <div style="max-width:1640px;margin:0 auto;display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start;justify-content:center;">
+
+  <!-- ============ 屏 1：店长工作台 ============ -->
+  <div style="width:375px;flex:0 0 auto;">
+    <div style="text-align:center;font-size:13px;font-weight:700;color:#7A6D58;margin-bottom:10px;">① 店长 / 管理员 · 工作台</div>
+    <div style="border:9px solid #17120B;border-radius:42px;box-shadow:0 18px 44px rgba(60,45,20,.28);overflow:hidden;background:#F6F1E7;">
+      <!-- 状态栏 -->
+      <div style="height:34px;background:#1B1610;color:#F3E9D2;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-variant-numeric:tabular-nums;">
+        <span>9:41</span><span style="letter-spacing:1px;">●●●● &nbsp;WiFi &nbsp;▮▮▮▯</span>
+      </div>
+      <!-- 深色头部 -->
+      <div style="background:linear-gradient(160deg,#2E261B 0%,#1B1610 70%);padding:10px 18px 54px;position:relative;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;">张</div>
+            <div><div style="color:#F3E9D2;font-size:15px;font-weight:700;">张店长，上午好</div><div style="color:#B7A888;font-size:11px;margin-top:2px;">鑫铖金匠 · 华山店</div></div>
+          </div>
+          <div style="position:relative;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E9D9B0" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span style="position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:#C0453B;border:1.5px solid #2E261B;"></span>
+          </div>
+        </div>
+      </div>
+      <!-- 行情卡（上浮） -->
+      <div style="margin:-42px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:12px 14px;box-shadow:0 8px 22px rgba(120,90,35,.10);">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9A8B6E;margin-bottom:9px;"><span>上金所实时行情</span><span style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市</span></div>
+        <div style="display:flex;gap:10px;">
+          <div style="flex:1;background:#FBF7ED;border-radius:12px;padding:9px 10px;">
+            <div style="font-size:11px;color:#8A7B5E;">黄金 Au(T+D) 元/克</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;"><b style="font-size:19px;font-variant-numeric:tabular-nums;color:#221C14;">894.74</b><span style="font-size:11px;color:#C0453B;font-weight:700;">+1.38%</span></div>
+          </div>
+          <div style="flex:1;background:#FBF7ED;border-radius:12px;padding:9px 10px;">
+            <div style="font-size:11px;color:#8A7B5E;">白银 Ag(T+D) 元/克</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;"><b style="font-size:19px;font-variant-numeric:tabular-nums;color:#221C14;">14.763</b><span style="font-size:11px;color:#2F7D5C;font-weight:700;">-2.34%</span></div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#A99B7E;margin-top:8px;">来源：极速数据 · 11:00 ｜ 缓存刷新倒计时 12:36</div>
+      </div>
+      <!-- KPI -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 14px 0;">
+        <div style="background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:11px 12px;"><div style="font-size:11px;color:#8A7B5E;">今日营业额（实收）</div><div style="font-size:20px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums;">¥28,640</div><div style="font-size:10px;color:#C0453B;margin-top:2px;">较昨日 +12.4%</div></div>
+        <div style="background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:11px 12px;"><div style="font-size:11px;color:#8A7B5E;">今日订单 / 回收</div><div style="font-size:20px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums;">12 <span style="font-size:13px;color:#8A7B5E;font-weight:600;">单</span></div><div style="font-size:10px;color:#8A7B5E;margin-top:2px;">回收 ¥3,240</div></div>
+      </div>
+      <!-- 待办审批 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;"><span>待办审批 <span style="background:#C0453B;color:#fff;font-size:10px;border-radius:999px;padding:1px 7px;margin-left:4px;">2</span></span><span style="font-size:11px;color:#A87F2C;font-weight:600;">查看全部 ›</span></div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><div style="width:30px;height:30px;border-radius:9px;background:#FBEFEA;color:#C0453B;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">折</div><div style="flex:1;font-size:12px;"><b>价格优惠审批</b><div style="color:#9A8B6E;font-size:10px;margin-top:2px;">李雯 · 订单优惠 ¥90</div></div><div style="font-size:11px;color:#A87F2C;">去处理</div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0 0;border-top:1px dashed #EFE4CC;"><div style="width:30px;height:30px;border-radius:9px;background:#FBEFEA;color:#C0453B;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">退</div><div style="flex:1;font-size:12px;"><b>退货审批</b><div style="color:#9A8B6E;font-size:10px;margin-top:2px;">王芳 · 申请退款 ¥320</div></div><div style="font-size:11px;color:#A87F2C;">去处理</div></div>
+      </div>
+      <!-- 7日趋势 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;"><span>近 7 日营业额</span><span style="font-size:11px;color:#9A8B6E;font-weight:500;">单位：千元</span></div>
+        <div style="display:flex;align-items:flex-end;gap:10px;height:74px;margin-top:12px;">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:38px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">24</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:46px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">25</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:40px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">26</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:55px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">27</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:50px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">28</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:65px;background:#E4D5B3;border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A99B7E;">29</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:60px;background:linear-gradient(180deg,#C9A24B,#A87F2C);border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:#A87F2C;font-weight:700;">今</span></div>
+        </div>
+      </div>
+      <!-- 金刚区 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:14px 8px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px 6px;text-align:center;">
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M6 2h12l2 6-8 14L4 8z"/><path d="M4 8h16M12 2v20"/></svg></div><div style="font-size:11px;">销售开单</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M14 7l3 3L7 20l-4 1 1-4z"/><path d="M12 9l3 3"/></svg></div><div style="font-size:11px;">加工开单</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v5h-5"/><path d="M7 12l3 3 5-6"/></svg></div><div style="font-size:11px;">回收开单</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><path d="M16 5.5a3 3 0 0 1 0 5.8M21 20c0-2.6-1.5-4.2-3.6-4.8"/></svg></div><div style="font-size:11px;">会员</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg></div><div style="font-size:11px;">库存</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><div style="font-size:11px;">报表</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M9 11l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div><div style="font-size:11px;">审批</div></div>
+        <div><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div><div style="font-size:11px;">金价设置</div></div>
+      </div>
+      <!-- 底部 tab -->
+      <div style="margin-top:14px;background:#fff;border-top:1px solid #EFE4CC;display:flex;align-items:center;padding:8px 10px 16px;">
+        <div style="flex:1;text-align:center;font-size:10px;color:#A87F2C;font-weight:700;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M3 11l9-8 9 8v10h-6v-6H9v6H3z"/></svg>首页</div>
+        <div style="width:54px;"></div>
+        <div style="flex:1;text-align:center;font-size:10px;color:#A99B7E;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>消息</div>
+        <div style="flex:1;text-align:center;font-size:10px;color:#A99B7E;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>我的</div>
+        <div style="position:absolute;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 屏 2：导购首页 ============ -->
+  <div style="width:375px;flex:0 0 auto;">
+    <div style="text-align:center;font-size:13px;font-weight:700;color:#7A6D58;margin-bottom:10px;">② 导购 / 收银员 · 首页</div>
+    <div style="border:9px solid #17120B;border-radius:42px;box-shadow:0 18px 44px rgba(60,45,20,.28);overflow:hidden;background:#F6F1E7;position:relative;">
+      <div style="height:34px;background:#1B1610;color:#F3E9D2;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-variant-numeric:tabular-nums;"><span>9:41</span><span style="letter-spacing:1px;">●●●● &nbsp;WiFi &nbsp;▮▮▮▯</span></div>
+      <div style="background:linear-gradient(160deg,#2E261B,#1B1610);padding:12px 18px 46px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;"><div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;">雯</div><div><div style="color:#F3E9D2;font-size:15px;font-weight:700;">李雯，上午好</div><div style="color:#B7A888;font-size:11px;margin-top:2px;">导购 · 华山店 ｜ 今日早班</div></div></div>
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E9D9B0" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+        </div>
+      </div>
+      <!-- 我的业绩 -->
+      <div style="margin:-34px 14px 0;background:linear-gradient(135deg,#3A2F1C,#241D12);border-radius:16px;padding:14px 16px;box-shadow:0 10px 24px rgba(120,90,35,.22);">
+        <div style="display:flex;justify-content:space-between;align-items:center;color:#C9B483;font-size:11px;"><span>我的业绩 · 9月</span><span style="color:#9A8B6E;">目标 20 万</span></div>
+        <div style="display:flex;gap:18px;margin-top:8px;">
+          <div><div style="color:#8E8062;font-size:10px;">本月实收</div><div style="color:#F3E9D2;font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;">¥143,200</div></div>
+          <div style="border-left:1px solid rgba(201,162,75,.3);padding-left:18px;"><div style="color:#8E8062;font-size:10px;">本月提成（成品2%+加工1%）</div><div style="color:#E7C579;font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;">¥2,864</div></div>
+        </div>
+        <div style="height:7px;border-radius:99px;background:rgba(255,255,255,.1);margin-top:12px;overflow:hidden;"><div style="width:71%;height:100%;background:linear-gradient(90deg,#C9A24B,#E2C87B);border-radius:99px;"></div></div>
+        <div style="display:flex;justify-content:space-between;color:#9A8B6E;font-size:10px;margin-top:6px;"><span>已完成 71%</span><span>今日实收 ¥6,480 · 3 单</span></div>
+      </div>
+      <!-- 今日金价 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:13px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9A8B6E;"><span>今日金价（自动定价）</span><span style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市 11:00</span></div>
+        <div style="display:flex;margin-top:10px;">
+          <div style="flex:1;"><div style="font-size:11px;color:#8A7B5E;">足金卖价</div><div style="font-size:24px;font-weight:800;color:#A87F2C;font-variant-numeric:tabular-nums;margin-top:2px;">918.9<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span></div></div>
+          <div style="flex:1;border-left:1px dashed #EFE4CC;padding-left:14px;"><div style="font-size:11px;color:#8A7B5E;">足金回收价</div><div style="font-size:24px;font-weight:800;color:#221C14;font-variant-numeric:tabular-nums;margin-top:2px;">884.7<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span></div></div>
+        </div>
+        <div style="font-size:10px;color:#A99B7E;margin-top:8px;">基准 Au(T+D) 894.74（极速数据）｜ 加价 +24 ｜ 扣减 −10</div>
+      </div>
+      <!-- 三大开单按钮 -->
+      <div style="padding:14px 14px 0;">
+        <div style="background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:58px;display:flex;align-items:center;justify-content:center;gap:9px;color:#fff;font-size:17px;font-weight:800;box-shadow:0 10px 20px rgba(168,127,44,.32);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M6 2h12l2 6-8 14L4 8z"/></svg>销售开单</div>
+        <div style="display:flex;gap:10px;margin-top:10px;">
+          <div style="flex:1;background:#fff;border:1px solid #E6D8B8;border-radius:14px;height:54px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:700;color:#6B5320;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M14 7l3 3L7 20l-4 1 1-4z"/></svg>加工开单</div>
+          <div style="flex:1;background:#fff;border:1px solid #E6D8B8;border-radius:14px;height:54px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:700;color:#6B5320;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v5h-5"/></svg>回收开单</div>
+        </div>
+      </div>
+      <!-- 今日待办 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;">
+        <div style="font-size:13px;font-weight:700;">今日待办 <span style="background:#C0453B;color:#fff;font-size:10px;border-radius:999px;padding:1px 7px;margin-left:4px;">3</span></div>
+        <div style="margin-top:9px;display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">手镯订单收尾款 <span style="color:#9A8B6E;font-size:10px;">客户今日来取</span></div><div style="font-size:12px;font-weight:700;color:#C0453B;">¥19,300</div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">2 位会员生日，记得回访</div><div style="font-size:11px;color:#A87F2C;">去回访</div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">1 张加工单待送前台确认</div><div style="font-size:11px;color:#A87F2C;">去处理</div></div>
+      </div>
+      <div style="height:14px;"></div>
+      <!-- tabbar 带凸起开单 -->
+      <div style="position:relative;background:#fff;border-top:1px solid #EFE4CC;display:flex;align-items:flex-end;padding:8px 10px 16px;">
+        <div style="flex:1;text-align:center;font-size:10px;color:#A87F2C;font-weight:700;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M3 11l9-8 9 8v10h-6v-6H9v6H3z"/></svg>首页</div>
+        <div style="flex:1;text-align:center;font-size:10px;color:#A99B7E;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>单据</div>
+        <div style="width:60px;"></div>
+        <div style="flex:1;text-align:center;font-size:10px;color:#A99B7E;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>消息</div>
+        <div style="flex:1;text-align:center;font-size:10px;color:#A99B7E;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>我的</div>
+        <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:20px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#D8B463,#A87F2C);border:4px solid #F6F1E7;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(168,127,44,.4);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M6 2h12l2 6-8 14L4 8z"/></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 屏 3：销售开单 ============ -->
+  <div style="width:375px;flex:0 0 auto;">
+    <div style="text-align:center;font-size:13px;font-weight:700;color:#7A6D58;margin-bottom:10px;">③ 销售开单（选导购 · 锁金价）</div>
+    <div style="border:9px solid #17120B;border-radius:42px;box-shadow:0 18px 44px rgba(60,45,20,.28);overflow:hidden;background:#F6F1E7;">
+      <div style="height:34px;background:#F6F1E7;color:#221C14;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-variant-numeric:tabular-nums;"><span>9:41</span><span style="letter-spacing:1px;">●●●● &nbsp;WiFi &nbsp;▮▮▮▯</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 10px;">
+        <div style="width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid #E7DCC6;display:flex;align-items:center;justify-content:center;">‹</div>
+        <div style="font-size:16px;font-weight:800;">销售开单</div>
+        <div style="font-size:11px;background:#F6EDD7;border:1px solid #E4D2A6;color:#7C5C1E;border-radius:999px;padding:7px 11px;display:flex;align-items:center;gap:5px;">导购：李雯 <span style="font-size:9px;">▾</span></div>
+      </div>
+      <!-- 会员 -->
+      <div style="margin:0 14px;background:#fff;border:1px solid #EFE4CC;border-radius:13px;padding:11px 13px;display:flex;align-items:center;gap:10px;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/></svg>
+        <div style="flex:1;font-size:13px;">散客（未选会员）<span style="color:#A99B7E;font-size:11px;"> · 点击选择/搜索</span></div><span style="color:#A87F2C;font-size:13px;">›</span>
+      </div>
+      <!-- 商品清单 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:13px;">
+        <div style="font-size:13px;font-weight:700;display:flex;justify-content:space-between;"><span>商品清单</span><span style="font-size:11px;color:#A87F2C;font-weight:600;">+ 添加商品</span></div>
+        <div style="margin-top:11px;padding-bottom:11px;border-bottom:1px dashed #EFE4CC;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;"><span>足金手镯 · 按克</span><span style="font-variant-numeric:tabular-nums;">¥26,275.96</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:11px;color:#8A7B5E;"><span>28.60 克 × 918.74 元/克</span><span style="background:#FBF7ED;color:#A87F2C;border-radius:6px;padding:2px 7px;font-size:10px;">金价已锁 894.74</span></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px dashed #EFE4CC;font-size:12px;color:#5C5140;"><span>工艺费</span><b style="color:#221C14;font-variant-numeric:tabular-nums;">+ ¥200.00</b></div>
+        <div style="display:flex;justify-content:space-between;padding:11px 0 0;font-size:12px;color:#5C5140;"><span>旧金回收抵扣 · 5.20 克 × 884.74</span><b style="color:#2F7D5C;font-variant-numeric:tabular-nums;">− ¥4,600.65</b></div>
+      </div>
+      <!-- 锁价提示 -->
+      <div style="margin:10px 14px 0;background:#FBF3E2;border:1px solid #ECD9AC;border-radius:11px;padding:9px 12px;font-size:11px;color:#7C5C1E;display:flex;gap:8px;align-items:flex-start;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.8" style="flex:none;margin-top:1px;"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <span>提交即锁定当前金价与加价；之后行情变动不影响本单（含未结算单），退款/结算/提成均按锁定价计算。</span>
+      </div>
+      <!-- 结算 -->
+      <div style="margin:10px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:13px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6B5F4F;padding:4px 0;"><span>应收合计</span><span style="font-variant-numeric:tabular-nums;">¥21,875.31</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6B5F4F;padding:4px 0;"><span>优惠结清（需店长审批）</span><span style="color:#C0453B;font-variant-numeric:tabular-nums;">− ¥90.00</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 2px;border-top:1px dashed #EFE4CC;margin-top:5px;"><span style="font-size:13px;font-weight:700;">实收金额</span><span style="font-size:24px;font-weight:800;color:#C0453B;font-variant-numeric:tabular-nums;">¥21,785.31</span></div>
+      </div>
+      <!-- 底部固定操作 -->
+      <div style="margin:12px 14px 14px;background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:54px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:800;box-shadow:0 10px 20px rgba(168,127,44,.3);">提交订单并收款 ¥21,785.31</div>
+    </div>
+  </div>
+
+  <!-- ============ 屏 4：金价设置 ============ -->
+  <div style="width:375px;flex:0 0 auto;">
+    <div style="text-align:center;font-size:13px;font-weight:700;color:#7A6D58;margin-bottom:10px;">④ 金价设置（管理员 · 改加价）</div>
+    <div style="border:9px solid #17120B;border-radius:42px;box-shadow:0 18px 44px rgba(60,45,20,.28);overflow:hidden;background:#F6F1E7;">
+      <div style="height:34px;background:#F6F1E7;color:#221C14;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-variant-numeric:tabular-nums;"><span>9:41</span><span style="letter-spacing:1px;">●●●● &nbsp;WiFi &nbsp;▮▮▮▯</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 8px;"><div style="width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid #E7DCC6;display:flex;align-items:center;justify-content:center;">‹</div><div style="font-size:16px;font-weight:800;">金价设置</div><div style="font-size:11px;color:#A87F2C;width:34px;text-align:right;">日志</div></div>
+      <!-- 行情状态 -->
+      <div style="margin:0 14px;background:linear-gradient(135deg,#3A2F1C,#241D12);border-radius:14px;padding:12px 14px;color:#F3E9D2;">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#C9B483;"><span>行情来源：极速数据（天行兜底）</span><span style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市</span></div>
+        <div style="display:flex;gap:16px;margin-top:8px;"><div><div style="font-size:10px;color:#9A8B6E;">Au(T+D)</div><div style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;">894.74 <span style="font-size:10px;color:#9A8B6E;">元/克</span></div></div><div><div style="font-size:10px;color:#9A8B6E;">Ag(T+D)</div><div style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;">14.763 <span style="font-size:10px;color:#9A8B6E;">元/克</span></div></div><div style="margin-left:auto;text-align:right;font-size:10px;color:#9A8B6E;align-self:center;">更新 11:00<br>15 分钟自动刷新</div></div>
+      </div>
+      <!-- 足金卡 -->
+      <div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:15px;font-weight:800;">足金 999</div><div style="font-size:10px;color:#A99B7E;margin-top:2px;">基准 Au(T+D) · 成色系数 1.00</div></div>
+          <div style="display:flex;background:#F3ECDB;border-radius:999px;padding:3px;font-size:11px;font-weight:700;"><span style="background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;border-radius:999px;padding:5px 12px;">自动</span><span style="color:#9A8B6E;padding:5px 12px;">手动</span></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:13px;">
+          <div style="flex:1;background:#FBF7ED;border-radius:12px;padding:10px;">
+            <div style="font-size:11px;color:#8A7B5E;">卖价加价（元/克）</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;"><span style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;">−</span><b style="font-size:18px;font-variant-numeric:tabular-nums;color:#A87F2C;">+24.00</b><span style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;">＋</span></div>
+          </div>
+          <div style="flex:1;background:#FBF7ED;border-radius:12px;padding:10px;">
+            <div style="font-size:11px;color:#8A7B5E;">回收扣减（元/克）</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;"><span style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;">−</span><b style="font-size:18px;font-variant-numeric:tabular-nums;">−10.00</b><span style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;">＋</span></div>
+          </div>
+        </div>
+        <div style="margin-top:11px;font-size:11px;color:#8A7B5E;">取整规则</div>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+          <span style="font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid #E7DCC6;color:#8A7B5E;">不取整</span>
+          <span style="font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid #E7DCC6;color:#8A7B5E;">到角</span>
+          <span style="font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid #E7DCC6;color:#8A7B5E;">到元</span>
+          <span style="font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid #E7DCC6;color:#8A7B5E;">尾数 .8</span>
+          <span style="font-size:11px;padding:6px 11px;border-radius:999px;background:#A87F2C;color:#fff;font-weight:700;">尾数 .9 ✓</span>
+        </div>
+        <!-- 公式预览 -->
+        <div style="margin-top:12px;background:#2A2318;border-radius:12px;padding:11px 12px;font-size:11px;color:#D9C89C;line-height:1.9;">
+          <div>卖价 = 894.74 × 1.00 + 24.00 → <b style="color:#E7C579;font-size:14px;">¥918.9/克</b></div>
+          <div>回收 = 894.74 × 1.00 − 10.00 → <b style="color:#F3E9D2;font-size:14px;">¥884.7/克</b></div>
+        </div>
+      </div>
+      <!-- 18K 手动 -->
+      <div style="margin:10px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;">
+        <div><div style="font-size:14px;font-weight:700;">18K 金 <span style="font-size:10px;color:#A99B7E;font-weight:400;">系数 0.75</span></div><div style="font-size:11px;color:#A99B7E;margin-top:3px;">手动定价 · 卖价 698.0 / 回收 660.0</div></div>
+        <span style="font-size:11px;background:#F1ECE0;color:#8A7B5E;border-radius:999px;padding:6px 12px;font-weight:700;">手动</span>
+      </div>
+      <div style="margin:10px 14px 0;font-size:10px;color:#A99B7E;line-height:1.7;">铂金暂无行情源，保持手动定价。<br>休市/行情异常跳变（&gt;5%）时自动冻结价格并告警，需人工确认恢复。</div>
+      <!-- 保存 -->
+      <div style="margin:12px 14px 14px;background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;"><div style="font-size:15px;font-weight:800;">保存并同步全端</div><div style="font-size:10px;opacity:.85;">管理端 / 收银端 / 手机端 30 秒内生效 · 记入价格日志</div></div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- 设计说明 -->
+  <div style="max-width:1640px;margin:30px auto 0;background:#fff;border:1px solid #E7DCC6;border-radius:16px;padding:18px 22px;font-size:13px;color:#5C5140;line-height:1.9;">
+    <b style="color:#221C14;">设计说明（请你重点确认这几件事）</b><br>
+    1. <b>按角色给首页</b>：店长打开是"经营看板+审批"，导购/收银打开是"我的业绩+三大开单按钮"，同一 App 不同界面，不再让导购看一堆用不上的报表。<br>
+    2. <b>开单永远最醒目</b>：导购首页中间凸起金色大按钮，销售/加工/回收三个入口固定在首屏，不用翻菜单。<br>
+    3. <b>金价信息透明</b>：卖价、回收价、基准价、加价/扣减、来源、开市休市、报价时间全部露出；开单页明确提示"下单锁价"。<br>
+    4. <b>金价设置只改加价</b>：管理员改的是 +24 / −10 这些配置，行情本身不可手改；公式实时预览，保存后 30 秒全端同步。<br>
+    5. <b>大字号大按钮</b>：关键金额 20–24px，按钮高 52–58px，适合店里快速点按；红涨绿跌按国内习惯。<br>
+    6. 本稿为静态视觉预览，数据均为示意，<b>未改动任何代码</b>。你确认风格（配色/布局/元素）后，我再整理给 Codex 的落地提示词；不喜欢的地方直接说，比如"颜色太暗""按钮太大""不要图表"，我出方案 B。
+  </div>
+</div>
+</html>

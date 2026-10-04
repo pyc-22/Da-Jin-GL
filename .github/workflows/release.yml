@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cashier-installer
-          path: front-pc/release/**/*.exe
+          path: front-pc/release/*Setup*.exe
           if-no-files-found: error
           retention-days: 7
 
@@ -112,8 +112,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          installer="$(find release-assets -type f -name '*.exe' -print -quit)"
-          test -n "$installer"
+          mapfile -t installers < <(find release-assets -maxdepth 1 -type f -iname '*Setup*.exe' -print)
+          test "${#installers[@]}" -eq 1
+          installer="${installers[0]}"
           sha256sum "$installer" > release-assets/SHA256SUMS.txt
           cat > release-assets/DEPLOY.txt <<EOF
           Da-Jin-GL ${GITHUB_REF_NAME}
@@ -129,7 +130,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          installer="$(find release-assets -type f -name '*.exe' -print -quit)"
+          mapfile -t installers < <(find release-assets -maxdepth 1 -type f -iname '*Setup*.exe' -print)
+          test "${#installers[@]}" -eq 1
+          installer="${installers[0]}"
           gh release create "$GITHUB_REF_NAME" \
             "$installer" \
             release-assets/SHA256SUMS.txt \

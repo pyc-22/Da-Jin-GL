@@ -130,26 +130,8 @@
             <label class="form-label">旧金克重<input v-model="form.oldGoldWeight" type="number" min="0" step="0.001" placeholder="选填"/></label>
             <label class="form-label">旧金成色<input v-model="form.oldGoldFineness" type="number" min="0" max="1" step="0.001" placeholder="如 0.999"/></label>
           </div>
-          <div class="form-label">剩余旧料处理
-            <div class="filter-tabs">
-              <Chip v-for="h in handlings" :key="h.value" :selected="form.residualGoldHandling === h.value" @click="form.residualGoldHandling = h.value">{{ h.label }}</Chip>
-            </div>
-          </div>
-          <template v-if="form.residualGoldHandling === 'STORE_DEDUCT'">
-            <label class="form-label">旧料类型 *
-              <select v-model="form.residualMaterialType">
-                <option v-for="type in materialTypes" :key="type" :value="type">{{ type }}</option>
-              </select>
-            </label>
-            <div class="form-row">
-              <label class="form-label">旧料克重 *<input v-model="form.residualGoldWeight" type="number" min="0" step="0.001"/></label>
-              <label class="form-label">旧料成色 *<input v-model="form.residualGoldFineness" type="number" min="0" max="1" step="0.001"/></label>
-            </div>
-            <p class="muted small">抵扣按 旧料克重 × 成色 × 当前回收金价（{{ money(recyclePrice) }}/g）估算，最高不超过工费，提交后以系统计算为准。</p>
-          </template>
           <div class="estimate-lines">
             <div><span>加工工费</span><b>{{ money(laborFee) }}</b></div>
-            <div v-if="deductionPreview > 0"><span>旧料抵扣</span><b>-{{ money(deductionPreview) }}</b></div>
             <div class="total"><span>本单应收</span><b>{{ money(duePreview) }}</b></div>
           </div>
           <p class="muted small">款项由收银端「前台待办 · 待确认加工」收取。</p>
@@ -192,16 +174,14 @@ const steps = [
   { key: 'COMPLETED', label: '待取货', done: s => ['COMPLETED', 'PICKED_UP'].includes(s), current: s => s === 'COMPLETED' },
   { key: 'PICKED_UP', label: '已取货', done: s => s === 'PICKED_UP', current: s => s === 'PICKED_UP' }
 ]
-const handlings = [{ value: 'TAKE_AWAY', label: '客户带走' }, { value: 'STORE_DEDUCT', label: '留店抵扣' }]
 const keyword = ref(''), status = ref(''), orders = ref([]), loading = ref(false), error = ref('')
 const detail = ref(null), detailLoading = ref(false)
 const creating = ref(false), saving = ref(false), createError = ref('')
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
-const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金旧料', residualGoldWeight: '', residualGoldFineness: '', remark: '', memberId: null })
+const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
 const recyclePrice = computed(() => Number(app.primaryGold?.recyclePrice || 0))
-const deductionPreview = computed(() => { if (form.residualGoldHandling !== 'STORE_DEDUCT') return 0; const value = Number(form.residualGoldWeight || 0) * Number(form.residualGoldFineness || 0) * recyclePrice.value; return Math.min(value, laborFee.value) })
-const duePreview = computed(() => Math.max(0, laborFee.value - deductionPreview.value))
+const duePreview = computed(() => Math.max(0, laborFee.value))
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const grams = v => `${Number(v || 0).toFixed(3)}g`
 const outstanding = row => Math.max(Number(row?.due_amount || 0) - Number(row?.paid_amount || 0), 0)
@@ -311,7 +291,7 @@ function handleItemChange() {
   form.pickupDate = base.toISOString().slice(0, 10)
 }
 function resetForm() {
-  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: materialTypes.value[0] || '足金旧料', residualGoldWeight: '', residualGoldFineness: '', remark: '', memberId: null })
+  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
   memberKeyword.value = ''; memberHits.value = []
 }
 async function submit() {
@@ -321,24 +301,15 @@ async function submit() {
   if (!form.itemId) { createError.value = '请选择加工项目'; return }
   if (!(Number(form.quantity) > 0)) { createError.value = '数量必须大于 0'; return }
   if (selectedItem.value?.pricing_unit === '按克' && !(Number(form.billingWeight) > 0)) { createError.value = '请填写大于0的计费总克重'; return }
-  if (form.residualGoldHandling === 'STORE_DEDUCT' && (!form.residualMaterialType || !(Number(form.residualGoldWeight) > 0) || !(Number(form.residualGoldFineness) > 0))) {
-    createError.value = '留店抵扣需填写旧料类型、克重和成色'; return
-  }
   const payload = {
     customerName: form.customerName, customerPhone: form.customerPhone, processingItemId: Number(form.itemId), quantity: Number(form.quantity),
     billingWeight: selectedItem.value?.pricing_unit === '按克' ? Number(form.billingWeight) : null,
-    residualGoldHandling: form.residualGoldHandling,
     ...(form.memberId ? { memberId: Number(form.memberId) } : {}),
     ...(form.craftsmanId ? { craftsmanId: Number(form.craftsmanId) } : {}),
     ...(form.pickupDate ? { pickupDate: form.pickupDate } : {}),
     ...(form.oldGoldWeight !== '' ? { oldGoldWeight: Number(form.oldGoldWeight) } : {}),
     ...(form.oldGoldFineness !== '' ? { oldGoldFineness: Number(form.oldGoldFineness) } : {}),
     ...(form.remark ? { remark: form.remark } : {})
-  }
-  if (form.residualGoldHandling === 'STORE_DEDUCT') {
-    payload.residualMaterialType = form.residualMaterialType
-    payload.residualGoldWeight = Number(form.residualGoldWeight)
-    payload.residualGoldFineness = Number(form.residualGoldFineness)
   }
   saving.value = true
   try {

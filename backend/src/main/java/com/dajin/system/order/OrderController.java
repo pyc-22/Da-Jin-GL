@@ -49,7 +49,7 @@ public class OrderController {
         if (q.clientRequestId() != null && !q.clientRequestId().isBlank()) {
             if ("CANCELLED".equals(lockClientRequest(q.clientRequestId(), r)))
                 throw new BusinessException(409109, "订单已取消，不能重新同步开单");
-            List<Map<String, Object>> existing = db.list("select order_id,order_no,status,approval_id,old_material_deduct,old_material_excess,old_material_payout_method from sales_order where store_id=:s and client_request_id=:c", Map.of("s", db.store(r), "c", q.clientRequestId()));
+            List<Map<String, Object>> existing = db.list("select order_id,order_no,status,approval_id,old_material_deduct,old_material_excess,old_material_payout_method,old_material_payout_amount from sales_order where store_id=:s and client_request_id=:c", Map.of("s", db.store(r), "c", q.clientRequestId()));
             if (!existing.isEmpty()) {
                 Map<String,Object> e = existing.get(0);
                 Map<String,Object> replay = new LinkedHashMap<>();
@@ -92,7 +92,7 @@ public class OrderController {
         String no = "XS" + LocalDate.now().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", no).addValue("m", q.memberId()).addValue("total", total).addValue("discount", discount).addValue("old", settlement.appliedDeduction()).addValue("excess", settlement.excessPayout()).addValue("payoutMethod", payoutMethod).addValue("labor", laborFee).addValue("pay", BigDecimal.ZERO).addValue("method", null).addValue("cashier", userId(r)).addValue("sales", salesId).addValue("approval", null).addValue("status", status).addValue("remark", q.remark()).addValue("client", q.clientRequestId()).addValue("handover", Boolean.TRUE.equals(q.handover()) ? 1 : 0);
-        db.jdbc().update("insert into sales_order(store_id,order_no,member_id,total_amount,discount,old_material_deduct,old_material_excess,old_material_payout_method,labor_fee,pay_amount,pay_method,cashier_id,sales_id,approval_id,status,remark,client_request_id,handover,create_time,update_time) values(:s,:no,:m,:total,:discount,:old,:excess,:payoutMethod,:labor,:pay,:method,:cashier,:sales,:approval,:status,:remark,:client,:handover,now(),now())", p);
+        db.jdbc().update("insert into sales_order(store_id,order_no,member_id,total_amount,discount,old_material_deduct,old_material_excess,old_material_payout_method,old_material_payout_amount,labor_fee,pay_amount,pay_method,cashier_id,sales_id,approval_id,status,remark,client_request_id,handover,create_time,update_time) values(:s,:no,:m,:total,:discount,:old,:excess,:payoutMethod,0,:labor,:pay,:method,:cashier,:sales,:approval,:status,:remark,:client,:handover,now(),now())", p);
         long id = db.jdbc().queryForObject("select order_id from sales_order where store_id=:s and order_no=:no", p, Long.class);
         for (Item i : pricedItems) {
             BigDecimal costSnapshot = costSnapshot(i, r);

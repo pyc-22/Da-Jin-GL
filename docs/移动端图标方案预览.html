@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>鑫铖金匠 · 应用图标方案预览</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#EFE7D8; font-family:'PingFang SC','Microsoft YaHei',sans-serif; color:#221C14; padding:30px 20px 50px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; letter-spacing:.5px; }
+  .sub { font-size:13px; color:#7A6D58; margin:6px 0 22px; }
+  .row { display:flex; gap:26px; flex-wrap:wrap; }
+  .card { background:#fff; border:1px solid #E7DCC6; border-radius:18px; padding:22px; flex:1; min-width:300px; }
+  .tag { display:inline-block; font-size:12px; font-weight:700; color:#A87F2C; background:#F6EDD7; border-radius:999px; padding:4px 12px; margin-bottom:12px; }
+  .name { font-size:16px; font-weight:800; margin-bottom:4px; }
+  .desc { font-size:12px; color:#7A6D58; line-height:1.7; margin-bottom:16px; }
+  .stage { display:flex; align-items:flex-end; gap:20px; background:#F6F1E7; border-radius:14px; padding:20px; }
+  .size-demo { text-align:center; }
+  .size-demo small { display:block; font-size:10px; color:#9A8B6E; margin-top:8px; }
+  .icon { border-radius:24%; position:relative; overflow:hidden; }
+
+  /* ===== 方案一：鑫字鎏金 ===== */
+  .v1 { background:linear-gradient(160deg,#E2C87B 0%,#C9A24B 38%,#A87F2C 100%); display:flex; align-items:center; justify-content:center; box-shadow:inset 0 -3px 8px rgba(120,84,20,.35), inset 0 2px 4px rgba(255,244,214,.6); }
+  .v1 span { font-family:'Songti SC','STSong','SimSun',serif; font-weight:900; color:#FFFDF5; text-shadow:0 2px 3px rgba(133,94,22,.45); line-height:1; transform:translateY(-2%); }
+
+  /* ===== 方案二：钻石切面 ===== */
+  .v2 { background:linear-gradient(165deg,#3A2F1C 0%,#1B1610 75%); display:flex; align-items:center; justify-content:center; }
+  .v2 svg { width:72%; height:72%; filter:drop-shadow(0 3px 4px rgba(0,0,0,.45)); }
+
+  /* ===== 方案三：锤与金条 ===== */
+  .v3 { background:linear-gradient(160deg,#E2C87B 0%,#C9A24B 40%,#A87F2C 100%); display:flex; align-items:center; justify-content:center; }
+  .v3 svg { width:70%; height:70%; filter:drop-shadow(0 2px 3px rgba(133,94,22,.4)); }
+
+  /* ===== 现状对比 ===== */
+  .v0 { background:linear-gradient(160deg,#E2C87B,#A87F2C); display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 3px rgba(128,128,128,.25); }
+  .v0 span { font-family:sans-serif; font-weight:700; color:#fff; }
+
+  .footer { margin-top:22px; font-size:12px; color:#9A8B6E; line-height:1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>鑫铖金匠 · 应用图标方案预览</h1>
+  <div class="sub">三个候选方向 · 每个按桌面大图标 192px / 中 96px / 小 48px 三档模拟缩放效果 ｜ 最终以 1024×1024 原稿生成自适应图标</div>
+
+  <div class="row">
+    <!-- 方案一 -->
+    <div class="card">
+      <span class="tag">方案一 · 推荐</span>
+      <div class="name">「鑫」字鎏金</div>
+      <div class="desc">品牌字"鑫"（三金叠加）做主视觉，宋体粗字，暖金渐变底，与预览稿里首页品牌 logo 同款语言，识别度和统一性最好。</div>
+      <div class="stage">
+        <div class="size-demo"><div class="icon v1" style="width:192px;height:192px;"><span style="font-size:118px;">鑫</span></div><small>192px</small></div>
+        <div class="size-demo"><div class="icon v1" style="width:96px;height:96px;"><span style="font-size:59px;">鑫</span></div><small>96px</small></div>
+        <div class="size-demo"><div class="icon v1" style="width:48px;height:48px;"><span style="font-size:30px;">鑫</span></div><small>48px</small></div>
+      </div>
+    </div>
+
+    <!-- 方案二 -->
+    <div class="card">
+      <span class="tag">方案二</span>
+      <div class="name">深底金钻</div>
+      <div class="desc">深棕底 + 金色切面钻石，呼应底部开单按钮的钻石意象，现代感强，无文字、小尺寸最清晰。</div>
+      <div class="stage">
+        <div class="size-demo"><div class="icon v2" style="width:192px;height:192px;">
+          <svg viewBox="0 0 100 100" fill="none"><polygon points="30,18 70,18 88,42 50,86 12,42" fill="#C9A24B"/><polygon points="30,18 42,42 12,42" fill="#E2C87B"/><polygon points="42,42 50,86 12,42" fill="#B0832E"/><polygon points="58,42 50,86 88,42" fill="#A87F2C"/><polygon points="70,18 58,42 88,42" fill="#E2C87B"/><polygon points="42,42 50,18 30,18" fill="#D8B463" opacity=".9"/><polygon points="58,42 50,18 42,42" fill="#F0DCA0"/><polygon points="42,42 58,42 50,86" fill="#C9A24B"/></svg>
+        </div><small>192px</small></div>
+        <div class="size-demo"><div class="icon v2" style="width:96px;height:96px;">
+          <svg viewBox="0 0 100 100" fill="none"><polygon points="30,18 70,18 88,42 50,86 12,42" fill="#C9A24B"/><polygon points="30,18 42,42 12,42" fill="#E2C87B"/><polygon points="42,42 50,86 12,42" fill="#B0832E"/><polygon points="58,42 50,86 88,42" fill="#A87F2C"/><polygon points="70,18 58,42 88,42" fill="#E2C87B"/><polygon points="42,42 58,42 50,86" fill="#C9A24B"/></svg>
+        </div><small>96px</small></div>
+        <div class="size-demo"><div class="icon v2" style="width:48px;height:48px;">
+          <svg viewBox="0 0 100 100" fill="none"><polygon points="30,18 70,18 88,42 50,86 12,42" fill="#C9A24B"/><polygon points="30,18 42,42 12,42" fill="#E2C87B"/><polygon points="42,42 50,86 12,42" fill="#B0832E"/><polygon points="58,42 50,86 88,42" fill="#A87F2C"/><polygon points="70,18 58,42 88,42" fill="#E2C87B"/></svg>
+        </div><small>48px</small></div>
+      </div>
+    </div>
+
+    <!-- 方案三 -->
+    <div class="card">
+      <span class="tag">方案三</span>
+      <div class="name">锤与金条</div>
+      <div class="desc">打金锤 + 金条组合，直接表达"打金"手艺身份；元素偏多，小尺寸清晰度略逊于前两个。</div>
+      <div class="stage">
+        <div class="size-demo"><div class="icon v3" style="width:192px;height:192px;">
+          <svg viewBox="0 0 100 100" fill="none" stroke-linecap="round"><rect x="16" y="66" width="52" height="16" rx="5" fill="#8F6517" transform="rotate(-8 42 74)"/><rect x="22" y="63" width="40" height="7" rx="3" fill="#C9A24B" transform="rotate(-8 42 66)"/><rect x="52" y="14" width="16" height="34" rx="4" transform="rotate(35 60 31)" fill="#7A5A2B"/><rect x="50" y="8" width="30" height="18" rx="5" transform="rotate(35 65 17)" fill="#3A2F1C"/><circle cx="80" cy="74" r="7" fill="#E2C87B"/><circle cx="80" cy="74" r="7" stroke="#8F6517" stroke-width="2"/></svg>
+        </div><small>192px</small></div>
+        <div class="size-demo"><div class="icon v3" style="width:96px;height:96px;">
+          <svg viewBox="0 0 100 100" fill="none" stroke-linecap="round"><rect x="16" y="66" width="52" height="16" rx="5" fill="#8F6517" transform="rotate(-8 42 74)"/><rect x="22" y="63" width="40" height="7" rx="3" fill="#C9A24B" transform="rotate(-8 42 66)"/><rect x="52" y="14" width="16" height="34" rx="4" transform="rotate(35 60 31)" fill="#7A5A2B"/><rect x="50" y="8" width="30" height="18" rx="5" transform="rotate(35 65 17)" fill="#3A2F1C"/><circle cx="80" cy="74" r="7" fill="#E2C87B" stroke="#8F6517" stroke-width="2"/></svg>
+        </div><small>96px</small></div>
+        <div class="size-demo"><div class="icon v3" style="width:48px;height:48px;">
+          <svg viewBox="0 0 100 100" fill="none" stroke-linecap="round"><rect x="16" y="66" width="52" height="16" rx="5" fill="#8F6517" transform="rotate(-8 42 74)"/><rect x="52" y="14" width="16" height="34" rx="4" transform="rotate(35 60 31)" fill="#7A5A2B"/><rect x="50" y="8" width="30" height="18" rx="5" transform="rotate(35 65 17)" fill="#3A2F1C"/><circle cx="80" cy="74" r="7" fill="#E2C87B" stroke="#8F6517" stroke-width="2"/></svg>
+        </div><small>48px</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 现状对比 -->
+  <div class="row" style="margin-top:26px;">
+    <div class="card" style="max-width:520px;">
+      <span class="tag">现状（对比用）</span>
+      <div class="name">当前图标：默认「金」字</div>
+      <div class="desc">Capacitor 默认模板样式，字体普通、带默认灰边，与品牌无关联。</div>
+      <div class="stage">
+        <div class="size-demo"><div class="icon v0" style="width:96px;height:96px;"><span style="font-size:56px;">金</span></div><small>96px</small></div>
+        <div class="size-demo"><div class="icon v0" style="width:48px;height:48px;"><span style="font-size:28px;">金</span></div><small>48px</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">注：预览为示意稿。选定方案后按 1024×1024 原稿输出，并做成 Android 自适应图标（前景/背景两层），可去掉默认灰边、适配各家桌面的圆形/方形裁切；iOS 侧若以后上架再用同一原稿生成。</div>
+</div>
+</body>
+</html>

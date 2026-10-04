@@ -8,6 +8,28 @@ import { createMessageSocket } from '../utils/messageSocket.js'
 
 const messageConnections = new WeakMap()
 
+// 兼容尚未升级的本地后端：旧接口按“足金/回收金价/银/银回收价”分行，
+// 新接口在同一行返回 salePrice/recyclePrice。移动端统一成后一种结构。
+export function normalizeGoldRows(rows) {
+  if (!Array.isArray(rows)) return []
+  const byType = new Map(rows.map(row => [String(row?.price_type || row?.priceType || row?.type_name || row?.name || row?.code || '').trim(), row]))
+  const find = (...names) => names.map(name => byType.get(name)).find(Boolean)
+  const goldSale = Number(find('足金')?.salePrice ?? find('足金')?.price ?? 0)
+  const goldRecycle = Number(find('回收金价')?.recyclePrice ?? find('回收金价')?.price ?? 0)
+  const silverSale = Number(find('银')?.salePrice ?? find('银')?.price ?? 0)
+  const silverRecycle = Number(find('银回收价')?.recyclePrice ?? find('银回收价')?.price ?? 0)
+  return rows.map(source => {
+    const row = { ...source }
+    const type = String(row.price_type || row.priceType || row.type_name || row.name || row.code || '').trim()
+    const recycleType = type === '回收金价' || type === '银回收价' || /recycle/i.test(String(row.type_code || row.code || ''))
+    if (row.salePrice == null) row.salePrice = recycleType ? (type === '银回收价' ? silverSale : goldSale) : Number(row.price ?? 0)
+    if (row.recyclePrice == null) row.recyclePrice = recycleType ? Number(row.price ?? 0) : (type === '银' ? silverRecycle : goldRecycle)
+    // Older responses omit the market state; keep the card explicit instead of showing an empty badge.
+    if (!row.marketStatus) row.marketStatus = 'CLOSED'
+    return row
+  })
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({ tradeInDraft: null, gold: [], dashboard: null, approvals: [], unread: 0, ws: null, wsConnected: false, wsStatus: 'stopped', wsDisconnectReason: '', heartbeatEpoch: 0, heartbeatBusy: false, heartbeatTimer: null, eventVersion: 0, lastEventType: '', offline: typeof navigator !== 'undefined' ? !navigator.onLine : false, pendingInboundCount: 0, wsToken: '', wsRetries: 0, wsRetryTimer: null }),
   getters: {
@@ -18,8 +40,8 @@ export const useAppStore = defineStore('app', {
   actions: {
     async loadGold() {
       const cache = scopedStorage()
-      try { const gold = await api.gold() || []; if (cache.current()) { this.gold = gold; cache.set('dajin-gold', JSON.stringify(gold)) } }
-      catch { if (cache.current()) { try { this.gold = JSON.parse(cache.get('dajin-gold', '[]')) } catch { this.gold = [] } } }
+      try { const gold = normalizeGoldRows(await api.gold() || []); if (cache.current()) { this.gold = gold; cache.set('dajin-gold', JSON.stringify(gold)) } }
+      catch { if (cache.current()) { try { this.gold = normalizeGoldRows(JSON.parse(cache.get('dajin-gold', '[]'))) } catch { this.gold = [] } } }
     },
     async checkConnectivity() {
       if (this.heartbeatBusy) return !this.offline

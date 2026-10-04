@@ -39,6 +39,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("sales_order", "shift_no", "VARCHAR(48) NULL AFTER client_request_id");
         addColumn("sales_order", "old_material_excess", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER old_material_deduct");
         addColumn("sales_order", "old_material_payout_method", "VARCHAR(50) NULL AFTER old_material_excess");
+        addColumn("sales_order", "old_material_payout_amount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER old_material_payout_method");
         addColumn("sales_order", "settlement_discount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER old_material_payout_method");
         addColumn("sales_order", "settlement_discount_reason", "VARCHAR(200) NULL AFTER settlement_discount");
         normalizePendingOldMaterialExcess();
@@ -122,6 +123,16 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description) "
                 + "select store_id,'SYSTEM','group_channels_seeded','1','团购渠道初始化标记' from sys_store");
         upgradeAuditColumns();
+        // Legacy databases may have been created before residual material was
+        // moved from order creation to the front-desk completion step. Keep
+        // those databases compatible with the completion endpoint; new
+        // databases already declare these columns in createProcessingTables().
+        addColumn("processing_order", "residual_material_type", "VARCHAR(50) NULL AFTER store_gold_amount");
+        addColumn("processing_order", "residual_gold_weight", "DECIMAL(10,3) NULL AFTER residual_material_type");
+        addColumn("processing_order", "residual_gold_fineness", "DECIMAL(6,4) NULL AFTER residual_gold_weight");
+        addColumn("processing_order", "residual_gold_handling", "VARCHAR(24) NOT NULL DEFAULT 'TAKE_AWAY' AFTER residual_gold_fineness");
+        addColumn("processing_order", "residual_gold_deduction", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER residual_gold_handling");
+        addColumn("processing_order", "residual_material_recorded", "TINYINT NOT NULL DEFAULT 0 AFTER residual_gold_deduction");
         createOldMaterialTypeTable();
         createStockInboundTables();
         migrateGoodsPieceIdentity();

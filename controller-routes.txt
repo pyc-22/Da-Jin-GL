@@ -1,0 +1,849 @@
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-18-@RestController
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:19:@RequestMapping("/api/approval")
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:20:@RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-21-public class ApprovalController {
+--
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-36-
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:37:    @GetMapping("/pending")
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-38-    public ApiResponse<?> pending(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-41-
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:42:    @GetMapping("/{id}")
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-43-    public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-71-
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:72:    @PostMapping("/{id}/approve")
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-73-    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-75-
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java:76:    @PostMapping("/{id}/reject")
+backend/src/main/java/com/dajin/system\approval\ApprovalController.java-77-    @Transactional
+--
+backend/src/main/java/com/dajin/system\auth\AuthController.java-8-
+backend/src/main/java/com/dajin/system\auth\AuthController.java:9:@RestController @RequestMapping({"/api/auth", "/api/user"})
+backend/src/main/java/com/dajin/system\auth\AuthController.java-10-public class AuthController {
+--
+backend/src/main/java/com/dajin/system\auth\AuthController.java-13-    public record LoginReq(@NotBlank String username,@NotBlank String password, String clientType){}
+backend/src/main/java/com/dajin/system\auth\AuthController.java:14:    @PostMapping("/login") public ApiResponse<?> login(@Valid @RequestBody LoginReq req){
+backend/src/main/java/com/dajin/system\auth\AuthController.java-15-        List<Map<String,Object>> rows=jdbc.queryForList("select u.user_id,u.username,u.password,u.real_name,u.role_id,u.store_id,u.status,u.phone,u.entry_date,u.remark,r.role_code,r.role_name,s.store_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id join sys_store s on s.store_id=u.store_id where u.username=:u and r.status=1 limit 1",Map.of("u",req.username()));
+--
+backend/src/main/java/com/dajin/system\auth\AuthController.java-43-    }
+backend/src/main/java/com/dajin/system\auth\AuthController.java:44:    @PostMapping("/logout") public ApiResponse<Void> logout(){return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\auth\AuthController.java:45:    @GetMapping("/me") public ApiResponse<?> currentUser(HttpServletRequest request){
+backend/src/main/java/com/dajin/system\auth\AuthController.java-46-        Claims claims=(Claims)request.getAttribute("claims");
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-28-@RestController
+backend/src/main/java/com/dajin/system\admin\StaffController.java:29:@RequestMapping("/api/admin/staff")
+backend/src/main/java/com/dajin/system\admin\StaffController.java:30:@RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\admin\StaffController.java:31:@RequirePermission("staff:manage")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-32-public class StaffController {
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-41-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:42:    @GetMapping
+backend/src/main/java/com/dajin/system\admin\StaffController.java-43-    public ApiResponse<?> list(@RequestParam(required = false) String keyword,
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-54-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:55:    @GetMapping("/{id}")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-56-    public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-61-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:62:    @GetMapping("/check-username")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-63-    public ApiResponse<?> checkUsername(@RequestParam String username,
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-70-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:71:    @PostMapping
+backend/src/main/java/com/dajin/system\admin\StaffController.java-72-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-83-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:84:    @PutMapping("/{id}")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-85-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-95-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:96:    @PutMapping("/{id}/status")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-97-    public ApiResponse<?> updateStatus(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body,
+--
+backend/src/main/java/com/dajin/system\admin\StaffController.java-109-
+backend/src/main/java/com/dajin/system\admin\StaffController.java:110:    @DeleteMapping("/{id}")
+backend/src/main/java/com/dajin/system\admin\StaffController.java-111-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-17-@RestController
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:18:@RequestMapping("/api/admin")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:19:@RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-20-public class AdminFinanceController {
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-28-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:29:    @GetMapping("/finance/records")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:30:    @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-31-    public ApiResponse<?> records(@RequestParam(required = false) String payMethod,
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-57-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:58:    @GetMapping("/finance/shifts")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:59:    @RequirePermission(value = {"shift:confirm", "report:view:all"}, anyOf = true)
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-60-    public ApiResponse<?> shifts(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-63-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:64:    @GetMapping("/finance/summary")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:65:    @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-66-    public ApiResponse<?> summary(@RequestParam(required = false) String start,
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-91-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:92:    @GetMapping("/finance/gross-profit")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:93:    @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-94-    public ApiResponse<?> grossProfit(@RequestParam(required = false) String start,
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-114-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:115:    @GetMapping("/commission/rules")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:116:    @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-117-    public ApiResponse<?> commissionRules(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-120-
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:121:    @GetMapping("/commission/records")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java:122:    @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\admin\AdminFinanceController.java-123-    public ApiResponse<?> commissionRecords(@RequestParam(required = false) String month, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\commission\CommissionController.java-11-@RestController
+backend/src/main/java/com/dajin/system\commission\CommissionController.java:12:@RequestMapping("/api/commission")
+backend/src/main/java/com/dajin/system\commission\CommissionController.java:13:@RequireRoles({"ADMIN","MANAGER"})
+backend/src/main/java/com/dajin/system\commission\CommissionController.java-14-public class CommissionController {
+--
+backend/src/main/java/com/dajin/system\commission\CommissionController.java-17-    public CommissionController(DbSupport db,SyncWebSocketHandler ws) { this.db=db; this.ws=ws; }
+backend/src/main/java/com/dajin/system\commission\CommissionController.java:18:    @PostMapping("/calculate")
+backend/src/main/java/com/dajin/system\commission\CommissionController.java-19-    @Transactional(isolation=Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-20-
+backend/src/main/java/com/dajin/system\member\MemberController.java:21:@RestController @RequestMapping("/api/member") @RequireRoles({"ADMIN", "MANAGER", "SALES", "CASHIER"}) @RequirePermission("member:view")
+backend/src/main/java/com/dajin/system\member\MemberController.java-22-public class MemberController {
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-25-    public MemberController(DbSupport db, SyncWebSocketHandler ws){this.db=db;this.ws=ws;}
+backend/src/main/java/com/dajin/system\member\MemberController.java:26:    @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue="1") int page,
+backend/src/main/java/com/dajin/system\member\MemberController.java-27-                                                       @RequestParam(defaultValue="20") int size,
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-49-    public record Req(@NotBlank String name,@NotBlank @Pattern(regexp="^1[3-9]\\d{9}$", message="手机号格式不合法") String phone,String tags,String birthday,String gender,Long salesId,String source){}
+backend/src/main/java/com/dajin/system\member\MemberController.java:50:    @PostMapping @RequireRoles({"ADMIN","MANAGER","CASHIER","SALES"}) @RequirePermission("member:create") public ApiResponse<?> create(@Valid @RequestBody Req q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\member\MemberController.java-51-        String birthday = blankToNull(q.birthday());
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-60-    }
+backend/src/main/java/com/dajin/system\member\MemberController.java:61:    @PutMapping("/{id}") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> update(@PathVariable long id,@Valid @RequestBody Req q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\member\MemberController.java-62-        String birthday = blankToNull(q.birthday());
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-69-    }
+backend/src/main/java/com/dajin/system\member\MemberController.java:70:    @GetMapping("/{id}") public ApiResponse<?> detail(@PathVariable long id,HttpServletRequest r){assertVisible(id,r);Map<String,Object> p=Map.of("id",id,"s",db.store(r));Map<String,Object> result=new LinkedHashMap<>();result.put("member",db.one("select * from member where member_id=:id and store_id=:s",p));result.put("visits",db.list("select * from visit_task where member_id=:id and store_id=:s order by task_id desc",p));return ApiResponse.ok(result);}
+backend/src/main/java/com/dajin/system\member\MemberController.java:71:@GetMapping("/{id}/consume") public ApiResponse<?> consume(@PathVariable long id,HttpServletRequest r){assertVisible(id,r);return ApiResponse.ok(db.list("select c.consume_id,c.amount,c.consume_time,c.order_id,o.order_no,o.pay_method,(select group_concat(i.item_name separator '、') from sales_order_item i where i.order_id=c.order_id) as items from member_consume c left join sales_order o on o.order_id=c.order_id where c.order_id is not null and c.member_id=:id and c.store_id=:s order by c.consume_id desc",Map.of("id",id,"s",db.store(r))));}
+backend/src/main/java/com/dajin/system\member\MemberController.java:72:    @PostMapping("/{id}/claim") public ApiResponse<?> claim(@PathVariable long id,HttpServletRequest r){io.jsonwebtoken.Claims c=claims(r);long uid=Long.parseLong(c.getSubject());long storeId=db.store(r);int changed=db.jdbc().update("update member set sales_id=:u,update_time=now() where member_id=:id and store_id=:s and (sales_id is null or sales_id=0)",Map.of("u",uid,"id",id,"s",storeId));if(changed==0)throw new BusinessException(409201,"会员已被认领");broadcastMemberUpdated(storeId,"CLAIM",id);return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\member\MemberController.java:73:    @GetMapping("/pool") public ApiResponse<?> pool(@RequestParam(defaultValue="1") int page,
+backend/src/main/java/com/dajin/system\member\MemberController.java-74-                                                       @RequestParam(defaultValue="20") int size,
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-94-    }
+backend/src/main/java/com/dajin/system\member\MemberController.java:95:    @PostMapping("/{id}/assign") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> assign(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){if(q.get("salesId")==null)throw new BusinessException(400301,"salesId不能为空");long storeId=db.store(r);int changed=db.jdbc().update("update member set sales_id=:sales,update_time=now() where member_id=:id and store_id=:s",new MapSqlParameterSource().addValue("sales",q.get("salesId")).addValue("id",id).addValue("s",storeId));if(changed==0)throw new BusinessException(404301,"会员不存在");broadcastMemberUpdated(storeId,"ASSIGN",id);return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\member\MemberController.java:96:    @PostMapping("/{id}/balance") @RequireRoles({"ADMIN","MANAGER"})
+backend/src/main/java/com/dajin/system\member\MemberController.java-97-    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\member\MemberController.java-129-    }
+backend/src/main/java/com/dajin/system\member\MemberController.java:130:    @GetMapping("/{id}/balance-records") public ApiResponse<?> balanceRecords(@PathVariable long id,HttpServletRequest r) {
+backend/src/main/java/com/dajin/system\member\MemberController.java-131-        assertVisible(id,r);
+--
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-2-import com.dajin.system.common.*; import com.dajin.system.config.RequirePermission; import com.dajin.system.config.SyncWebSocketHandler; import org.springframework.jdbc.core.namedparam.*; import org.springframework.web.bind.annotation.*; import javax.servlet.http.*; import javax.validation.Valid; import javax.validation.constraints.*; import java.math.*; import java.util.*;
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:3:@RestController @RequestMapping("/api/goods") @RequirePermission("goods:search") public class GoodsController {
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-4- private final DbSupport db; private final SyncWebSocketHandler ws; public GoodsController(DbSupport db,SyncWebSocketHandler ws){this.db=db;this.ws=ws;}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:5:  @GetMapping("/list") @RequirePermission(value={"goods:search","stock:view"},anyOf=true) public ApiResponse<?> list(@RequestParam(defaultValue="1")int page,@RequestParam(defaultValue="20")int size,@RequestParam(required=false)String keyword,@RequestParam(required=false)Long categoryId,@RequestParam(required=false)Long parentCategoryId,@RequestParam(required=false)Integer priceType,@RequestParam(required=false)Integer status,@RequestParam(defaultValue="false")boolean includeInactive,HttpServletRequest r){int off=(page-1)*size; String k=keyword==null?"":keyword; MapSqlParameterSource p=new MapSqlParameterSource().addValue("s",db.store(r)).addValue("k","%"+k+"%").addValue("cat",categoryId).addValue("parentCat",parentCategoryId).addValue("pt",priceType).addValue("st",status).addValue("all",includeInactive?1:0).addValue("limit",size).addValue("off",off); String where="g.store_id=:s and (g.name like :k or g.barcode like :k) and (:cat is null or g.category_id=:cat) and (:parentCat is null or c.parent_id=:parentCat) and (:pt is null or g.price_type=:pt) and (:all=1 or (g.status=1 and greatest(g.stock-coalesce(rs.reserved_stock,0),0)>0)) and (:st is null or g.status=:st)"; String from="goods g left join goods_category c on c.category_id=g.category_id and c.store_id=g.store_id left join goods_category pc on pc.category_id=c.parent_id and pc.store_id=c.store_id left join (select goods_id,min(piece_id) mp from goods_piece where store_id=:s and status=1 group by goods_id) fp on fp.goods_id=g.goods_id left join goods_piece fpp on fpp.piece_id=fp.mp left join (select soi.store_id,soi.goods_id,sum(soi.qty) reserved_stock from sales_order_item soi join sales_order so on so.order_id=soi.order_id and so.store_id=soi.store_id where soi.store_id=:s and so.status in (0,3) group by soi.store_id,soi.goods_id) rs on rs.store_id=g.store_id and rs.goods_id=g.goods_id"; return ApiResponse.ok(Map.of("records",db.list("select g.*,greatest(g.stock-coalesce(rs.reserved_stock,0),0) available_stock,coalesce(rs.reserved_stock,0) reserved_stock,c.name category,c.parent_id parent_category_id,pc.name parent_category,c.category_code category_code,fpp.image piece_image from "+from+" where "+where+" order by g.goods_id desc limit :limit offset :off",p),"total",db.jdbc().queryForObject("select count(*) from "+from+" where "+where,p,Integer.class)));}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:6:  @GetMapping("/scan/{barcode}") public ApiResponse<?> scan(@PathVariable String barcode,HttpServletRequest r){List<Map<String,Object>> x=db.list("select g.*,greatest(g.stock-coalesce(rs.reserved_stock,0),0) available_stock,c.name category from goods g left join goods_category c on c.category_id=g.category_id and c.store_id=g.store_id left join (select soi.store_id,soi.goods_id,sum(soi.qty) reserved_stock from sales_order_item soi join sales_order so on so.order_id=soi.order_id and so.store_id=soi.store_id where soi.store_id=:s and so.status in (0,3) group by soi.store_id,soi.goods_id) rs on rs.store_id=g.store_id and rs.goods_id=g.goods_id where g.store_id=:s and g.barcode=:b and g.status=1 and greatest(g.stock-coalesce(rs.reserved_stock,0),0)>0 limit 1",Map.of("s",db.store(r),"b",barcode)); if(x.isEmpty())throw new BusinessException(404001,"商品不存在、未上架，或已被待收款订单占用"); return ApiResponse.ok(x.get(0));}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:7: @GetMapping("/categories") public ApiResponse<?> categories(HttpServletRequest r){long store=db.store(r); return ApiResponse.ok(db.list("select c.category_id,c.name,c.category_code,c.parent_id,c.level,c.sort from goods_category c where c.store_id=:s and c.status=1 order by c.level,c.parent_id,c.sort,c.category_id",Map.of("s",store)));}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-8- public record GoodsReq(@NotBlank String barcode,@NotBlank String name,Long categoryId,@DecimalMin(value="0.001", inclusive=true) BigDecimal weight,@NotNull(message="成本价必填") @DecimalMin(value="0", inclusive=true) BigDecimal costPrice,@NotNull(message="售价必填") @DecimalMin(value="0", inclusive=true) BigDecimal salePrice,@NotNull Integer priceType,String goldType,@PositiveOrZero Integer stock,String images,String certificateNo){}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:9:  @PostMapping @RequirePermission("goods:manage") public ApiResponse<?> create(@Valid @RequestBody GoodsReq q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-10-  long store=db.store(r); Long category=q.categoryId();
+--
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-16-   db.jdbc().update("insert into goods(store_id,barcode,name,category_id,weight,cost_price,sale_price,price_type,gold_type,certificate_no,stock,images,status,create_time,update_time) values(:s,:barcode,:name,:category,:weight,:cost,:sale,:type,:goldType,:certificateNo,:stock,:images,0,now(),now())",p); broadcast(store,null,"CREATE"); return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:17: @PutMapping("/{id}") @RequirePermission("goods:manage") public ApiResponse<?> update(@PathVariable long id,@Valid @RequestBody GoodsReq q,HttpServletRequest r){long store=db.store(r);if(q.categoryId()!=null)ensureCategory(store,q.categoryId());ensureGoldType(store,q.priceType(),q.goldType());MapSqlParameterSource p=new MapSqlParameterSource().addValue("id",id).addValue("s",store).addValue("name",q.name()).addValue("category",q.categoryId()).addValue("sale",q.salePrice()).addValue("cost",q.costPrice()).addValue("priceType",q.priceType()).addValue("goldType",q.goldType()).addValue("certificateNo",q.certificateNo()).addValue("weight",q.weight()).addValue("images",q.images()); int changed=db.jdbc().update("update goods set name=:name,category_id=coalesce(:category,category_id),sale_price=:sale,cost_price=:cost,price_type=:priceType,gold_type=coalesce(:goldType,gold_type),certificate_no=:certificateNo,weight=:weight,images=:images,update_time=now(),version=version+1 where goods_id=:id and store_id=:s",p);if(changed==0)throw new BusinessException(404111,"库存货品不存在");broadcast(store,id,"UPDATE");return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:18:  @PatchMapping("/{id}/status") @RequirePermission("goods:manage") public ApiResponse<?> status(@PathVariable long id,@RequestParam int status,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-19-   if(status!=0&&status!=1) throw new BusinessException(400111,"销售状态不合法");
+--
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-30-  }
+backend/src/main/java/com/dajin/system\goods\GoodsController.java:31: @PatchMapping("/{id}/images") @RequirePermission("goods:manage") public ApiResponse<?> updateImages(@PathVariable long id,@RequestBody Map<String,Object> body,HttpServletRequest r){Object v=body.get("images"); if(!(v instanceof List<?> list)||list.isEmpty()||list.size()>9||list.stream().anyMatch(x->!(x instanceof String s)||s.isBlank()))throw new BusinessException(400110,"图片参数不合法"); String json; try{json=new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list);}catch(Exception e){throw new BusinessException(400110,"图片参数不合法");}long store=db.store(r);int changed=db.jdbc().update("update goods set images=:imgs,update_time=now(),version=version+1 where goods_id=:id and store_id=:s",new MapSqlParameterSource().addValue("id",id).addValue("imgs",json).addValue("s",store));if(changed==0)throw new BusinessException(404111,"库存货品不存在");broadcast(store,id,"IMAGES");return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\goods\GoodsController.java-32- private void broadcast(long store,Long goodsId,String action){Map<String,Object> event=new LinkedHashMap<>();event.put("storeId",store);event.put("goodsId",goodsId);event.put("action",action);ws.broadcast("GOODS_UPDATED",event);}
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-16-@RestController
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:17:@RequestMapping("/api/gold-price")
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-18-public class GoldPriceController {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-24-
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:25:    @GetMapping("/current")
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-26-    public ApiResponse<?> current(HttpServletRequest r) { return ApiResponse.ok(loadTypes(db.store(r), false)); }
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:27:    @GetMapping("/types")
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-28-    public ApiResponse<?> types(HttpServletRequest r) { return ApiResponse.ok(loadTypes(db.store(r), false)); }
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:29:    @GetMapping("/types/all") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-30-    public ApiResponse<?> allTypes(HttpServletRequest r) { return ApiResponse.ok(loadTypes(db.store(r), true)); }
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-32-    public record Req(@NotBlank String priceType, @NotNull @DecimalMin("0") BigDecimal price) {}
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:33:    @PostMapping @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-34-    public ApiResponse<?> save(@Valid @RequestBody Req q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-42-
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:43:    @PostMapping("/types") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-44-    public ApiResponse<?> createType(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-53-
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:54:    @PutMapping("/types/{id}") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-55-    public ApiResponse<?> updateType(@PathVariable String id, @RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-66-
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:67:    @DeleteMapping("/types/{id}") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-68-    public ApiResponse<?> deleteType(@PathVariable String id, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-74-
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:75:    @GetMapping("/history") public ApiResponse<?> history(@RequestParam(defaultValue="30") int days, HttpServletRequest r) { return ApiResponse.ok(db.list("select * from gold_price where store_id=:s and date>=date_sub(curdate(),interval :d day) order by date desc,price_id desc", Map.of("s", db.store(r), "d", days))); }
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-76-
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-83-    /** 实时行情参考：仅作店长填价参考，不直接写入卖价。 */
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:84:    @GetMapping("/spot") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-85-    public ApiResponse<?> spot() {
+--
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-95-    /** 国内白银延期 Ag(T+D)，原始单位为元/千克，接口统一返回元/克。 */
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java:96:    @GetMapping("/spot/silver") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\gold\GoldPriceController.java-97-    public ApiResponse<?> silverSpot() {
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-17-@RestController
+backend/src/main/java/com/dajin/system\order\OrderController.java:18:@RequestMapping("/api/order")
+backend/src/main/java/com/dajin/system\order\OrderController.java-19-public class OrderController {
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-30-
+backend/src/main/java/com/dajin/system\order\OrderController.java:31:    @PostMapping("/create")
+backend/src/main/java/com/dajin/system\order\OrderController.java:32:    @RequirePermission("order:create")
+backend/src/main/java/com/dajin/system\order\OrderController.java-33-    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-178-    }
+backend/src/main/java/com/dajin/system\order\OrderController.java:179:    @GetMapping("/{id}") public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
+backend/src/main/java/com/dajin/system\order\OrderController.java-180-        MapSqlParameterSource p = new MapSqlParameterSource().addValue("id", id).addValue("s", db.store(r));
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-197-    }
+backend/src/main/java/com/dajin/system\order\OrderController.java:198:    @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("limit", size).addValue("off", (page - 1) * size); return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, " + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, " + SalesAmounts.remainingDue("o") + " remaining_due from sales_order o where o.store_id=:s and (:st is null or o.status=:st) and (:ho is null or o.handover=:ho) order by o.order_id desc limit :limit offset :off", p)); }
+backend/src/main/java/com/dajin/system\order\OrderController.java:199:    @PostMapping("/{id}/cancel")
+backend/src/main/java/com/dajin/system\order\OrderController.java:200:    @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true)
+backend/src/main/java/com/dajin/system\order\OrderController.java-201-    @Transactional
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-223-
+backend/src/main/java/com/dajin/system\order\OrderController.java:224:    @PostMapping("/cancel-by-client")
+backend/src/main/java/com/dajin/system\order\OrderController.java:225:    @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true)
+backend/src/main/java/com/dajin/system\order\OrderController.java-226-    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-241-    }
+backend/src/main/java/com/dajin/system\order\OrderController.java:242:    @PostMapping("/refund") @RequirePermission("order:refund")
+backend/src/main/java/com/dajin/system\order\OrderController.java-243-    public ApiResponse<?> refund(@RequestBody Map<String, Object> body, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-298-    /** 销售单据（热敏小票版式）：移动端预览 + 收银端待打印共用同一 HTML。 */
+backend/src/main/java/com/dajin/system\order\OrderController.java:299:    @GetMapping(value = "/{id}/receipt", produces = "text/html;charset=UTF-8")
+backend/src/main/java/com/dajin/system\order\OrderController.java-300-    public String receipt(@PathVariable long id, @RequestParam(required = false) Boolean preview, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\order\OrderController.java-356-    /** 移动端送销售单据打印：进入收银端「待打印」队列。 */
+backend/src/main/java/com/dajin/system\order\OrderController.java:357:    @PostMapping("/{id}/print-request")
+backend/src/main/java/com/dajin/system\order\OrderController.java-358-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-28-@RestController
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:29:@RequestMapping("/api/admin")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:30:@RequireRoles("ADMIN")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-31-public class RolePermissionController {
+--
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-34-
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:35:    @GetMapping("/permissions/tree")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-36-    public ApiResponse<?> tree() { return ApiResponse.ok(PermissionCatalog.tree()); }
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-37-
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:38:    @GetMapping("/roles/{code}/permissions")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-39-    public ApiResponse<?> rolePermissions(@PathVariable String code, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-45-
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:46:    @GetMapping("/staff/{id}/permissions")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-47-    public ApiResponse<?> userPermissions(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-54-
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:55:    @PutMapping("/staff/{id}/permissions")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-56-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-70-
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java:71:    @PutMapping("/roles/{code}/permissions")
+backend/src/main/java/com/dajin/system\admin\RolePermissionController.java-72-    @Transactional
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-20-@RestController
+backend/src/main/java/com/dajin/system\admin\AdminController.java:21:@RequestMapping("/api/admin")
+backend/src/main/java/com/dajin/system\admin\AdminController.java:22:@RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\admin\AdminController.java-23-public class AdminController {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-44-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:45:    @GetMapping("/dashboard") @RequirePermission("dashboard:view")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-46-    public ApiResponse<?> dashboard(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-79-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:80:    @GetMapping("/categories") @RequirePermission("goods:search")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-81-    public ApiResponse<?> categories(HttpServletRequest r) { return ApiResponse.ok(db.list("select * from goods_category where store_id=:s order by level,parent_id,sort,category_id", p(r))); }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:82:    @PostMapping("/categories") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("goods:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-83-    public ApiResponse<?> createCategory(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-97-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:98:    @PutMapping("/categories/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("goods:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-99-    public ApiResponse<?> updateCategory(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-117-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:118:    @DeleteMapping("/categories/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("goods:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-119-    public ApiResponse<?> deleteCategory(@PathVariable long id,HttpServletRequest r){
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-129-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:130:    @GetMapping("/stock/overview") @RequirePermission("stock:view")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-131-    public ApiResponse<?> stockOverview(HttpServletRequest r){
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-140-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:141:    @GetMapping("/stock/in") @RequirePermission("stock:transfer") public ApiResponse<?> stockIn(HttpServletRequest r){return ApiResponse.ok(db.list("select si.*,g.name goods_name from stock_in si left join goods g on g.goods_id=si.goods_id and g.store_id=si.store_id where si.store_id=:s order by si.stock_in_id desc limit 200",p(r)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:142:    @GetMapping("/stock/out") @RequirePermission("stock:transfer") public ApiResponse<?> stockOut(HttpServletRequest r){return ApiResponse.ok(db.list("select so.*,g.name goods_name from stock_out so left join goods g on g.goods_id=so.goods_id and g.store_id=so.store_id where so.store_id=:s order by so.stock_out_id desc limit 200",p(r)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:143:    @GetMapping("/stock/warnings") @RequirePermission("stock:view") public ApiResponse<?> stockWarnings(HttpServletRequest r){return ApiResponse.ok(db.list("select g.*,c.name category,(select gp.image from goods_piece gp where gp.store_id=g.store_id and gp.goods_id=g.goods_id and gp.status=1 order by gp.piece_id limit 1) piece_image from goods g left join goods_category c on c.category_id=g.category_id and c.store_id=g.store_id where g.store_id=:s and g.stock<=5 order by g.stock,g.goods_id",p(r)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:144:    @GetMapping("/stock/checks") @RequirePermission("stock:check:view") public ApiResponse<?> stockChecks(HttpServletRequest r){
+backend/src/main/java/com/dajin/system\admin\AdminController.java-145-        return ApiResponse.ok(db.list("select sc.*,u.real_name operator_name,a.approval_id,a.status approval_status,coalesce(sc.approve_remark,a.approve_remark) decision_remark,"
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-152-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:153:    @GetMapping("/approval/history") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("stock:check:approve")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-154-    public ApiResponse<?> approvalHistory(HttpServletRequest r){return ApiResponse.ok(db.list("select * from approval where store_id=:s and status<>1 order by approval_id desc limit 200",p(r)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java-155-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:156:    @GetMapping("/sales") @RequirePermission("order:checkout") public ApiResponse<?> sales(@RequestParam(required=false)String keyword,@RequestParam(required=false)Integer status,HttpServletRequest r){MapSqlParameterSource q=p(r).addValue("k",keyword==null?"%":"%"+keyword+"%").addValue("st",status);return ApiResponse.ok(db.list("select o.*,"+SalesAmounts.originalDue("o")+" original_due,"+SalesAmounts.discountedDue("o")+" discounted_due,"+SalesAmounts.actualPaid("o")+" actual_paid,"+SalesAmounts.remainingDue("o")+" remaining_due,u.real_name cashier from sales_order o left join sys_user u on u.user_id=o.cashier_id and u.store_id=o.store_id where o.store_id=:s and (o.order_no like :k or coalesce(o.pay_method,'') like :k) and (:st is null or o.status=:st) order by o.order_id desc limit 500",q));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:157:    @GetMapping("/roles") @RequirePermission("staff:manage") public ApiResponse<?> roles(HttpServletRequest r){return ApiResponse.ok(db.list("select * from sys_role where store_id=:s order by role_id",p(r)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:158:    @PostMapping("/roles") @RequireRoles({"ADMIN"}) public ApiResponse<?> createRole(@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("insert into sys_role(store_id,role_name,role_code,permissions,status) values(:s,:n,:c,:perm,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("n",q.get("roleName")).addValue("c",q.get("roleCode")).addValue("perm",q.getOrDefault("permissions","[]")));ws.broadcast("ROLE_UPDATED",Map.of("storeId",storeId,"action","CREATE","roleCode",String.valueOf(q.get("roleCode"))));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:159:    @PutMapping("/roles/{id}") @RequireRoles({"ADMIN"}) public ApiResponse<?> updateRole(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("update sys_role set role_name=coalesce(:n,role_name),permissions=coalesce(:perm,permissions),status=coalesce(:status,status),update_time=now() where role_id=:id and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("n",q.get("roleName")).addValue("perm",q.get("permissions")).addValue("status",q.get("status")));ws.broadcast("ROLE_UPDATED",Map.of("storeId",storeId,"action","UPDATE","roleId",id));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:160:    @PostMapping("/users") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> createUser(@RequestBody Map<String,Object> q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\admin\AdminController.java-161-        assertAssignableRole(q.get("roleId"), r);
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-165-         db.jdbc().update("insert into sys_user(store_id,username,password,real_name,role_id,phone,entry_date,status) values(:s,:u,:pwd,:name,:role,:phone,:entry,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("u",username).addValue("pwd",q.getOrDefault("password","admin")).addValue("name",realName).addValue("role",q.get("roleId")).addValue("phone",q.get("phone")).addValue("entry",q.get("entryDate"))); logOperation(storeId,userId(r),"USER","CREATE","账号="+username);ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action","CREATE","username",username)); return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:166:    @PutMapping("/users/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> updateUser(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){assertManageableUser(id,r);if(q.get("roleId")!=null)assertAssignableRole(q.get("roleId"),r);long storeId=store(r);db.jdbc().update("update sys_user set real_name=coalesce(:name,real_name),role_id=coalesce(:role,role_id),phone=coalesce(:phone,phone),entry_date=coalesce(:entry,entry_date),status=coalesce(:status,status),update_time=now() where user_id=:id and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("name",q.get("realName")).addValue("role",q.get("roleId")).addValue("phone",q.get("phone")).addValue("entry",q.get("entryDate")).addValue("status",q.get("status")));ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action","UPDATE","userId",id));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:167:    @PatchMapping("/users/{id}/status") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> userStatus(@PathVariable long id,@RequestParam int status,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\admin\AdminController.java-168-        assertManageableUser(id,r);
+backend/src/main/java/com/dajin/system\admin\AdminController.java-169-        if(status!=0&&status!=1) throw new BusinessException(400421,"员工状态不合法"); long storeId=store(r); int changed=db.jdbc().update("update sys_user set status=:st,update_time=now() where user_id=:id and store_id=:s",Map.of("st",status,"id",id,"s",storeId)); if(changed==0)throw new BusinessException(404421,"员工不存在"); logOperation(storeId,userId(r),"USER",status==1?"ENABLE":"DISABLE","员工ID="+id); ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action",status==1?"ENABLE":"DISABLE","userId",id,"status",status)); return ApiResponse.ok(Map.of("status",status)); }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:170:    @DeleteMapping("/users/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> deleteUser(@PathVariable long id,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\admin\AdminController.java-171-        assertManageableUser(id,r);
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-175-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:176:    @PostMapping("/commission/rules") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("report:view:all") public ApiResponse<?> createCommissionRule(@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("insert into commission_rule(store_id,type,rate,`condition`,description,status) values(:s,:type,:rate,:condition,:description,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("type",q.get("type")).addValue("rate",q.getOrDefault("rate",0)).addValue("condition",q.getOrDefault("condition","{}")).addValue("description",q.get("description")));ws.broadcast("COMMISSION_UPDATED",Map.of("storeId",storeId,"action","RULE_CREATE"));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:177:    @PutMapping("/commission/rules/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("report:view:all") public ApiResponse<?> updateCommissionRule(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("update commission_rule set rate=coalesce(:rate,rate),description=coalesce(:description,description),status=coalesce(:status,status),update_time=now() where rule_id=:id and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("rate",q.get("rate")).addValue("description",q.get("description")).addValue("status",q.get("status")));ws.broadcast("COMMISSION_UPDATED",Map.of("storeId",storeId,"action","RULE_UPDATE","ruleId",id));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java-178-
+backend/src/main/java/com/dajin/system\admin\AdminController.java:179:    @PutMapping("/store") @RequireRoles({"ADMIN"}) public ApiResponse<?> updateStore(@RequestBody Map<String,Object> q,HttpServletRequest r){long storeId=store(r);db.jdbc().update("update sys_store set store_name=coalesce(:name,store_name),address=coalesce(:address,address),phone=coalesce(:phone,phone),logo=coalesce(:logo,logo),update_time=now() where store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("name",q.get("storeName")).addValue("address",q.get("address")).addValue("phone",q.get("phone")).addValue("logo",q.get("logo")));ws.broadcast("STORE_UPDATED",Map.of("storeId",storeId));return ApiResponse.ok();}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:180:    @PutMapping("/config") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("system:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-181-    public ApiResponse<?> updateConfig(@RequestBody Map<String,Object> q,HttpServletRequest r){
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-198-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:199:    @GetMapping("/logs") @RequirePermission("system:manage") public ApiResponse<?> logs(@RequestParam(required=false)String module,HttpServletRequest r){return ApiResponse.ok(db.list("select * from operation_log where store_id=:s and (:m is null or module=:m) order by log_id desc limit 500",p(r).addValue("m",module)));}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:200:    @GetMapping("/backups") @RequireRoles({"ADMIN"}) public ApiResponse<?> backups(HttpServletRequest r){return ApiResponse.ok(backupService.list());}
+backend/src/main/java/com/dajin/system\admin\AdminController.java:201:    @PostMapping("/backups") @RequireRoles({"ADMIN"}) public ApiResponse<?> backup(HttpServletRequest r){
+backend/src/main/java/com/dajin/system\admin\AdminController.java-202-        Map<String,Object> result = backupService.create();
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-209-    /** 排班以操作日志作为轻量事件存储，避免改变当前26张核心表；content保存可回放的JSON。 */
+backend/src/main/java/com/dajin/system\admin\AdminController.java:210:    @GetMapping("/schedules") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-211-    public ApiResponse<?> schedules(@RequestParam(required=false) String start, @RequestParam(required=false) String end, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-214-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:215:    @PostMapping("/schedules") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-216-    public ApiResponse<?> createSchedule(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\admin\AdminController.java-221-    }
+backend/src/main/java/com/dajin/system\admin\AdminController.java:222:    @DeleteMapping("/schedules/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage")
+backend/src/main/java/com/dajin/system\admin\AdminController.java-223-    public ApiResponse<?> deleteSchedule(@PathVariable long id, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-12-@RestController
+backend/src/main/java/com/dajin/system\notification\NotificationController.java:13:@RequestMapping("/api/notification")
+backend/src/main/java/com/dajin/system\notification\NotificationController.java:14:@RequirePermission("notification:view")
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-15-public class NotificationController {
+--
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-18-
+backend/src/main/java/com/dajin/system\notification\NotificationController.java:19:    @GetMapping
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-20-    public ApiResponse<?> list(HttpServletRequest req) {
+--
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-25-
+backend/src/main/java/com/dajin/system\notification\NotificationController.java:26:    @PostMapping("/{id}/read")
+backend/src/main/java/com/dajin/system\notification\NotificationController.java-27-    public ApiResponse<?> read(@PathVariable long id, HttpServletRequest req) {
+--
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-14-@RestController
+backend/src/main/java/com/dajin/system\shift\ShiftController.java:15:@RequestMapping("/api/shift")
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-16-public class ShiftController {
+--
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-22-
+backend/src/main/java/com/dajin/system\shift\ShiftController.java:23:    @GetMapping("/info")
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-24-    public ApiResponse<?> info(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-39-
+backend/src/main/java/com/dajin/system\shift\ShiftController.java:40:    @PostMapping("/confirm")
+backend/src/main/java/com/dajin/system\shift\ShiftController.java-41-    @Transactional
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-12-
+backend/src/main/java/com/dajin/system\visit\VisitController.java:13:@RestController @RequestMapping("/api/visit") @RequirePermission("member:follow")
+backend/src/main/java/com/dajin/system\visit\VisitController.java-14-public class VisitController {
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-17-    public VisitController(DbSupport db, SyncWebSocketHandler ws) { this.db = db; this.ws = ws; }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:18:    @GetMapping("/tasks") public ApiResponse<?> tasks(@RequestParam(required=false) Integer status,
+backend/src/main/java/com/dajin/system\visit\VisitController.java-19-                                                       @RequestParam(required=false) String visitType,
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-27-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:28:    @GetMapping("/stats") public ApiResponse<?> stats(HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-29-        return ApiResponse.ok(db.one("select count(*) total,sum(status=1) pending,sum(status=2) completed,sum(call_result='CONNECTED') connected,sum(call_result in ('NO_ANSWER','REJECTED','INVALID','UNREACHABLE')) unsuccessful from visit_task v where v.store_id=:s"+salesScope(req),params(req)));
+backend/src/main/java/com/dajin/system\visit\VisitController.java-30-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:31:    @GetMapping("/assignees") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> assignees(HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-32-        return ApiResponse.ok(db.list("select u.user_id,u.real_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=:s and u.status=1 and r.status=1 and r.role_code in ('SALES','MANAGER') order by u.real_name,u.user_id",Map.of("s",db.store(req))));
+backend/src/main/java/com/dajin/system\visit\VisitController.java-33-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:34:    @PostMapping("/tasks") @Transactional public ApiResponse<?> createTask(@RequestBody Map<String,Object> body,HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-35-        long memberId=longValue(body.get("memberId")); io.jsonwebtoken.Claims c=claims(req); long uid=Long.parseLong(c.getSubject()); long storeId=db.store(req);
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-42-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:43:    @PostMapping("/complete") @Transactional public ApiResponse<?> complete(@RequestBody Map<String,Object> body, HttpServletRequest req) { return record(body,req); }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:44:    @PostMapping("/tasks/{id}/call") public ApiResponse<?> startCall(@PathVariable long id,HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-45-        io.jsonwebtoken.Claims c=claims(req); String scope="SALES".equals(String.valueOf(c.get("role")))?" and sales_id=:uid":"";
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-51-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:52:    @PutMapping("/tasks/{id}/assign") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> assign(@PathVariable long id,@RequestBody Map<String,Object> body,HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-53-        if(body.get("salesId")==null)throw new BusinessException(400405,"请选择接收员工");
+--
+backend/src/main/java/com/dajin/system\visit\VisitController.java-61-    }
+backend/src/main/java/com/dajin/system\visit\VisitController.java:62:    @PostMapping("/record") @Transactional public ApiResponse<?> record(@RequestBody Map<String,Object> body, HttpServletRequest req) {
+backend/src/main/java/com/dajin/system\visit\VisitController.java-63-        io.jsonwebtoken.Claims c=claims(req); String scope="SALES".equals(String.valueOf(c.get("role")))?" and sales_id=:uid":""; long storeId=db.store(req); Object taskId=body.getOrDefault("taskId",body.get("id"));
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-29-@RestController
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:30:@RequestMapping("/api/processing")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:31:@RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-32-public class ProcessingController {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-50-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:51:    @GetMapping("/categories")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:52:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-53-    public ApiResponse<?> categories(@RequestParam(required = false) Integer status, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-57-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:58:    @PostMapping("/categories")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:59:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-60-    public ApiResponse<?> createCategory(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-73-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:74:    @PutMapping("/categories/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:75:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-76-    public ApiResponse<?> updateCategory(@PathVariable long id, @RequestBody Map<String, Object> body, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-94-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:95:    @PatchMapping("/categories/{id}/status")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:96:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-97-    public ApiResponse<?> categoryStatus(@PathVariable long id, @RequestParam int status, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-107-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:108:    @DeleteMapping("/categories/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:109:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-110-    public ApiResponse<?> deleteCategory(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-120-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:121:    @GetMapping("/items")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-122-    public ApiResponse<?> items(@RequestParam(required = false) Integer status,
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-130-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:131:    @PostMapping("/items")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:132:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-133-    public ApiResponse<?> createItem(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-156-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:157:    @PutMapping("/items/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:158:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-159-    public ApiResponse<?> updateItem(@PathVariable long id, @RequestBody Map<String, Object> body, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-188-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:189:    @PatchMapping("/items/{id}/status")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:190:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-191-    public ApiResponse<?> itemStatus(@PathVariable long id, @RequestParam int status, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-201-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:202:    @DeleteMapping("/items/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:203:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-204-    public ApiResponse<?> deleteItem(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-214-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:215:    @GetMapping("/craftsmen")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-216-    public ApiResponse<?> craftsmen(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-221-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:222:    @PostMapping("/orders")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-223-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-289-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:290:    @GetMapping("/orders")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:291:    @RequirePermission(value = {"processing:view", "order:checkout"}, anyOf = true)
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-292-    public ApiResponse<?> orders(@RequestParam(required = false) String keyword,
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-313-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:314:    @GetMapping("/orders/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:315:    @RequirePermission(value = {"processing:view", "order:checkout"}, anyOf = true)
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-316-    public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-325-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:326:    @PostMapping("/orders/{id}/notify")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:327:    @RequirePermission(value = {"processing:view", "order:checkout"}, anyOf = true)
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-328-    public ApiResponse<?> notifyPickup(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-340-    /** 补金登记（成品反推）：加工中/待取货可登记或修正，按差额退补金料库存，金额并入应收。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:341:    @PostMapping("/orders/{id}/store-gold")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:342:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-343-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-376-    /** 成品称重与损耗核算：损耗=来料折重+店供金−成品折重−回收屑；千分比超约定值标预警。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:377:    @PostMapping("/orders/{id}/weighing")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:378:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-379-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-412-    /** 来料、称重、取货照片：URL 合并保存（每类上限 6 张）。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:413:    @PostMapping("/orders/{id}/photos")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-414-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-440-    /** 加工工单/质保凭证 HTML（移动端仅预览；打印统一在收银端确认）。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:441:    @GetMapping(value = "/orders/{id}/print", produces = "text/html;charset=UTF-8")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-442-    public String print(@PathVariable long id, @RequestParam(required = false) Boolean preview, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-486-    /** 加工质保单（A4 横版双联，与成品质保单同款文案）：取货时打给客户。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:487:    @GetMapping(value = "/orders/{id}/warranty", produces = "text/html;charset=UTF-8")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-488-    public String warranty(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-495-    /** 移动端送打印：生成待打印任务，收银端「待打印」确认。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:496:    @PostMapping("/orders/{id}/print-request")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-497-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-512-    /** 移动端把待加工单转交前台：收银端「前台待办」确认后开始加工。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:513:    @PostMapping("/orders/{id}/handover")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:514:    @RequireRoles({"ADMIN", "MANAGER", "SALES"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-515-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-527-    /** 收银端「前台待办」：所有待加工的加工单（手机转交 + 收银端自开）。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:528:    @GetMapping("/handovers")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:529:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-530-    public ApiResponse<?> handovers(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-534-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:535:    @GetMapping("/print-jobs") @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-536-    public ApiResponse<?> printJobs(@RequestParam(defaultValue = "PENDING") String status, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-540-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:541:    @PostMapping("/print-jobs/{jobId}/done") @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-542-    public ApiResponse<?> printJobDone(@PathVariable long jobId, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-550-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:551:    @PostMapping("/print-jobs/{jobId}/ignore") @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-552-    public ApiResponse<?> printJobIgnore(@PathVariable long jobId, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-565-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:566:    @GetMapping("/loss-config") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-567-    public ApiResponse<?> lossConfigGet(HttpServletRequest r) { return ApiResponse.ok(Map.of("permille", lossConfig(db.store(r)))); }
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-568-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:569:    @PutMapping("/loss-config") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-570-    public ApiResponse<?> lossConfigPut(@RequestBody Map<String, Object> body, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-580-    /** 损耗考核：按师傅汇总损耗与超标次数。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:581:    @GetMapping("/loss-summary") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-582-    public ApiResponse<?> lossSummary(@RequestParam(required = false) String from, @RequestParam(required = false) String to, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-596-    /** 损耗逐单明细：历史负损耗保留为异常记录，不进入正常考核汇总。 */
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:597:    @GetMapping("/loss-orders") @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-598-    public ApiResponse<?> lossOrders(@RequestParam(required = false) Long craftsmanId,
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-622-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:623:    @PutMapping("/orders/{id}")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:624:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-625-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-642-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:643:    @PostMapping("/orders/{id}/assign")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:644:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-645-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-655-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:656:    @PatchMapping("/orders/{id}/status")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:657:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-658-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-678-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:679:    @PostMapping("/orders/{id}/payments")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:680:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-681-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-773-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:774:    @GetMapping("/commissions")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:775:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-776-    public ApiResponse<?> commissions(@RequestParam(required = false) String status, @RequestParam(required = false) Long employeeId, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-780-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:781:    @PostMapping("/commissions/generate")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:782:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-783-    @Transactional
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-792-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:793:    @PatchMapping("/commissions/{id}/pay")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:794:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-795-    public ApiResponse<?> payCommission(@PathVariable long id, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-804-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:805:    @GetMapping("/commissions/summary")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:806:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-807-    public ApiResponse<?> commissionSummary(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-810-
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:811:    @GetMapping("/statistics")
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java:812:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\processing\ProcessingController.java-813-    public ApiResponse<?> statistics(@RequestParam(required = false) String from, @RequestParam(required = false) String to,
+--
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-15-@RestController
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java:16:@RequestMapping("/api/recycle")
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-17-public class RecycleController {
+--
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-22-    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials) { this.db = db; this.ws = ws; this.shifts = shifts; this.oldMaterials = oldMaterials; }
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java:23:    @PostMapping("/create") @Transactional
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-24-    public ApiResponse<?> create(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-54-    }
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java:55:    @GetMapping("/list") public ApiResponse<?> list(HttpServletRequest r) { return ApiResponse.ok(db.list("select * from recycle_order where store_id=:s order by recycle_order_id desc limit 500", Map.of("s", db.store(r)))); }
+backend/src/main/java/com/dajin/system\recycle\RecycleController.java-56-    public void finalizeFinance(long recycleId, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\pay\PayController.java-2-import com.dajin.system.common.*; import com.dajin.system.config.RequirePermission; import com.dajin.system.config.RequireRoles; import com.dajin.system.config.SyncWebSocketHandler; import com.dajin.system.shift.ShiftService; import com.dajin.system.stock.OldMaterialLedgerService; import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.ObjectMapper; import org.springframework.dao.DuplicateKeyException; import org.springframework.jdbc.core.namedparam.*; import org.springframework.transaction.annotation.Transactional; import org.springframework.web.bind.annotation.*; import javax.servlet.http.*; import java.math.*; import java.util.*;
+backend/src/main/java/com/dajin/system\pay\PayController.java:3:@RestController @RequestMapping("/api/pay") public class PayController {private final DbSupport db; private final SyncWebSocketHandler ws; private final ShiftService shifts; private final OldMaterialLedgerService oldMaterials; private final ObjectMapper objectMapper; public PayController(DbSupport db,SyncWebSocketHandler ws,ShiftService shifts,OldMaterialLedgerService oldMaterials,ObjectMapper objectMapper){this.db=db;this.ws=ws;this.shifts=shifts;this.oldMaterials=oldMaterials;this.objectMapper=objectMapper;}
+backend/src/main/java/com/dajin/system\pay\PayController.java:4: @PostMapping("/pay") @RequirePermission("order:checkout") @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED) public ApiResponse<?> pay(@RequestBody Map<String,Object> body,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\pay\PayController.java-5-  String client=String.valueOf(body.getOrDefault("clientRequestId",""));
+--
+backend/src/main/java/com/dajin/system\pay\PayController.java-110-  db.jdbc().update("insert ignore into visit_task(store_id,member_id,sales_id,order_id,order_no_snapshot,amount_snapshot,purchase_time_snapshot,phone_snapshot,gender_snapshot,visit_type,plan_time,status,create_time,update_time) select :s,:m,coalesce(:sales,0),:order,:no,:amount,now(),phone,gender,'PURCHASE_3D',date_add(now(),interval 3 day),1,now(),now() from member where member_id=:m and store_id=:s",p);
+backend/src/main/java/com/dajin/system\pay\PayController.java:111: }  @GetMapping("/methods") public ApiResponse<?> methods(HttpServletRequest r){return ApiResponse.ok(db.list("select channel_id,channel_name,channel_code,sort,status,icon from pay_channel where store_id=:s and status=1 order by sort,channel_id",Map.of("s",db.store(r))));}
+backend/src/main/java/com/dajin/system\pay\PayController.java:112: @GetMapping("/channels") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> channels(HttpServletRequest r){return ApiResponse.ok(db.list("select channel_id,channel_name,channel_code,sort,status,icon,create_time from pay_channel where store_id=:s order by sort,channel_id",Map.of("s",db.store(r))));}
+backend/src/main/java/com/dajin/system\pay\PayController.java:113:   @PostMapping("/channels") @RequireRoles({"ADMIN","MANAGER"}) @Transactional public ApiResponse<?> createChannel(@RequestBody Map<String,Object> q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\pay\PayController.java-114-    long storeId=db.store(r); ChannelInput input=channelInput(q,null);
+--
+backend/src/main/java/com/dajin/system\pay\PayController.java-121-   }
+backend/src/main/java/com/dajin/system\pay\PayController.java:122:   @PutMapping("/channels/{id}") @RequireRoles({"ADMIN","MANAGER"}) @Transactional public ApiResponse<?> updateChannel(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\pay\PayController.java-123-    long storeId=db.store(r); Map<String,Object> current=channel(storeId,id); ChannelInput input=channelInput(q,current);
+--
+backend/src/main/java/com/dajin/system\pay\PayController.java-131-   }
+backend/src/main/java/com/dajin/system\pay\PayController.java:132:   @DeleteMapping("/channels/{id}") @RequireRoles({"ADMIN","MANAGER"}) @Transactional public ApiResponse<?> deleteChannel(@PathVariable long id,HttpServletRequest r){
+backend/src/main/java/com/dajin/system\pay\PayController.java-133-    long storeId=db.store(r); Map<String,Object> current=channel(storeId,id);
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-19-@RestController
+backend/src/main/java/com/dajin/system\report\ReportController.java:20:@RequestMapping("/api/report")
+backend/src/main/java/com/dajin/system\report\ReportController.java:21:@RequirePermission("report:view")
+backend/src/main/java/com/dajin/system\report\ReportController.java-22-public class ReportController {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-25-
+backend/src/main/java/com/dajin/system\report\ReportController.java:26:    @GetMapping("/daily") @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\report\ReportController.java-27-    public ApiResponse<?> daily(@RequestParam(required = false) String date, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-35-
+backend/src/main/java/com/dajin/system\report\ReportController.java:36:    @GetMapping("/monthly") @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\report\ReportController.java-37-    public ApiResponse<?> monthly(@RequestParam(required = false) String month, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-46-
+backend/src/main/java/com/dajin/system\report\ReportController.java:47:    @GetMapping("/commission") @RequirePermission("report:view:all")
+backend/src/main/java/com/dajin/system\report\ReportController.java-48-    public ApiResponse<?> commission(@RequestParam(required = false) String month, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-52-
+backend/src/main/java/com/dajin/system\report\ReportController.java:53:    @GetMapping("/performance")
+backend/src/main/java/com/dajin/system\report\ReportController.java-54-    public ApiResponse<?> performance(@RequestParam(required = false) Long userId, @RequestParam(required = false) String month, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-63-
+backend/src/main/java/com/dajin/system\report\ReportController.java:64:    @GetMapping("/overview")
+backend/src/main/java/com/dajin/system\report\ReportController.java-65-    public ApiResponse<?> overview(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,@RequestParam(required = false) String category,HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-81-
+backend/src/main/java/com/dajin/system\report\ReportController.java:82:    @GetMapping("/sales")
+backend/src/main/java/com/dajin/system\report\ReportController.java-83-    public ApiResponse<?> sales(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,@RequestParam(required = false) String category,@RequestParam(defaultValue = "1") int page,@RequestParam(defaultValue = "20") int pageSize,HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-87-
+backend/src/main/java/com/dajin/system\report\ReportController.java:88:    @GetMapping("/employee")
+backend/src/main/java/com/dajin/system\report\ReportController.java-89-    public ApiResponse<?> employee(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,@RequestParam(required = false) Long employeeId,HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-102-
+backend/src/main/java/com/dajin/system\report\ReportController.java:103:    @GetMapping("/recycle")
+backend/src/main/java/com/dajin/system\report\ReportController.java-104-    public ApiResponse<?> recycle(@RequestParam(required = false) String start,@RequestParam(required = false) String end,HttpServletRequest request){ MapSqlParameterSource p=scope(request).addValue("start",start).addValue("end",end); String range=" and (:start is null or ro.create_time>=:start) and (:end is null or ro.create_time<date_add(:end,interval 1 day))"; String user=isSales(request)?" and exists (select 1 from finance_record fr where fr.store_id=ro.store_id and fr.related_bill_no=ro.bill_no and fr.category='RECYCLE' and fr.operator_id=:uid)":""; String tradeInUser=isSales(request)?" and ti.operator_id=:uid":""; Map<String,Object> summary=db.one("select count(*) order_count,coalesce(sum(ro.weight),0) weight,coalesce(sum(ro.total_amount),0) amount,coalesce(sum(ro.deduct_loss),0) deduct_loss from recycle_order ro where ro.store_id=:s"+range+user,p); Map<String,Object> result=new LinkedHashMap<>(summary); result.put("trend",db.list("select date(ro.create_time) day,coalesce(sum(ro.weight),0) weight,count(*) order_count from recycle_order ro where ro.store_id=:s"+range+user+" group by date(ro.create_time) order by day",p)); result.put("records",db.list("select ro.recycle_order_id,ro.bill_no,ro.material_type,ro.weight,ro.purity,ro.deduct_loss,ro.total_amount,ro.status,ro.create_time from recycle_order ro where ro.store_id=:s"+range+user+" order by ro.recycle_order_id desc limit 200",p)); result.put("trade_in_count",db.jdbc().queryForObject("select count(*) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class)); result.put("trade_in_amount",db.jdbc().queryForObject("select coalesce(sum(ti.diff_amount),0) from trade_in ti where ti.store_id=:s and (:start is null or ti.create_time>=:start) and (:end is null or ti.create_time<date_add(:end,interval 1 day))"+tradeInUser,p,Number.class));
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-106-        return ApiResponse.ok(result); }
+backend/src/main/java/com/dajin/system\report\ReportController.java:107:    @GetMapping("/recycle-detail") public ApiResponse<?> recycleDetail(@RequestParam(required = false) String timeType,@RequestParam(required = false) String startDate,@RequestParam(required = false) String endDate,HttpServletRequest request){ Range r=range(timeType,startDate,endDate); return recycle(r.start,r.end,request); }
+backend/src/main/java/com/dajin/system\report\ReportController.java-108-
+backend/src/main/java/com/dajin/system\report\ReportController.java:109:    @GetMapping("/member")
+backend/src/main/java/com/dajin/system\report\ReportController.java-110-    public ApiResponse<?> member(@RequestParam(required = false) String timeType,
+--
+backend/src/main/java/com/dajin/system\report\ReportController.java-138-
+backend/src/main/java/com/dajin/system\report\ReportController.java:139:    @GetMapping("/gold")
+backend/src/main/java/com/dajin/system\report\ReportController.java-140-    public ApiResponse<?> gold(@RequestParam(required = false) String timeType,
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-20-@RestController
+backend/src/main/java/com/dajin/system\stock\StockController.java:21:@RequestMapping("/api/stock")
+backend/src/main/java/com/dajin/system\stock\StockController.java-22-@Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-36-
+backend/src/main/java/com/dajin/system\stock\StockController.java:37:    @PostMapping("/in") @RequirePermission("stock:transfer") public ApiResponse<?> in(@RequestBody Map<String,Object> q, HttpServletRequest r) { return move(q, r, "IN"); }
+backend/src/main/java/com/dajin/system\stock\StockController.java:38:    @PostMapping("/out") @RequirePermission("stock:transfer") public ApiResponse<?> out(@RequestBody Map<String,Object> q, HttpServletRequest r) { return move(q, r, "OUT"); }
+backend/src/main/java/com/dajin/system\stock\StockController.java:39:    @PostMapping("/process-in") @RequirePermission("stock:transfer") public ApiResponse<?> processIn(@RequestBody Map<String,Object> q,HttpServletRequest r) { Map<String,Object> body = new HashMap<>(q); body.put("reason", "PROCESS_IN"); return move(body, r, "IN"); }
+backend/src/main/java/com/dajin/system\stock\StockController.java:40:    @PostMapping("/process-out") @RequirePermission("stock:transfer") public ApiResponse<?> processOut(@RequestBody Map<String,Object> q,HttpServletRequest r) { Map<String,Object> body = new HashMap<>(q); body.put("reason", "PROCESS_OUT"); return move(body, r, "OUT"); }
+backend/src/main/java/com/dajin/system\stock\StockController.java-41-
+backend/src/main/java/com/dajin/system\stock\StockController.java-42-    /** Barcode lookup used by the mobile inbound workflow. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:43:    @GetMapping("/goods")
+backend/src/main/java/com/dajin/system\stock\StockController.java:44:    @RequirePermission("goods:search")
+backend/src/main/java/com/dajin/system\stock\StockController.java-45-    public ApiResponse<?> goodsByBarcode(@RequestParam(required = false) String barcode,
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-66-    /** Resolves one physical item for inventory checks and other piece-level workflows. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:67:    @GetMapping("/piece")
+backend/src/main/java/com/dajin/system\stock\StockController.java:68:    @RequirePermission("goods:search")
+backend/src/main/java/com/dajin/system\stock\StockController.java-69-    public ApiResponse<?> goodsByPieceNo(@RequestParam String pieceNo, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-85-    /** Active stores available to the inbound preparation selector. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:86:    @GetMapping("/inbound/stores")
+backend/src/main/java/com/dajin/system\stock\StockController.java:87:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:88:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-89-    public ApiResponse<?> inboundStores(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-93-    /** Active suppliers for purchase inbound. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:94:    @GetMapping("/inbound/suppliers")
+backend/src/main/java/com/dajin/system\stock\StockController.java:95:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:96:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-97-    public ApiResponse<?> inboundSuppliers(@RequestParam(required = false) Long storeId, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-102-    /** Full supplier list for management (includes disabled). */
+backend/src/main/java/com/dajin/system\stock\StockController.java:103:    @GetMapping("/suppliers")
+backend/src/main/java/com/dajin/system\stock\StockController.java:104:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-105-    public ApiResponse<?> suppliers(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-109-    /** Create a supplier inline from the inbound flow or the admin console. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:110:    @PostMapping("/suppliers")
+backend/src/main/java/com/dajin/system\stock\StockController.java:111:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-112-    public ApiResponse<?> createSupplier(@RequestBody Map<String, Object> q, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-127-    /** Rename or enable/disable a supplier. Disabled ones disappear from selectors but keep history. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:128:    @PutMapping("/suppliers/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:129:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-130-    public ApiResponse<?> updateSupplier(@PathVariable long id, @RequestBody Map<String, Object> q, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-144-    /** Creates a complete multi-line inbound voucher atomically. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:145:    @PostMapping("/stock-in")
+backend/src/main/java/com/dajin/system\stock\StockController.java:146:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:147:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-148-    public ApiResponse<?> createInbound(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-296-    /** Recent inbound vouchers for the mobile workbench. The server enforces the three-month visibility window. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:297:    @GetMapping("/stock-in/history")
+backend/src/main/java/com/dajin/system\stock\StockController.java:298:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:299:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-300-    public ApiResponse<?> inboundHistory(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-312-
+backend/src/main/java/com/dajin/system\stock\StockController.java:313:    @GetMapping("/stock-in/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:314:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:315:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-316-    public ApiResponse<?> inboundDetailEndpoint(@PathVariable long id, HttpServletRequest request) { return ApiResponse.ok(inboundDetail(id, db.store(request))); }
+backend/src/main/java/com/dajin/system\stock\StockController.java-317-
+backend/src/main/java/com/dajin/system\stock\StockController.java:318:    @GetMapping("/stock-in/pending")
+backend/src/main/java/com/dajin/system\stock\StockController.java:319:    @RequireRoles({"ADMIN", "MANAGER", "CASHIER", "SALES"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:320:    @RequirePermission("stock:inbound:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-321-    public ApiResponse<?> inboundPending(HttpServletRequest request) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-584-    /** Returns the server-side stock snapshot for a complete inventory-check scope. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:585:    @GetMapping("/check/scope-goods")
+backend/src/main/java/com/dajin/system\stock\StockController.java:586:    @RequirePermission("stock:check:create")
+backend/src/main/java/com/dajin/system\stock\StockController.java-587-    public ApiResponse<?> checkScopeGoods(@RequestParam String scopeType,
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-594-
+backend/src/main/java/com/dajin/system\stock\StockController.java:595:    @PostMapping("/check")
+backend/src/main/java/com/dajin/system\stock\StockController.java:596:    @RequirePermission("stock:check:submit")
+backend/src/main/java/com/dajin/system\stock\StockController.java-597-    public ApiResponse<?> check(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-660-    /** Mobile visibility is limited to three months; sales can only see checks they submitted. */
+backend/src/main/java/com/dajin/system\stock\StockController.java:661:    @GetMapping("/check/history")
+backend/src/main/java/com/dajin/system\stock\StockController.java:662:    @RequirePermission("stock:check:view")
+backend/src/main/java/com/dajin/system\stock\StockController.java-663-    public ApiResponse<?> checkHistory(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-673-
+backend/src/main/java/com/dajin/system\stock\StockController.java:674:    @GetMapping("/check/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:675:    @RequirePermission("stock:check:view")
+backend/src/main/java/com/dajin/system\stock\StockController.java-676-    public ApiResponse<?> checkDetail(@PathVariable long id, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-679-
+backend/src/main/java/com/dajin/system\stock\StockController.java:680:    @GetMapping("/old-material")
+backend/src/main/java/com/dajin/system\stock\StockController.java:681:    @RequirePermission("stock:view")
+backend/src/main/java/com/dajin/system\stock\StockController.java-682-    public ApiResponse<?> old(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-704-
+backend/src/main/java/com/dajin/system\stock\StockController.java:705:    @PostMapping("/old-material")
+backend/src/main/java/com/dajin/system\stock\StockController.java:706:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:707:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-708-    public ApiResponse<?> createOldMaterial(@RequestBody Map<String, Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-724-
+backend/src/main/java/com/dajin/system\stock\StockController.java:725:    @PutMapping("/old-material/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:726:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:727:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-728-    public ApiResponse<?> updateOldMaterial(@PathVariable long id, @RequestBody Map<String, Object> q,
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-746-
+backend/src/main/java/com/dajin/system\stock\StockController.java:747:    @GetMapping("/old-material/types")
+backend/src/main/java/com/dajin/system\stock\StockController.java:748:    @RequirePermission(value = {"stock:view", "order:create", "processing:view", "recycle:view"}, anyOf = true)
+backend/src/main/java/com/dajin/system\stock\StockController.java-749-    public ApiResponse<?> oldMaterialTypes(HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-752-
+backend/src/main/java/com/dajin/system\stock\StockController.java:753:    @PostMapping("/old-material/types")
+backend/src/main/java/com/dajin/system\stock\StockController.java:754:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:755:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-756-    public ApiResponse<?> createOldMaterialType(@RequestBody Map<String, Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-768-
+backend/src/main/java/com/dajin/system\stock\StockController.java:769:    @PutMapping("/old-material/types/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:770:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:771:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-772-    public ApiResponse<?> updateOldMaterialType(@PathVariable long id, @RequestBody Map<String, Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-781-
+backend/src/main/java/com/dajin/system\stock\StockController.java:782:    @PatchMapping("/old-material/types/{id}/status")
+backend/src/main/java/com/dajin/system\stock\StockController.java:783:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:784:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-785-    public ApiResponse<?> oldMaterialTypeStatus(@PathVariable long id, @RequestParam int status, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-791-
+backend/src/main/java/com/dajin/system\stock\StockController.java:792:    @DeleteMapping("/old-material/types/{id}")
+backend/src/main/java/com/dajin/system\stock\StockController.java:793:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:794:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-795-    public ApiResponse<?> deleteOldMaterialType(@PathVariable long id, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-821-
+backend/src/main/java/com/dajin/system\stock\StockController.java:822:    @PostMapping("/old-material/in")
+backend/src/main/java/com/dajin/system\stock\StockController.java:823:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:824:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-825-    public ApiResponse<?> manualOldIn(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\stock\StockController.java-835-
+backend/src/main/java/com/dajin/system\stock\StockController.java:836:    @PostMapping("/old-material/out")
+backend/src/main/java/com/dajin/system\stock\StockController.java:837:    @RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\stock\StockController.java:838:    @RequirePermission("stock:transfer")
+backend/src/main/java/com/dajin/system\stock\StockController.java-839-    public ApiResponse<?> manualOldOut(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\upload\UploadController.java-16-@RestController
+backend/src/main/java/com/dajin/system\upload\UploadController.java:17:@RequestMapping("/api/upload")
+backend/src/main/java/com/dajin/system\upload\UploadController.java-18-public class UploadController {
+--
+backend/src/main/java/com/dajin/system\upload\UploadController.java-26-
+backend/src/main/java/com/dajin/system\upload\UploadController.java:27:    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+backend/src/main/java/com/dajin/system\upload\UploadController.java-28-    public ApiResponse<?> upload(@RequestPart("file") MultipartFile file,
+--
+backend/src/main/java/com/dajin/system\user\UserController.java-10-@RestController
+backend/src/main/java/com/dajin/system\user\UserController.java:11:@RequestMapping("/api/user")
+backend/src/main/java/com/dajin/system\user\UserController.java:12:@RequireRoles({"ADMIN", "MANAGER"})
+backend/src/main/java/com/dajin/system\user\UserController.java-13-public class UserController {
+--
+backend/src/main/java/com/dajin/system\user\UserController.java-15-    public UserController(DbSupport db) { this.db = db; }
+backend/src/main/java/com/dajin/system\user\UserController.java:16:    @GetMapping("/list")
+backend/src/main/java/com/dajin/system\user\UserController.java-17-    public ApiResponse<?> list(@RequestParam(required = false) Integer status, HttpServletRequest req) {
+--
+backend/src/main/java/com/dajin/system\system\SystemController.java-2-import com.dajin.system.common.*; import com.dajin.system.config.RequireRoles; import com.dajin.system.config.SyncWebSocketHandler; import com.dajin.system.persistence.*; import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper; import org.springframework.jdbc.core.namedparam.*; import org.springframework.web.bind.annotation.*; import javax.servlet.http.*; import java.util.*;
+backend/src/main/java/com/dajin/system\system\SystemController.java:3:@RestController @RequestMapping("/api/system") public class SystemController {private final DbSupport db;private final SysConfigMapper configMapper;private final SyncWebSocketHandler ws;public SystemController(DbSupport db,SysConfigMapper configMapper,SyncWebSocketHandler ws){this.db=db;this.configMapper=configMapper;this.ws=ws;}
+backend/src/main/java/com/dajin/system\system\SystemController.java:4: @GetMapping("/store-info") public ApiResponse<?> store(HttpServletRequest r){return ApiResponse.ok(db.one("select * from sys_store where store_id=:s",Map.of("s",db.store(r))));}
+backend/src/main/java/com/dajin/system\system\SystemController.java:5: @GetMapping("/print-template") public ApiResponse<?> templates(HttpServletRequest r){return ApiResponse.ok(db.list("select * from print_template where store_id=:s order by template_id",Map.of("s",db.store(r))));}
+backend/src/main/java/com/dajin/system\system\SystemController.java:6: @GetMapping("/config") public ApiResponse<?> config(HttpServletRequest r){return ApiResponse.ok(configMapper.selectList(new LambdaQueryWrapper<SysConfigEntity>().eq(SysConfigEntity::getStoreId,db.store(r)).eq(SysConfigEntity::getEnabled,1).orderByAsc(SysConfigEntity::getConfigSort)));}
+backend/src/main/java/com/dajin/system\system\SystemController.java:7: @GetMapping("/target") public ApiResponse<?> target(HttpServletRequest r){String value=db.jdbc().queryForObject("select coalesce(max(case when config_key='monthly_sales_target' then config_value end),'0') from sys_config where store_id=:s and enabled=1",Map.of("s",db.store(r)),String.class);return ApiResponse.ok(Map.of("monthlySalesTarget",new java.math.BigDecimal(value)));}
+backend/src/main/java/com/dajin/system\system\SystemController.java:8: @PutMapping("/target") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> setTarget(@RequestBody Map<String,Object> body,HttpServletRequest r){java.math.BigDecimal value;try{value=new java.math.BigDecimal(String.valueOf(body.get("monthlySalesTarget")));}catch(Exception e){throw new BusinessException(400422,"目标金额格式不正确");}if(value.signum()<0)throw new BusinessException(400422,"目标金额不能为负");long storeId=db.store(r);MapSqlParameterSource p=new MapSqlParameterSource().addValue("s",storeId).addValue("v",value.toPlainString());int updated=db.jdbc().update("update sys_config set config_value=:v,update_time=now() where store_id=:s and config_key='monthly_sales_target'",p);if(updated==0)db.jdbc().update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) values(:s,'TARGET','monthly_sales_target',:v,'本月销售目标',0,1)",p);Map<String,Object> event=Map.of("storeId",storeId,"monthlySalesTarget",value);ws.broadcast("TARGET_UPDATED",event);ws.broadcast("REPORT_UPDATED",event);return ApiResponse.ok(Map.of("monthlySalesTarget",value));}
+backend/src/main/java/com/dajin/system\system\SystemController.java-9-}
+--
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java-11-@RestController
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java:12:@RequestMapping("/api/trade-in")
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java-13-public class TradeInController {
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java:14:    @PostMapping("/create")
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java:15:    @RequirePermission("order:create")
+backend/src/main/java/com/dajin/system\tradein\TradeInController.java-16-    public ApiResponse<?> create(@RequestBody Map<String,Object> q, HttpServletRequest r) {
+--
+backend/src/main/java/com/dajin/system\upload\FileController.java-18-@RestController
+backend/src/main/java/com/dajin/system\upload\FileController.java:19:@RequestMapping("/api/file")
+backend/src/main/java/com/dajin/system\upload\FileController.java-20-public class FileController {
+--
+backend/src/main/java/com/dajin/system\upload\FileController.java-31-
+backend/src/main/java/com/dajin/system\upload\FileController.java:32:    @GetMapping("/**")
+backend/src/main/java/com/dajin/system\upload\FileController.java-33-    public void serve(HttpServletRequest request, HttpServletResponse response) throws Exception {

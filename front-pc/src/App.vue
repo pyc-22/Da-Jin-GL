@@ -112,6 +112,7 @@ const oldMetalForm = reactive({ weight: 0, purityChoice: '0.999', customPurity: 
 const paymentMethods = ref(defaultMethods.map(x => ({ ...x, amount: 0, selected: false })))
 const groupPaymentMethods = ref([])
 const oldMaterialPayoutMethod = ref('CASH')
+const oldMaterialPayoutAmount = ref(0)
 const payoutMethods = computed(() => paymentMethods.value.filter(method => !['BALANCE', 'COMBINATION'].includes(method.code)))
 const paymentTotal = ref(0)
 const printPreview = ref({ type: 'receipt', text: '', html: '' })
@@ -181,7 +182,7 @@ const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includ
 const procPayDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0 })
 const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '' })
-const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
+const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999', residualGoldWeight: null, residualGoldFineness: 0.999, incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
 const procPickup = reactive({ row: null, photos: [], busy: false })
 async function loadFrontTodo() {
   if (!online.value || !getToken()) return
@@ -298,6 +299,10 @@ function openProcFinish(row) {
     procFinish.recoveredWeight = o.recovered_weight != null ? Number(o.recovered_weight) : null
     procFinish.note = o.loss_note || ''
     procFinish.goldWeight = null; procFinish.goldFineness = 0.999; procFinish.goldPrice = 0
+    procFinish.residualGoldHandling = o.residual_gold_handling === 'STORE_DEDUCT' ? 'STORE_DEDUCT' : 'TAKE_AWAY'
+    procFinish.residualMaterialType = o.residual_material_type || oldMaterialTypes.value[0] || '足金999'
+    procFinish.residualGoldWeight = o.residual_gold_weight != null ? Number(o.residual_gold_weight) : null
+    procFinish.residualGoldFineness = o.residual_gold_fineness != null ? Number(o.residual_gold_fineness) : 0.999
   }).catch(() => { procFinish.detail = null; procFinish.incoming = []; procFinish.weighPhotos = []; procFinish.baseIncoming = []; procFinish.baseWeigh = [] })
   activeDialog.value = 'procFinish'
 }
@@ -366,6 +371,7 @@ async function submitProcPickup() {
 }
 async function submitProcFinish() {
   const row = procFinish.row; if (!row || procFinish.busy) return
+  if (procFinish.residualGoldHandling === 'STORE_DEDUCT' && (!(Number(procFinish.residualGoldWeight) > 0) || !(Number(procFinish.residualGoldFineness) > 0 && Number(procFinish.residualGoldFineness) <= 1))) return ElMessage.warning('留店抵扣请填写剩余旧料克重和成色')
   procFinish.busy = true
   try {
     const oid = row.processing_order_id
@@ -380,7 +386,13 @@ async function submitProcFinish() {
     const newWeigh = procFinish.weighPhotos.filter(u => !procFinish.baseWeigh.includes(u))
     if (newIncoming.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'incoming', urls: newIncoming }) })
     if (newWeigh.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'weigh', urls: newWeigh }) })
-    await request(`/api/processing/orders/${oid}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'COMPLETED' }) })
+    await request(`/api/processing/orders/${oid}/status`, { method: 'PATCH', body: JSON.stringify({
+      status: 'COMPLETED',
+      residualGoldHandling: procFinish.residualGoldHandling,
+      residualMaterialType: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? procFinish.residualMaterialType : null,
+      residualGoldWeight: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? Number(procFinish.residualGoldWeight) : null,
+      residualGoldFineness: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? Number(procFinish.residualGoldFineness) : null
+    }) })
     ElMessage.success(`加工单 ${row.order_no} 已完成，进入待取货`)
     activeDialog.value = ''
     await loadFrontTodo()
@@ -504,6 +516,7 @@ async function payHandoverOrder(row) {
     settlementDiscountReason.value = ''
     paymentMethods.value.forEach(method => { method.amount = 0; method.selected = false })
     oldMaterialPayoutMethod.value = order.old_material_payout_method || 'CASH'
+    oldMaterialPayoutAmount.value = Number(order.old_material_payout_amount || order.oldMaterialPayoutAmount || order.old_material_excess || 0)
     approval.required = Number(order.status) === 3
     approval.status = approval.required ? '待审批' : ''
     approval.kind = approval.required ? 'ORDER_DISCOUNT' : ''
@@ -535,8 +548,7 @@ const processingSubmitting = ref(false)
 const processingForm = reactive({
   memberId: '', customerName: '', customerPhone: '', processingItemId: '', quantity: 1, billingWeight: '',
   pickupDate: '', craftsmanId: '', salesId: '', oldGoldWeight: '', oldGoldFineness: 0.999,
-  residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999',
-  residualGoldWeight: '', residualGoldFineness: 0.999, deposit: 0, depositMethod: 'CASH', remark: ''
+  deposit: 0, depositMethod: 'CASH', remark: ''
 })
 function applyPaymentChannels(channels) {
   const icons = Object.fromEntries(defaultMethods.map(item => [item.code, item.icon]))
@@ -608,6 +620,7 @@ const discounted = computed(() => cartSubtotal.value * discount.value)
 const oldMaterialSettlement = computed(() => calculateOldMaterialSettlement(cartSubtotal.value, discount.value, cartLabor.value, oldDeduct.value))
 const appliedOldDeduct = computed(() => oldMaterialSettlement.value.appliedDeduction)
 const oldMaterialExcess = computed(() => oldMaterialSettlement.value.excessPayout)
+const customerPayoutAmount = computed(() => Math.max(0, Number(oldMaterialPayoutAmount.value || oldMaterialExcess.value || 0)))
 const payable = computed(() => oldMaterialSettlement.value.payable)
 const paymentDue = computed(() => Number(orderDraft.value?.remaining ?? orderDraft.value?.remaining_due ?? payable.value))
 const paidAmount = computed(() => paymentMethods.value.reduce((sum, p) => sum + Number(p.amount || 0), 0))
@@ -627,11 +640,15 @@ const shiftCashDifference = computed(() => Number(shiftCash.value || 0) - shiftC
 const selectedProcessingItem = computed(() => processingItems.value.find(item => String(item.item_id ?? item.id) === String(processingForm.processingItemId)) || null)
 const processingLaborFee = computed(() => Math.round(Number(selectedProcessingItem.value?.labor_fee || 0) * (selectedProcessingItem.value?.pricing_unit === '按克' ? Number(processingForm.billingWeight || 0) : Math.max(1, Number(processingForm.quantity || 1))) * 100) / 100)
 const processingResidualDeduction = computed(() => {
-  if (processingForm.residualGoldHandling !== 'STORE_DEDUCT') return 0
-  const value = Number(processingForm.residualGoldWeight || 0) * Number(processingForm.residualGoldFineness || 0) * recycleSpot.value
-  return Math.min(processingLaborFee.value, Math.max(0, value))
+  return 0
 })
-const processingDue = computed(() => Math.max(0, processingLaborFee.value - processingResidualDeduction.value))
+const processingDue = computed(() => Math.max(0, processingLaborFee.value))
+const procFinishResidualDeduction = computed(() => {
+  if (procFinish.residualGoldHandling !== 'STORE_DEDUCT') return 0
+  const laborFee = Number(procFinish.detail?.labor_fee ?? procFinish.row?.labor_fee ?? 0)
+  const value = Number(procFinish.residualGoldWeight || 0) * Number(procFinish.residualGoldFineness || 0) * recycleSpot.value
+  return Math.min(laborFee, Math.max(0, value))
+})
 
 function money(value) { return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0)) }
 function purityText(value) {
@@ -714,7 +731,7 @@ function setDiscount(value) {
   approval.kind = ''
   approval.message = discount.value < config.discountThreshold ? `折扣低于${Math.round(config.discountThreshold * 100)}折，需要店长审批` : ''
 }
-function resetCart() { cart.value = []; oldMetals.value = []; tradeOldMetals.value = []; selectedMember.value = null; selectedSalesId.value = lastSalesId(); discount.value = 1; approval.required = false; approval.status = ''; approval.id = null; approval.message = ''; approval.kind = ''; orderDraft.value = null; settlementMode.value = 'FULL'; settlementDiscountReason.value = ''; oldMaterialPayoutMethod.value = payoutMethods.value[0]?.code || 'CASH'; paymentMethods.value.forEach(p => { p.amount = 0; p.selected = false }) }
+function resetCart() { cart.value = []; oldMetals.value = []; tradeOldMetals.value = []; selectedMember.value = null; selectedSalesId.value = lastSalesId(); discount.value = 1; approval.required = false; approval.status = ''; approval.id = null; approval.message = ''; approval.kind = ''; orderDraft.value = null; settlementMode.value = 'FULL'; settlementDiscountReason.value = ''; oldMaterialPayoutMethod.value = payoutMethods.value[0]?.code || 'CASH'; oldMaterialPayoutAmount.value = 0; paymentMethods.value.forEach(p => { p.amount = 0; p.selected = false }) }
 function addOldMetal() {
   if (Number(oldMetalForm.weight) <= 0) return ElMessage.warning('请输入旧金克重')
   const purity = oldMetalPurity.value
@@ -775,6 +792,7 @@ async function restoreHeldOrder(held) {
   Object.assign(approval, held.approval || { required: false, status: '', id: null, message: '' })
   paymentMethods.value = plainPayload(held.paymentMethods || paymentMethods.value).map(method => ({ ...method, selected: method.selected ?? Number(method.amount) > 0 }))
   oldMaterialPayoutMethod.value = held.oldMaterialPayoutMethod || payoutMethods.value[0]?.code || 'CASH'
+  oldMaterialPayoutAmount.value = Number(held.oldMaterialPayoutAmount || oldMaterialExcess.value || 0)
   orderDraft.value = plainPayload(held.orderDraft || null)
   heldOrders.value = heldOrders.value.filter(item => item.heldId !== held.heldId)
   persistHeldOrders()
@@ -890,7 +908,6 @@ async function refreshOnlineData() {
         if (!oldMaterialTypes.value.includes(oldMetalForm.materialType)) oldMetalForm.materialType = oldMaterialTypes.value[0]
         if (!oldMaterialTypes.value.includes(recycleForm.materialType)) recycleForm.materialType = oldMaterialTypes.value[0]
         if (!oldMaterialTypes.value.includes(tradeOldForm.materialType)) tradeOldForm.materialType = oldMaterialTypes.value[0]
-        if (!oldMaterialTypes.value.includes(processingForm.residualMaterialType)) processingForm.residualMaterialType = oldMaterialTypes.value[0]
       }
     }
     const cachePayload = { products: plainPayload(products.value), gold: plainPayload(gold.value), members: plainPayload(members.value) }
@@ -1021,7 +1038,6 @@ async function refreshOldMaterialTypes() {
     if (!oldMaterialTypes.value.includes(oldMetalForm.materialType)) oldMetalForm.materialType = oldMaterialTypes.value[0]
     if (!oldMaterialTypes.value.includes(recycleForm.materialType)) recycleForm.materialType = oldMaterialTypes.value[0]
     if (!oldMaterialTypes.value.includes(tradeOldForm.materialType)) tradeOldForm.materialType = oldMaterialTypes.value[0]
-    if (!oldMaterialTypes.value.includes(processingForm.residualMaterialType)) processingForm.residualMaterialType = oldMaterialTypes.value[0]
   } catch (error) { console.warn('[dajin-config] old material types refresh skipped:', error?.message || error) }
 }
 async function probeBackend() {
@@ -1067,6 +1083,7 @@ async function submitOrder() {
     discount: discount.value,
     oldMaterialDeduct: appliedOldDeduct.value,
     oldMaterialPayoutMethod: oldMaterialExcess.value > 0 ? oldMaterialPayoutMethod.value : null,
+    oldMaterialPayoutAmount: oldMaterialExcess.value > 0 ? customerPayoutAmount.value : 0,
     laborFee: cartLabor.value,
     payAmount: 0,
     payMethod: null,
@@ -1082,6 +1099,7 @@ async function submitOrder() {
     if (body.salesId != null) { selectedSalesId.value = body.salesId; rememberSales(body.salesId) }
     const orderId = result?.orderId ?? result?.order_id ?? result?.id ?? null
     orderDraft.value = { ...body, ...result, id: orderId, orderId, clientRequestId: body.clientRequestId, oldMaterialExcess: result?.oldMaterialExcess ?? oldMaterialExcess.value, billNo: result.orderNo || result.order_no || `LOCAL-${Date.now()}` }
+    oldMaterialPayoutAmount.value = Number(result?.oldMaterialPayoutAmount ?? result?.old_material_payout_amount ?? oldMaterialExcess.value ?? 0)
     if (result?.queued) { approval.required = discount.value < config.discountThreshold; approval.status = approval.required ? '待联网同步后审批' : ''; activeDialog.value = approval.required ? 'approval' : 'payment' }
     else if (result.approvalRequired) { approval.required = true; approval.status = '待审批'; approval.id = result.approvalId || null; approval.kind = 'ORDER_DISCOUNT'; activeDialog.value = 'approval' }
     else { approval.required = false; activeDialog.value = 'payment' }
@@ -1110,7 +1128,7 @@ async function confirmPayment() {
   if (paidAmount.value <= 0 && paymentDue.value > 0) return ElMessage.warning('请输入本次实收金额')
   if (paidAmount.value > paymentDue.value) return ElMessage.warning('实收金额不能超过待收金额')
   if (paidAmount.value < paymentDue.value && (!online.value || orderDraft.value.queued)) return ElMessage.warning('优惠收款需要联网提交审批或记账，请连接后重试')
-  const body = { orderId: orderDraft.value.orderId ?? orderDraft.value.id ?? null, orderClientRequestId: orderDraft.value.clientRequestId, amount: paidAmount.value, settlementMode: 'FULL', payMethod: paymentMethodLabel(), oldMaterialPayoutMethod: oldMaterialExcess.value > 0 ? oldMaterialPayoutMethod.value : null, paymentDetails: paymentMethods.value.filter(p => Number(p.amount) > 0).map(p => ({ method: p.code, amount: Number(p.amount).toFixed(2) })), clientRequestId: uuid() }
+  const body = { orderId: orderDraft.value.orderId ?? orderDraft.value.id ?? null, orderClientRequestId: orderDraft.value.clientRequestId, amount: paidAmount.value, settlementMode: 'FULL', payMethod: paymentMethodLabel(), oldMaterialPayoutMethod: oldMaterialExcess.value > 0 ? oldMaterialPayoutMethod.value : null, oldMaterialPayoutAmount: oldMaterialExcess.value > 0 ? customerPayoutAmount.value : 0, paymentDetails: paymentMethods.value.filter(p => Number(p.amount) > 0).map(p => ({ method: p.code, amount: Number(p.amount).toFixed(2) })), clientRequestId: uuid() }
   paymentSubmitting.value = true
   try {
     const result = orderDraft.value.queued ? (await enqueueWithId('/api/pay/pay', body, body.clientRequestId), { queued: true }) : await requestOrQueue('/api/pay/pay', body, { backendAvailable: online.value })
@@ -1427,8 +1445,7 @@ function resetProcessingForm() {
   Object.assign(processingForm, {
     memberId: '', customerName: '', customerPhone: '', processingItemId: '', quantity: 1, billingWeight: '',
     pickupDate: '', craftsmanId: '', salesId: lastSalesId() || '', oldGoldWeight: '', oldGoldFineness: 0.999,
-    residualGoldHandling: 'TAKE_AWAY', residualMaterialType: oldMaterialTypes.value[0] || '足金999',
-    residualGoldWeight: '', residualGoldFineness: 0.999, deposit: 0, depositMethod: 'CASH', remark: ''
+    deposit: 0, depositMethod: 'CASH', remark: ''
   })
 }
 async function loadProcessingData() {
@@ -1446,7 +1463,6 @@ async function submitProcessingOrder() {
   if (!processingForm.processingItemId) return ElMessage.warning('请选择加工项目')
   if (!(Number(processingForm.quantity) > 0)) return ElMessage.warning('加工数量必须大于0')
   if (selectedProcessingItem.value?.pricing_unit === '按克' && !(Number(processingForm.billingWeight) > 0)) return ElMessage.warning('请填写大于0的计费总克重')
-  if (processingForm.residualGoldHandling === 'STORE_DEDUCT' && (!(Number(processingForm.residualGoldWeight) > 0) || !(Number(processingForm.residualGoldFineness) > 0 && Number(processingForm.residualGoldFineness) <= 1))) return ElMessage.warning('留店抵扣请填写剩余旧料克重和成色')
   if (Number(processingForm.deposit || 0) < 0 || Number(processingForm.deposit || 0) > processingDue.value) return ElMessage.warning('定金应在 0 到应收金额之间')
   if (Number(processingForm.deposit || 0) > 0 && !processingForm.depositMethod) return ElMessage.warning('当前没有可用的支付方式，请联系管理员启用')
   processingSubmitting.value = true
@@ -1458,10 +1474,6 @@ async function submitProcessingOrder() {
         processingItemId: Number(processingForm.processingItemId), quantity: Number(processingForm.quantity), pickupDate: processingForm.pickupDate || null, craftsmanId: processingForm.craftsmanId || null, salesId: processingForm.salesId || null,
         billingWeight: selectedProcessingItem.value?.pricing_unit === '按克' ? Number(processingForm.billingWeight) : null,
         oldGoldWeight: processingForm.oldGoldWeight || null, oldGoldFineness: processingForm.oldGoldFineness || null,
-        residualGoldHandling: processingForm.residualGoldHandling,
-        residualMaterialType: processingForm.residualGoldHandling === 'STORE_DEDUCT' ? processingForm.residualMaterialType : null,
-        residualGoldWeight: processingForm.residualGoldHandling === 'STORE_DEDUCT' ? Number(processingForm.residualGoldWeight) : null,
-        residualGoldFineness: processingForm.residualGoldHandling === 'STORE_DEDUCT' ? Number(processingForm.residualGoldFineness) : null,
         remark: processingForm.remark || null
       })
     })
@@ -1484,7 +1496,7 @@ async function submitProcessingOrder() {
       craftsmanName: craftsman?.real_name || craftsman?.username || '暂未分配',
       oldGoldWeight: Number(processingForm.oldGoldWeight || 0),
       oldGoldFineness: Number(processingForm.oldGoldFineness || 0),
-      residualHandling: processingForm.residualGoldHandling === 'STORE_DEDUCT' ? '留店抵扣工费' : '客户带走',
+      residualHandling: '完成加工时确认',
       laborFee: processingLaborFee.value,
       residualDeduction: processingResidualDeduction.value,
       dueAmount: due,
@@ -1751,7 +1763,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
            </div>
            <section v-if="heldOrders.length" class="panel held-orders"><div class="held-orders-heading"><div><span class="eyebrow">待结算</span><h2>已挂起订单 <em>{{ heldOrders.length }}</em></h2></div><span class="muted">审批通过后恢复订单继续收款</span></div><div class="held-order-list"><article v-for="held in heldOrders" :key="held.heldId" class="held-order"><div><b>{{ held.orderDraft?.billNo || '本地订单' }}</b><small>{{ held.cart?.map(item => item.name).join('、') || '商品明细' }} · {{ money(held.orderDraft?.payAmount || 0) }}</small></div><span class="status-tag" :class="heldStatus(held) === '已审批' ? 'success' : heldStatus(held) === '已驳回' ? 'danger' : 'warning'">{{ heldStatus(held) }}</span><button v-if="held.approval?.id && heldStatus(held) === '待审批'" class="text-button" @click="refreshHeldApproval(held)"><RefreshCw :size="14" />刷新</button><button class="primary-button compact" @click="restoreHeldOrder(held)"><ArrowRight :size="14" />恢复</button></article></div></section>
          </template>
-        <template v-else-if="activeMenu === 'processing'"><div class="page-heading"><div><div class="eyebrow">加工业务</div><h1>加工开单与定金收款</h1></div><button class="secondary-button" @click="loadProcessingData"><RefreshCw :size="16" />刷新项目</button></div><div v-if="!online" class="warning-note"><WifiOff :size="16" />加工开单包含应收、定金和旧料入库，需连接后端服务后办理。</div><div class="processing-layout"><section class="panel processing-form"><div class="summary-title"><div><b>客户与加工项目</b><small>开单只登记应收；定金到账后才计入财务流水。</small></div><span class="status-tag warning">在线业务</span></div><div class="form-grid processing-fields"><label>关联会员<select v-model="processingForm.memberId" @change="chooseProcessingMember"><option value="">不关联会员</option><option v-for="member in members" :key="member.id || member.member_id" :value="member.id || member.member_id">{{ member.name }} · {{ member.phone }}</option></select></label><label>预计取货日<input v-model="processingForm.pickupDate" type="date" /></label><label>客户姓名<input v-model.trim="processingForm.customerName" placeholder="必填" /></label><label>联系电话<input v-model.trim="processingForm.customerPhone" placeholder="必填" /></label><label>加工项目<select v-model="processingForm.processingItemId"><option value="">请选择项目</option><option v-for="item in processingItems" :key="item.item_id || item.id" :value="item.item_id || item.id">{{ item.name }} · {{ money(item.labor_fee) }}/{{ item.pricing_unit === '按克' ? 'g' : '件' }} · {{ item.duration_text || (item.processing_days + '天') }}</option></select></label><label>加工数量<input v-model.number="processingForm.quantity" type="number" min="1" step="1" /></label><label v-if="selectedProcessingItem?.pricing_unit === '按克'">计费总克重 (g)<input v-model.number="processingForm.billingWeight" type="number" min="0.001" step="0.001" /></label><label>加工师傅<select v-model="processingForm.craftsmanId"><option value="">暂不分配</option><option v-for="user in processingCraftsmen" :key="user.user_id" :value="user.user_id">{{ user.real_name || user.username }}</option></select></label><label>导购（销售）<select v-model="processingForm.salesId"><option value="">无导购（散客）</option><option v-for="person in processingSalespeople" :key="person.user_id" :value="String(person.user_id)">{{ person.real_name }}</option></select></label><label>客户带来旧金 (g)<input v-model.number="processingForm.oldGoldWeight" type="number" min="0" step="0.001" placeholder="仅做登记" /></label><label>旧金成色<input v-model.number="processingForm.oldGoldFineness" type="number" min="0" max="1" step="0.001" placeholder="如 0.999" /></label><label class="field-span-2">备注<input v-model.trim="processingForm.remark" placeholder="加工要求、款式说明等" /></label></div><div class="subsection-title">剩余旧料处理</div><div class="processing-handling"><label><input v-model="processingForm.residualGoldHandling" type="radio" value="TAKE_AWAY" />客户带走，不入旧料库存</label><label><input v-model="processingForm.residualGoldHandling" type="radio" value="STORE_DEDUCT" />留店抵扣工费，入旧料库存</label></div><div v-if="processingForm.residualGoldHandling === 'STORE_DEDUCT'" class="form-grid processing-fields residual-fields"><label>旧料类型<select v-model="processingForm.residualMaterialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>剩余旧料克重 (g)<input v-model.number="processingForm.residualGoldWeight" type="number" min="0.001" step="0.001" /></label><label>剩余旧料成色<input v-model.number="processingForm.residualGoldFineness" type="number" min="0.001" max="1" step="0.001" /></label><div class="calculation-card compact"><span>预计抵扣</span><strong>-{{ money(processingResidualDeduction) }}</strong><small>按当前回收价 {{ money(recycleSpot) }}/g 估算</small></div></div></section><aside class="panel processing-summary"><div class="summary-title"><div><b>收款确认</b><small>{{ selectedProcessingItem ? `${selectedProcessingItem.name}，${selectedProcessingItem.pricing_unit || '按件'} · 工期约 ${selectedProcessingItem.duration_text || (selectedProcessingItem.processing_days + '天')}` : '选择加工项目后计算应收' }}</small></div><Receipt :size="20" /></div><div class="processing-money"><span>加工工费</span><strong>{{ money(processingLaborFee) }}</strong></div><div class="processing-money deduction"><span>旧料抵扣</span><b>-{{ money(processingResidualDeduction) }}</b></div><div class="processing-total"><span>本单应收</span><strong>{{ money(processingDue) }}</strong></div><label>收取定金<input v-model.number="processingForm.deposit" type="number" min="0" :max="processingDue" step="0.01" /></label><label>定金支付方式<select v-model="processingForm.depositMethod"><option v-for="method in paymentMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label><div class="processing-balance"><span>尾款待收</span><b>{{ money(Math.max(0, processingDue - Number(processingForm.deposit || 0))) }}</b></div><button class="checkout-button" :disabled="processingSubmitting || !online" @click="submitProcessingOrder"><Check :size="18" />{{ processingSubmitting ? '正在保存...' : '创建加工单并收定金' }}</button></aside></div></template>
+        <template v-else-if="activeMenu === 'processing'"><div class="page-heading"><div><div class="eyebrow">加工业务</div><h1>加工开单与定金收款</h1></div><button class="secondary-button" @click="loadProcessingData"><RefreshCw :size="16" />刷新项目</button></div><div v-if="!online" class="warning-note"><WifiOff :size="16" />加工开单需连接后端服务，旧料在完成加工时登记。</div><div class="processing-layout"><section class="panel processing-form"><div class="summary-title"><div><b>客户与加工项目</b><small>开单只登记工费、补金和定金；完成加工后再确认剩余旧料。</small></div><span class="status-tag warning">在线业务</span></div><div class="form-grid processing-fields"><label>关联会员<select v-model="processingForm.memberId" @change="chooseProcessingMember"><option value="">不关联会员</option><option v-for="member in members" :key="member.id || member.member_id" :value="member.id || member.member_id">{{ member.name }} · {{ member.phone }}</option></select></label><label>预计取货日<input v-model="processingForm.pickupDate" type="date" /></label><label>客户姓名<input v-model.trim="processingForm.customerName" placeholder="必填" /></label><label>联系电话<input v-model.trim="processingForm.customerPhone" placeholder="必填" /></label><label>加工项目<select v-model="processingForm.processingItemId"><option value="">请选择项目</option><option v-for="item in processingItems" :key="item.item_id || item.id" :value="item.item_id || item.id">{{ item.name }} · {{ money(item.labor_fee) }}/{{ item.pricing_unit === '按克' ? 'g' : '件' }} · {{ item.duration_text || (item.processing_days + '天') }}</option></select></label><label>加工数量<input v-model.number="processingForm.quantity" type="number" min="1" step="1" /></label><label v-if="selectedProcessingItem?.pricing_unit === '按克'">计费总克重 (g)<input v-model.number="processingForm.billingWeight" type="number" min="0.001" step="0.001" /></label><label>加工师傅<select v-model="processingForm.craftsmanId"><option value="">暂不分配</option><option v-for="user in processingCraftsmen" :key="user.user_id" :value="user.user_id">{{ user.real_name || user.username }}</option></select></label><label>导购（销售）<select v-model="processingForm.salesId"><option value="">无导购（散客）</option><option v-for="person in processingSalespeople" :key="person.user_id" :value="String(person.user_id)">{{ person.real_name }}</option></select></label><label>客户带来旧金 (g)<input v-model.number="processingForm.oldGoldWeight" type="number" min="0" step="0.001" placeholder="仅做登记" /></label><label>旧金成色<input v-model.number="processingForm.oldGoldFineness" type="number" min="0" max="1" step="0.001" placeholder="如 0.999" /></label><label class="field-span-2">备注<input v-model.trim="processingForm.remark" placeholder="加工要求、款式说明等" /></label></div></section><aside class="panel processing-summary"><div class="summary-title"><div><b>收款确认</b><small>{{ selectedProcessingItem ? `${selectedProcessingItem.name}，${selectedProcessingItem.pricing_unit || '按件'} · 工期约 ${selectedProcessingItem.duration_text || (selectedProcessingItem.processing_days + '天')}` : '选择加工项目后计算应收' }}</small></div><Receipt :size="20" /></div><div class="processing-money"><span>加工工费</span><strong>{{ money(processingLaborFee) }}</strong></div><div class="processing-total"><span>本单应收</span><strong>{{ money(processingDue) }}</strong></div><label>收取定金<input v-model.number="processingForm.deposit" type="number" min="0" :max="processingDue" step="0.01" /></label><label>定金支付方式<select v-model="processingForm.depositMethod"><option v-for="method in paymentMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label><div class="processing-balance"><span>尾款待收</span><b>{{ money(Math.max(0, processingDue - Number(processingForm.deposit || 0))) }}</b></div><button class="checkout-button" :disabled="processingSubmitting || !online" @click="submitProcessingOrder"><Check :size="18" />{{ processingSubmitting ? '正在保存...' : '创建加工单并收定金' }}</button></aside></div></template>
         <template v-else-if="activeMenu === 'process'"><div class="page-heading"><div><div class="eyebrow">项目管理</div><h1>加工服务项目</h1></div><button class="primary-button" @click="nav('processing')"><Plus :size="16" />加工开单</button></div><div class="panel table-panel"><div class="table-toolbar"><div><b>{{ processRows.length }}</b> 个已启用项目</div><span class="muted">项目配置请在管理端维护</span></div><table><thead><tr><th>项目名称</th><th>计价方式</th><th>基础工费</th><th>预计时长</th><th>工序</th><th></th></tr></thead><tbody><tr v-for="row in processRows" :key="row.id"><td><b>{{ row.name }}</b></td><td><span class="tag">{{ row.type }}</span></td><td>{{ money(row.base_fee) }}</td><td>{{ row.duration }}</td><td class="muted">{{ row.process_steps }}</td><td><button class="text-button" @click="nav('processing')">去开单</button></td></tr></tbody></table></div></template>
         <template v-else-if="activeMenu === 'member'"><div class="page-heading"><div><div class="eyebrow">会员中心</div><h1>会员快速登记与选择</h1></div><button class="primary-button" @click="createMember"><Plus :size="16" />快速登记</button></div><div class="panel table-panel"><div class="table-toolbar"><label class="inline-search"><Search :size="16" /><input v-model="memberKeyword" placeholder="姓名 / 手机号" /></label><span class="muted">{{ members.length }} 位本地会员</span></div><table><thead><tr><th>会员</th><th>手机号</th><th>生日</th><th>储值余额</th><th>积分</th><th>累计消费</th><th></th></tr></thead><tbody><tr v-for="member in members.filter(m => `${m.name}${m.phone}`.includes(memberKeyword))" :key="member.id"><td><div class="person-cell"><span class="avatar warm">{{ member.name?.slice(0, 1) }}</span><b>{{ member.name }}</b></div></td><td>{{ member.phone }}</td><td>{{ member.birthday ? String(member.birthday).slice(0, 10) : '-' }}</td><td>{{ money(member.balance) }}</td><td>{{ member.points || 0 }}</td><td>{{ money(member.total_consume) }}</td><td><button class="text-button" @click="selectedMember = member; nav('order')">用于本单</button></td></tr><tr v-if="!members.length"><td colspan="7" class="empty-table">暂无会员，点击右上角快速登记</td></tr></tbody></table></div></template>
         <template v-else-if="activeMenu === 'stock'"><div class="page-heading"><div><div class="eyebrow">库存盘点</div><h1>扫码盘点与差异提交</h1></div><button class="primary-button" :disabled="!checkRows.length" @click="submitStockCheck"><ClipboardCheck :size="16" />提交盘点审批</button></div><div class="stock-grid"><section class="panel stock-scan"><div class="scan-heading"><div><b>扫码录入</b><small>扫码枪扫描后回车确认</small></div><Search :size="18" /></div><input class="scan-input" placeholder="扫描条码" @keyup.enter="e => { const p = products.find(x => x.barcode === e.target.value.trim()); if (p) { addCheckRow(p); e.target.value = '' } }" /><div class="scan-shortcuts"><button v-for="product in products.slice(0, 5)" :key="product.id" @click="addCheckRow(product)"><Plus :size="14" />{{ product.name }}</button></div></section><section class="panel table-panel"><div class="table-toolbar"><b>盘点明细</b><span :class="checkRows.some(x => Number(x.actual) !== Number(x.stock)) ? 'danger-text' : 'muted'">差异 {{ checkRows.reduce((s, x) => s + Number(x.actual || 0) - Number(x.stock || 0), 0) }}</span></div><table><thead><tr><th>商品</th><th>系统库存</th><th>实盘数量</th><th>差异</th></tr></thead><tbody><tr v-for="row in checkRows" :key="row.id"><td><b>{{ row.name }}</b><small class="block-muted">{{ row.barcode }}</small></td><td>{{ checkDisplay(row.stock, row) }}</td><td><input v-model.number="row.actual" class="number-input" type="number" min="0" :step="checkStep(row)" /></td><td :class="Number(row.actual) - Number(row.stock) === 0 ? 'muted' : 'danger-text'">{{ checkDisplay(Number(row.actual || 0) - Number(row.stock || 0), row) }}</td></tr><tr v-if="!checkRows.length"><td colspan="4" class="empty-table">扫描商品后会出现在这里</td></tr></tbody></table></section></div></template>
@@ -1776,6 +1788,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <div v-if="oldMaterialExcess" class="excess-payout-card">
           <div><span>本单实际抵扣</span><b>-{{ money(appliedOldDeduct) }}</b></div>
           <div><span>超额旧金回收款</span><strong>{{ money(oldMaterialExcess) }}</strong></div>
+          <label>实际付款给客户<input v-model.number="oldMaterialPayoutAmount" type="number" min="0" step="0.01" /><small>默认按超额旧金回收款，可因议价上调；不得低于超额金额</small></label>
           <label>返款方式<select v-model="oldMaterialPayoutMethod"><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
           <small>结算完成后自动生成一条回收支出流水，旧料库存只入账一次。</small>
         </div>
@@ -1785,7 +1798,8 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
       <div v-else-if="activeDialog === 'payment'" class="dialog-body">
          <div class="payment-total"><span>本单应收</span><strong>{{ money(payable) }}</strong><small>本次实收可直接输入，低于{{ Math.round(config.discountThreshold * 100) }}折的优惠需要店长/管理员审批</small><small v-if="oldDeduct">旧金估值 {{ money(oldDeduct) }}，本单抵扣 {{ money(appliedOldDeduct) }}</small></div>
         <div v-if="oldMaterialExcess" class="excess-payout-card compact">
-          <div><span>需向客户支付回收款</span><strong>{{ money(oldMaterialExcess) }}</strong></div>
+          <div><span>需向客户支付回收款</span><strong>{{ money(customerPayoutAmount) }}</strong></div>
+          <label>实际付款给客户<input v-model.number="oldMaterialPayoutAmount" type="number" min="0" step="0.01" /><small>默认等于超额旧金回收款，允许议价调整</small></label>
           <label>返款方式<select v-model="oldMaterialPayoutMethod"><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
         </div>
         <template v-if="paymentDue > 0 && paymentMethods.length">
@@ -1843,9 +1857,12 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <div class="form-grid"><label>补金克重 (g)<input v-model.number="procFinish.goldWeight" type="number" min="0" step="0.001" /></label><label>成色<input v-model.number="procFinish.goldFineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日价）<input v-model.number="procFinish.goldPrice" type="number" min="0" step="0.01" /></label></div>
         <h2 class="finish-sec">② 称重损耗（选填）</h2>
         <div class="form-grid"><label>成品实重 (g)<input v-model.number="procFinish.finishedWeight" type="number" min="0" step="0.001" /></label><label>成品成色（可选 0~1）<input v-model.number="procFinish.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>回收屑 (g，可选)<input v-model.number="procFinish.recoveredWeight" type="number" min="0" step="0.001" /></label><label>备注<input v-model.trim="procFinish.note" /></label></div>
-        <h2 class="finish-sec">③ 来料照片</h2>
+        <h2 class="finish-sec">③ 剩余旧料（完成加工时确认）</h2>
+        <div class="processing-handling"><label><input v-model="procFinish.residualGoldHandling" type="radio" value="TAKE_AWAY" />客户带走，不入旧料库存</label><label><input v-model="procFinish.residualGoldHandling" type="radio" value="STORE_DEDUCT" />留店抵扣工费，入旧料库存</label></div>
+        <div v-if="procFinish.residualGoldHandling === 'STORE_DEDUCT'" class="form-grid"><label>旧料类型<select v-model="procFinish.residualMaterialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>剩余旧料克重 (g)<input v-model.number="procFinish.residualGoldWeight" type="number" min="0.001" step="0.001" /></label><label>剩余旧料成色<input v-model.number="procFinish.residualGoldFineness" type="number" min="0.001" max="1" step="0.001" /></label><div class="calculation-card compact"><span>预计抵扣</span><strong>-{{ money(procFinishResidualDeduction) }}</strong><small>完成时按当前回收价计算，最高不超过工费</small></div></div>
+        <h2 class="finish-sec">④ 来料照片</h2>
         <div class="finish-photos" @dragover.prevent @drop.prevent="dropFinishPhotos('incoming', $event)"><span v-for="(u,i) in procFinish.incoming" :key="'fi'+i" class="finish-photo"><img :src="absFileUrl(u)" /><i @click="removeFinishPhoto('incoming', i)">×</i></span><label class="finish-add">＋<input type="file" accept="image/*" multiple hidden @change="pickFinishPhotos('incoming', $event.target)" /><small>拍照/选图/拖图</small></label></div>
-        <h2 class="finish-sec">④ 称重照片</h2>
+        <h2 class="finish-sec">⑤ 称重照片</h2>
         <div class="finish-photos" @dragover.prevent @drop.prevent="dropFinishPhotos('weighPhotos', $event)"><span v-for="(u,i) in procFinish.weighPhotos" :key="'fw'+i" class="finish-photo"><img :src="absFileUrl(u)" /><i @click="removeFinishPhoto('weighPhotos', i)">×</i></span><label class="finish-add">＋<input type="file" accept="image/*" multiple hidden @change="pickFinishPhotos('weighPhotos', $event.target)" /><small>拍照/选图/拖图</small></label></div>
         <div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" :disabled="procFinish.busy" @click="submitProcFinish"><Check :size="16" />{{ procFinish.busy ? '正在提交...' : '确认完成加工' }}</button></div>
       </div>

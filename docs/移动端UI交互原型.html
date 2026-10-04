@@ -1,0 +1,393 @@
+<html style="margin:0;padding:0;">
+<title>鑫铖金匠 · 移动端交互原型（可点击试玩）</title>
+<div style="width:100%;box-sizing:border-box;background:#EFE7D8;padding:26px 14px 50px;font-family:'PingFang SC','Microsoft YaHei',sans-serif;color:#221C14;">
+  <div style="max-width:460px;margin:0 auto;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#C9A24B,#A87F2C);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Songti SC,STSong,SimSun,serif;font-size:22px;font-weight:700;">鑫</div>
+      <div style="flex:1;min-width:180px;">
+        <div style="font-size:18px;font-weight:800;">鑫铖金匠 · 移动端交互原型</div>
+        <div style="font-size:12px;color:#7A6D58;margin-top:2px;">可点击试玩 · 数据为示意 · 非最终代码</div>
+      </div>
+    </div>
+    <!-- 身份切换 -->
+    <div style="background:#fff;border:1px solid #E7DCC6;border-radius:14px;padding:8px;display:flex;gap:6px;margin-bottom:12px;">
+      <button id="roleManager" style="flex:1;height:42px;border:0;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;">我是店长（管理员）</button>
+      <button id="roleSales" style="flex:1;height:42px;border:0;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#F3ECDB;color:#8A7B5E;">我是导购 / 收银</button>
+    </div>
+    <div style="font-size:12px;color:#7A6D58;line-height:1.7;margin-bottom:12px;background:#FBF7ED;border:1px solid #ECD9AC;border-radius:10px;padding:9px 12px;">
+      试试：① 切换身份看两种首页；② 点底部金色大按钮开单，改克重、换导购；③ 店长首页进「金价设置」，改加价/扣减和取整规则，看公式实时变化，保存后回首页看金价联动；④ 用导购身份点金价设置会被 403 拦截。
+    </div>
+
+    <!-- 手机外框 -->
+    <div style="border:9px solid #17120B;border-radius:40px;box-shadow:0 18px 44px rgba(60,45,20,.28);overflow:hidden;background:#F6F1E7;position:relative;">
+      <div style="height:30px;background:#1B1610;color:#F3E9D2;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:11px;font-variant-numeric:tabular-nums;"><span>9:41</span><span>●●●● &nbsp;WiFi &nbsp;▮▮▮▯</span></div>
+
+      <!-- 屏幕容器 -->
+      <div id="screen" style="position:relative;"></div>
+
+      <!-- 底部 tabbar -->
+      <div id="tabbar" style="background:#fff;border-top:1px solid #EFE4CC;display:flex;align-items:flex-end;padding:7px 8px 14px;position:relative;">
+        <div data-tab="home" class="tab" style="flex:1;text-align:center;font-size:10px;color:#A87F2C;font-weight:700;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M3 11l9-8 9 8v10h-6v-6H9v6H3z"/></svg>首页
+        </div>
+        <div data-tab="orders" class="tab" style="flex:1;text-align:center;font-size:10px;color:#A99B7E;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>单据
+        </div>
+        <div style="width:56px;"></div>
+        <div data-tab="messages" class="tab" style="flex:1;text-align:center;font-size:10px;color:#A99B7E;cursor:pointer;position:relative;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>消息
+          <span style="position:absolute;top:-2px;left:calc(50% + 2px);background:#C0453B;color:#fff;font-size:9px;border-radius:999px;padding:0 5px;line-height:14px;">3</span>
+        </div>
+        <div data-tab="me" class="tab" style="flex:1;text-align:center;font-size:10px;color:#A99B7E;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto 2px;display:block;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>我的
+        </div>
+        <div id="centerBtn" style="position:absolute;left:50%;transform:translateX(-50%);bottom:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#D8B463,#A87F2C);border:4px solid #F6F1E7;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(168,127,44,.4);cursor:pointer;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M6 2h12l2 6-8 14L4 8z"/></svg>
+        </div>
+      </div>
+
+      <!-- toast -->
+      <div id="toast" style="position:absolute;left:50%;top:46%;transform:translateX(-50%) translateY(8px);background:rgba(28,22,14,.92);color:#F3E9D2;font-size:13px;padding:11px 18px;border-radius:12px;max-width:80%;text-align:center;line-height:1.6;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:50;"></div>
+    </div>
+    <div style="text-align:center;font-size:11px;color:#9A8B6E;margin-top:12px;">原型仅演示交互与视觉，页面为静态示意数据，未连接后端</div>
+  </div>
+
+<script>
+(function(){
+  try{
+    var state = {
+      role:'manager', tab:'home',
+      mode:'AUTO', base:894.74, baseAg:14.763,
+      markup:24, deduct:10, rule:'r9',
+      manualSale:918.9, manualRec:884.7,
+      locked:null,
+      grams:28.6, oldG:5.2,
+      guide:0, member:0
+    };
+    var guides=['李雯','王芳','无导购（散客）'];
+    var members=['散客（未选会员）','王女士 · 钻石会员'];
+    var ruleNames={none:'不取整',jiao:'到角',yuan:'到元',r8:'尾数 .8',r9:'尾数 .9'};
+
+    function $(id){var e=document.getElementById(id);return e||null;}
+    function fmt(v,dp){return Number(v).toFixed(dp);}
+    function money(v){return v.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+    function roundRule(v,rule){
+      if(rule==='jiao')return Math.round(v*10)/10;
+      if(rule==='yuan')return Math.round(v);
+      if(rule==='r8'||rule==='r9'){var d=rule==='r8'?8:9;var t=Math.round(v*10);var k=Math.round((t-d)/10);return (k*10+d)/10;}
+      return Math.round(v*100)/100;
+    }
+    function dpOf(rule){if(rule==='yuan')return 0;if(rule==='none')return 2;return 1;}
+    function rawSale(){return state.base*1+state.markup;}
+    function rawRec(){return state.base*1-state.deduct;}
+    function salePrice(){return state.mode==='AUTO'?roundRule(rawSale(),state.rule):state.manualSale;}
+    function recPrice(){return state.mode==='AUTO'?roundRule(rawRec(),state.rule):state.manualRec;}
+
+    var toastTimer=null;
+    function toast(msg){var t=$('toast');if(!t)return;t.textContent=msg;t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.opacity='0';t.style.transform='translateX(-50%) translateY(8px)';},2200);}
+    function coming(name){toast('「'+name+'」页面原型暂未包含');}
+
+    function header(title,back){
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 14px 9px;">'
+        +'<div data-back="1" style="width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid #E7DCC6;display:flex;align-items:center;justify-content:center;font-size:18px;color:#5C5140;cursor:pointer;">‹</div>'
+        +'<div style="font-size:16px;font-weight:800;">'+title+'</div>'
+        +(back==='gold'?'<div data-goldlog="1" style="font-size:11px;color:#A87F2C;width:34px;text-align:right;cursor:pointer;">日志</div>':'<div style="width:34px;"></div>')
+        +'</div>';
+    }
+
+    /* ---------- 店长首页 ---------- */
+    function managerHome(){
+      var h='';
+      h+='<div style="background:linear-gradient(160deg,#2E261B,#1B1610);padding:10px 18px 52px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;">'
+        +'<div style="display:flex;align-items:center;gap:10px;"><div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;">张</div>'
+        +'<div><div style="color:#F3E9D2;font-size:15px;font-weight:700;">张店长，上午好</div><div style="color:#B7A888;font-size:11px;margin-top:2px;">鑫铖金匠 · 华山店</div></div></div>'
+        +'<div data-msg="1" style="position:relative;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E9D9B0" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span style="position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:#C0453B;border:1.5px solid #2E261B;"></span></div>'
+        +'</div></div>';
+      h+='<div style="margin:-40px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:12px 14px;box-shadow:0 8px 22px rgba(120,90,35,.10);">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9A8B6E;margin-bottom:9px;"><span>上金所实时行情</span><span style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市</span></div>'
+        +'<div style="display:flex;gap:10px;">'
+        +'<div style="flex:1;background:#FBF7ED;border-radius:12px;padding:9px 10px;"><div style="font-size:11px;color:#8A7B5E;">黄金 Au(T+D) 元/克</div><div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;"><b id="mBaseAu" style="font-size:19px;font-variant-numeric:tabular-nums;">894.74</b><span style="font-size:11px;color:#C0453B;font-weight:700;">+1.38%</span></div></div>'
+        +'<div style="flex:1;background:#FBF7ED;border-radius:12px;padding:9px 10px;"><div style="font-size:11px;color:#8A7B5E;">白银 Ag(T+D) 元/克</div><div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;"><b style="font-size:19px;font-variant-numeric:tabular-nums;">14.763</b><span style="font-size:11px;color:#2F7D5C;font-weight:700;">-2.34%</span></div></div>'
+        +'</div><div id="mSrc" style="font-size:10px;color:#A99B7E;margin-top:8px;">来源：极速数据 · 11:00 ｜ 缓存刷新倒计时 12:36</div></div>';
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 14px 0;">'
+        +'<div style="background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:11px 12px;"><div style="font-size:11px;color:#8A7B5E;">今日营业额（实收）</div><div style="font-size:20px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums;">¥28,640</div><div style="font-size:10px;color:#C0453B;margin-top:2px;">较昨日 +12.4%</div></div>'
+        +'<div style="background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:11px 12px;"><div style="font-size:11px;color:#8A7B5E;">今日订单 / 回收</div><div style="font-size:20px;font-weight:800;margin-top:3px;">12 <span style="font-size:13px;color:#8A7B5E;font-weight:600;">单</span></div><div style="font-size:10px;color:#8A7B5E;margin-top:2px;">回收 ¥3,240</div></div></div>';
+      h+='<div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;"><span>待办审批 <span style="background:#C0453B;color:#fff;font-size:10px;border-radius:999px;padding:1px 7px;margin-left:4px;">2</span></span><span style="font-size:11px;color:#A87F2C;font-weight:600;cursor:pointer;" data-toast="审批中心原型暂未包含">查看全部 ›</span></div>'
+        +'<div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><div style="width:30px;height:30px;border-radius:9px;background:#FBEFEA;color:#C0453B;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">折</div><div style="flex:1;font-size:12px;"><b>价格优惠审批</b><div style="color:#9A8B6E;font-size:10px;margin-top:2px;">李雯 · 订单优惠 ¥90</div></div><div style="font-size:11px;color:#A87F2C;cursor:pointer;" data-toast="审批中心原型暂未包含">去处理</div></div>'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:8px 0 0;border-top:1px dashed #EFE4CC;"><div style="width:30px;height:30px;border-radius:9px;background:#FBEFEA;color:#C0453B;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">退</div><div style="flex:1;font-size:12px;"><b>退货审批</b><div style="color:#9A8B6E;font-size:10px;margin-top:2px;">王芳 · 申请退款 ¥320</div></div><div style="font-size:11px;color:#A87F2C;cursor:pointer;" data-toast="审批中心原型暂未包含">去处理</div></div></div>';
+      h+='<div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;"><div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;"><span>近 7 日营业额</span><span style="font-size:11px;color:#9A8B6E;font-weight:500;">单位：千元</span></div>'
+        +'<div style="display:flex;align-items:flex-end;gap:10px;height:70px;margin-top:12px;">'
+        +['h38','h46','h40','h55','h50','h65','h60'].map(function(hh,i){var gold=i===6;return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;"><div style="width:100%;max-width:22px;height:'+hh.substring(1)+'px;background:'+(gold?'linear-gradient(180deg,#C9A24B,#A87F2C)':'#E4D5B3')+';border-radius:5px 5px 0 0;"></div><span style="font-size:9px;color:'+(gold?'#A87F2C':'#A99B7E')+';font-weight:'+(gold?'700':'400')+';">'+(i===6?'今':(24+i))+'</span></div>';}).join('')
+        +'</div></div>';
+      var icons=[
+        ['sale','M6 2h12l2 6-8 14L4 8z','销售开单'],
+        ['proc','M14 7l3 3L7 20l-4 1 1-4z','加工开单'],
+        ['rec','M21 12a9 9 0 1 1-3-6.7M21 3v5h-5','回收开单'],
+        ['member','M9 8a3.2 3.2 0 1 1 0-.1M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5','会员'],
+        ['stock','M3 8l9-5 9 5-9 5zM3 8v8l9 5 9-5V8M12 13v8','库存'],
+        ['report','M4 20V10M10 20V4M16 20v-7M22 20H2','报表'],
+        ['approval','M9 11l2 2 4-4M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z','审批'],
+        ['gold','M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2','金价设置']
+      ];
+      h+='<div style="margin:12px 14px 14px;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:14px 8px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px 6px;text-align:center;">'
+        +icons.map(function(ic){return '<div data-grid="'+ic[0]+'" style="cursor:pointer;"><div style="width:42px;height:42px;margin:0 auto 6px;border-radius:13px;background:#F6EDD7;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="'+ic[1]+'"/></svg></div><div style="font-size:11px;">'+ic[2]+'</div></div>';}).join('')
+        +'</div>';
+      return h;
+    }
+
+    /* ---------- 导购首页 ---------- */
+    function salesHome(){
+      var h='';
+      h+='<div style="background:linear-gradient(160deg,#2E261B,#1B1610);padding:12px 18px 46px;"><div style="display:flex;align-items:center;justify-content:space-between;">'
+        +'<div style="display:flex;align-items:center;gap:10px;"><div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;">雯</div>'
+        +'<div><div style="color:#F3E9D2;font-size:15px;font-weight:700;">李雯，上午好</div><div style="color:#B7A888;font-size:11px;margin-top:2px;">导购 · 华山店 ｜ 今日早班</div></div></div>'
+        +'<div data-msg="1" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E9D9B0" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div></div></div>';
+      h+='<div style="margin:-34px 14px 0;background:linear-gradient(135deg,#3A2F1C,#241D12);border-radius:16px;padding:14px 16px;box-shadow:0 10px 24px rgba(120,90,35,.22);">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;color:#C9B483;font-size:11px;"><span>我的业绩 · 9月</span><span style="color:#9A8B6E;">目标 20 万</span></div>'
+        +'<div style="display:flex;gap:18px;margin-top:8px;"><div><div style="color:#8E8062;font-size:10px;">本月实收</div><div style="color:#F3E9D2;font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;">¥143,200</div></div>'
+        +'<div style="border-left:1px solid rgba(201,162,75,.3);padding-left:18px;"><div style="color:#8E8062;font-size:10px;">本月提成（成品2%+加工1%）</div><div style="color:#E7C579;font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;">¥2,864</div></div></div>'
+        +'<div style="height:7px;border-radius:99px;background:rgba(255,255,255,.1);margin-top:12px;overflow:hidden;"><div style="width:71%;height:100%;background:linear-gradient(90deg,#C9A24B,#E2C87B);border-radius:99px;"></div></div>'
+        +'<div style="display:flex;justify-content:space-between;color:#9A8B6E;font-size:10px;margin-top:6px;"><span>已完成 71%</span><span>今日实收 ¥6,480 · 3 单</span></div></div>';
+      h+='<div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:13px 14px;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9A8B6E;"><span id="sGoldTitle">今日金价（自动定价）</span><span id="sGoldStatus" style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市 11:00</span></div>'
+        +'<div style="display:flex;margin-top:10px;"><div style="flex:1;"><div style="font-size:11px;color:#8A7B5E;">足金卖价</div><div id="sSale" style="font-size:24px;font-weight:800;color:#A87F2C;font-variant-numeric:tabular-nums;margin-top:2px;">918.9<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span></div></div>'
+        +'<div style="flex:1;border-left:1px dashed #EFE4CC;padding-left:14px;"><div style="font-size:11px;color:#8A7B5E;">足金回收价</div><div id="sRec" style="font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px;">884.7<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span></div></div></div>'
+        +'<div id="sSrc" style="font-size:10px;color:#A99B7E;margin-top:8px;">基准 Au(T+D) 894.74（极速数据）｜ 加价 +24 ｜ 扣减 −10</div></div>';
+      h+='<div style="padding:14px 14px 0;"><div data-openorder="1" style="background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:56px;display:flex;align-items:center;justify-content:center;gap:9px;color:#fff;font-size:17px;font-weight:800;box-shadow:0 10px 20px rgba(168,127,44,.32);cursor:pointer;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M6 2h12l2 6-8 14L4 8z"/></svg>销售开单</div>'
+        +'<div style="display:flex;gap:10px;margin-top:10px;"><div data-grid="proc" style="flex:1;background:#fff;border:1px solid #E6D8B8;border-radius:14px;height:52px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:700;color:#6B5320;cursor:pointer;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M14 7l3 3L7 20l-4 1 1-4z"/></svg>加工开单</div>'
+        +'<div data-grid="rec" style="flex:1;background:#fff;border:1px solid #E6D8B8;border-radius:14px;height:52px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:700;color:#6B5320;cursor:pointer;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.7"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v5h-5"/></svg>回收开单</div></div></div>';
+      h+='<div style="margin:12px 14px 14px;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;"><div style="font-size:13px;font-weight:700;">今日待办 <span style="background:#C0453B;color:#fff;font-size:10px;border-radius:999px;padding:1px 7px;margin-left:4px;">3</span></div>'
+        +'<div style="margin-top:9px;display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">手镯订单收尾款 <span style="color:#9A8B6E;font-size:10px;">客户今日来取</span></div><div style="font-size:12px;font-weight:700;color:#C0453B;">¥19,300</div></div>'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">2 位会员生日，记得回访</div><div style="font-size:11px;color:#A87F2C;cursor:pointer;" data-toast="回访页原型暂未包含">去回访</div></div>'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:8px 0 0;border-top:1px dashed #EFE4CC;"><span style="width:8px;height:8px;border-radius:50%;background:#C9A24B;flex:none;"></span><div style="flex:1;font-size:12px;">1 张加工单待送前台确认</div><div style="font-size:11px;color:#A87F2C;cursor:pointer;" data-toast="加工单原型暂未包含">去处理</div></div></div>';
+      return h;
+    }
+
+    /* ---------- 销售开单 ---------- */
+    function orderScreen(){
+      var lock=state.locked||{sale:salePrice(),rec:recPrice(),time:'11:00'};
+      var goods=state.grams*lock.sale;
+      var old=state.oldG*lock.rec;
+      var due=goods+200-old;
+      var real=due-90;
+      var h=header('销售开单');
+      h+='<div style="padding:0 14px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">'
+        +'<div id="guideChip" data-nextguide="1" style="font-size:11px;background:#F6EDD7;border:1px solid #E4D2A6;color:#7C5C1E;border-radius:999px;padding:8px 12px;cursor:pointer;">导购：'+guides[state.guide]+' ▾</div>'
+        +'<div id="memberChip" data-nextmember="1" style="flex:1;font-size:11px;background:#fff;border:1px solid #E7DCC6;color:#5C5140;border-radius:999px;padding:8px 12px;cursor:pointer;text-align:right;">'+members[state.member]+' ▾</div></div>';
+      h+='<div style="background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:13px;">'
+        +'<div style="font-size:13px;font-weight:700;display:flex;justify-content:space-between;"><span>商品清单</span><span style="font-size:11px;color:#A87F2C;font-weight:600;cursor:pointer;" data-toast="商品选择页原型暂未包含">+ 添加商品</span></div>'
+        +'<div style="margin-top:11px;padding-bottom:11px;border-bottom:1px dashed #EFE4CC;">'
+        +'<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;"><span>足金手镯 · 按克</span><span style="font-variant-numeric:tabular-nums;" id="oGoods">¥'+money(goods)+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#8A7B5E;"><span data-gstep="-1" style="width:26px;height:26px;border-radius:8px;background:#F6EDD7;color:#7C5C1E;text-align:center;line-height:26px;font-size:15px;cursor:pointer;">−</span><b id="oGrams" style="min-width:64px;text-align:center;font-variant-numeric:tabular-nums;color:#221C14;">'+fmt(state.grams,2)+' 克</b><span data-gstep="1" style="width:26px;height:26px;border-radius:8px;background:#F6EDD7;color:#7C5C1E;text-align:center;line-height:26px;font-size:15px;cursor:pointer;">＋</span></div>'
+        +'<span style="background:#FBF7ED;color:#A87F2C;border-radius:6px;padding:2px 7px;font-size:10px;">单价 '+fmt(lock.sale,dpOf(state.rule))+' · 金价已锁 '+fmt(state.base,2)+'</span></div></div>';
+      h+='<div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px dashed #EFE4CC;font-size:12px;color:#5C5140;"><span>工艺费</span><b style="color:#221C14;">+ ¥200.00</b></div>'
+        +'<div style="padding:11px 0 0;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#5C5140;margin-bottom:7px;"><span>旧金回收抵扣 · 单价 '+fmt(lock.rec,dpOf(state.rule))+'</span><b style="color:#2F7D5C;font-variant-numeric:tabular-nums;" id="oOld">− ¥'+money(old)+'</b></div>'
+        +'<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#8A7B5E;"><span data-ostep="-1" style="width:26px;height:26px;border-radius:8px;background:#F6EDD7;color:#7C5C1E;text-align:center;line-height:26px;font-size:15px;cursor:pointer;">−</span><b id="oOldG" style="min-width:64px;text-align:center;font-variant-numeric:tabular-nums;color:#221C14;">'+fmt(state.oldG,2)+' 克</b><span data-ostep="1" style="width:26px;height:26px;border-radius:8px;background:#F6EDD7;color:#7C5C1E;text-align:center;line-height:26px;font-size:15px;cursor:pointer;">＋</span></div></div>'
+        +'</div>';
+      h+='<div style="margin:10px 14px 0;background:#FBF3E2;border:1px solid #ECD9AC;border-radius:11px;padding:9px 12px;font-size:11px;color:#7C5C1E;display:flex;gap:8px;align-items:flex-start;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A87F2C" stroke-width="1.8" style="flex:none;margin-top:1px;"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>提交即锁定当前金价与加价（锁定价 '+fmt(lock.sale,dpOf(state.rule))+' / '+fmt(lock.rec,dpOf(state.rule))+'，'+lock.time+'）；之后行情变动不影响本单。</span></div>';
+      h+='<div style="margin:10px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:13px;">'
+        +'<div style="display:flex;justify-content:space-between;font-size:12px;color:#6B5F4F;padding:4px 0;"><span>应收合计</span><span id="oDue" style="font-variant-numeric:tabular-nums;">¥'+money(due)+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:12px;color:#6B5F4F;padding:4px 0;"><span>优惠结清（需店长审批）</span><span style="color:#C0453B;">− ¥90.00</span></div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 2px;border-top:1px dashed #EFE4CC;margin-top:5px;"><span style="font-size:13px;font-weight:700;">实收金额</span><span id="oReal" style="font-size:24px;font-weight:800;color:#C0453B;font-variant-numeric:tabular-nums;">¥'+money(real)+'</span></div></div>';
+      h+='<div id="submitOrder" style="margin:12px 14px 14px;background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:52px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:800;box-shadow:0 10px 20px rgba(168,127,44,.3);cursor:pointer;">提交订单并收款 <span id="oBtnReal" style="margin-left:6px;">¥'+money(real)+'</span></div>';
+      return h;
+    }
+
+    /* ---------- 金价设置 ---------- */
+    function goldScreen(){
+      var auto=state.mode==='AUTO';
+      var h=header('金价设置','gold');
+      h+='<div style="margin:0 14px;background:linear-gradient(135deg,#3A2F1C,#241D12);border-radius:14px;padding:12px 14px;color:#F3E9D2;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#C9B483;"><span>行情来源：极速数据（天行兜底）</span><span style="background:#EAF4EE;color:#2F7D5C;padding:2px 8px;border-radius:999px;font-weight:700;">● 开市</span></div>'
+        +'<div style="display:flex;gap:16px;margin-top:8px;"><div><div style="font-size:10px;color:#9A8B6E;">Au(T+D)</div><div style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;">894.74 <span style="font-size:10px;color:#9A8B6E;">元/克</span></div></div>'
+        +'<div><div style="font-size:10px;color:#9A8B6E;">Ag(T+D)</div><div style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;">14.763 <span style="font-size:10px;color:#9A8B6E;">元/克</span></div></div>'
+        +'<div style="margin-left:auto;text-align:right;font-size:10px;color:#9A8B6E;align-self:center;">更新 11:00<br>15 分钟自动刷新</div></div></div>';
+      h+='<div style="margin:12px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:16px;padding:14px;'
+        +'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;"><div><div style="font-size:15px;font-weight:800;">足金 999</div><div style="font-size:10px;color:#A99B7E;margin-top:2px;">基准 Au(T+D) · 成色系数 1.00</div></div>'
+        +'<div id="modeSeg" style="display:flex;background:#F3ECDB;border-radius:999px;padding:3px;font-size:11px;font-weight:700;"><span data-mode="AUTO" style="border-radius:999px;padding:5px 12px;cursor:pointer;">自动</span><span data-mode="MANUAL" style="border-radius:999px;padding:5px 12px;cursor:pointer;">手动</span></div></div>';
+      h+='<div id="goldControls" style="display:flex;gap:10px;margin-top:13px;'
+        +(auto?'':'opacity:.45;pointer-events:none;')+'">'
+        +'<div style="flex:1;background:#FBF7ED;border-radius:12px;padding:10px;"><div style="font-size:11px;color:#8A7B5E;">卖价加价（元/克）</div>'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;"><span data-mk="-1" style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;cursor:pointer;">−</span><b id="gMk" style="font-size:18px;font-variant-numeric:tabular-nums;color:#A87F2C;">+24.00</b><span data-mk="1" style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;cursor:pointer;">＋</span></div></div>'
+        +'<div style="flex:1;background:#FBF7ED;border-radius:12px;padding:10px;"><div style="font-size:11px;color:#8A7B5E;">回收扣减（元/克）</div>'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;"><span data-dk="-1" style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;cursor:pointer;">−</span><b id="gDk" style="font-size:18px;font-variant-numeric:tabular-nums;">−10.00</b><span data-dk="1" style="width:28px;height:28px;border-radius:9px;background:#fff;border:1px solid #E4D2A6;text-align:center;line-height:26px;font-size:15px;color:#7C5C1E;cursor:pointer;">＋</span></div></div></div>';
+      h+='<div style="margin-top:11px;font-size:11px;color:#8A7B5E;">取整规则</div><div id="ruleChips" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">'
+        +['none','jiao','yuan','r8','r9'].map(function(r){return '<span data-rule="'+r+'" style="font-size:11px;padding:6px 11px;border-radius:999px;cursor:pointer;">'+ruleNames[r]+'</span>';}).join('')
+        +'</div>';
+      h+='<div id="goldWarn" style="display:none;margin-top:11px;background:#FBEFEA;border:1px solid #E6B4AB;color:#C0453B;border-radius:10px;padding:8px 11px;font-size:11px;">⚠ 算出卖价 ≤ 回收价，已拦截：请调小扣减或加大加价</div>';
+      h+='<div style="margin-top:12px;background:#2A2318;border-radius:12px;padding:11px 12px;font-size:11px;color:#D9C89C;line-height:1.9;">'
+        +'<div>卖价 = 894.74 × 1.00 + <span id="fMk">24.00</span> → <b id="fSale" style="color:#E7C579;font-size:14px;">¥918.9/克</b></div>'
+        +'<div>回收 = 894.74 × 1.00 − <span id="fDk">10.00</span> → <b id="fRec" style="color:#F3E9D2;font-size:14px;">¥884.7/克</b></div></div></div>';
+      h+='<div style="margin:10px 14px 0;background:#fff;border:1px solid #EFE4CC;border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;"><div><div style="font-size:14px;font-weight:700;">18K 金 <span style="font-size:10px;color:#A99B7E;font-weight:400;">系数 0.75</span></div><div style="font-size:11px;color:#A99B7E;margin-top:3px;">手动定价 · 卖价 698.0 / 回收 660.0</div></div><span style="font-size:11px;background:#F1ECE0;color:#8A7B5E;border-radius:999px;padding:6px 12px;font-weight:700;">手动</span></div>';
+      h+='<div style="margin:10px 14px 0;font-size:10px;color:#A99B7E;line-height:1.7;">铂金暂无行情源，保持手动定价。<br>休市 / 行情跳变 &gt;5% 时自动冻结并告警，需人工确认恢复。</div>';
+      h+='<div id="saveGold" style="margin:12px 14px 14px;background:linear-gradient(135deg,#C9A24B,#A87F2C);border-radius:15px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;cursor:pointer;"><div style="font-size:15px;font-weight:800;">保存并同步全端</div><div style="font-size:10px;opacity:.85;">管理端 / 收银端 / 手机端 30 秒内生效 · 记入价格日志</div></div>';
+      return h;
+    }
+
+    /* ---------- 消息 / 我的 / 单据 ---------- */
+    function messagesScreen(){
+      var h=header('消息通知');
+      var rows=[
+        ['折','#C0453B','价格优惠审批','李雯提交订单优惠 ¥90，待你审批','10:42'],
+        ['金','#A87F2C','行情刷新','Au(T+D) 最新价 894.74 元/克（极速数据）','11:00'],
+        ['同','#2F7D5C','金价已同步','足金卖价调整为 918.9 元/克，全端已同步','昨天 20:12']
+      ];
+      h+='<div style="padding:0 14px 14px;">'+rows.map(function(r){
+        return '<div style="background:#fff;border:1px solid #EFE4CC;border-radius:13px;padding:12px 13px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;"><div style="width:34px;height:34px;border-radius:10px;background:'+(r[1]==='#C0453B'?'#FBEFEA':r[1]==='#2F7D5C'?'#EAF4EE':'#F6EDD7')+';color:'+r[1]+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:none;">'+r[0]+'</div><div style="flex:1;"><div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;"><span>'+r[2]+'</span><span style="font-size:10px;color:#A99B7E;font-weight:400;">'+r[4]+'</span></div><div style="font-size:11px;color:#8A7B5E;margin-top:4px;line-height:1.6;">'+r[3]+'</div></div></div>';
+      }).join('')+'</div>';
+      return h;
+    }
+    function ordersScreen(){
+      var h=header('单据');
+      var rows=[['XS20260930001','足金手镯 等2件','¥21,785.31','已结清','#2F7D5C'],['XS20260930002','18K 项链','¥3,260.00','待收尾款','#C0453B'],['JG20260930003','手镯加工 · 工费','¥380.00','加工中','#A87F2C']];
+      h+='<div style="padding:0 14px 14px;">'+rows.map(function(r){
+        return '<div style="background:#fff;border:1px solid #EFE4CC;border-radius:13px;padding:12px 13px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;font-size:11px;color:#A99B7E;"><span>'+r[0]+'</span><span style="color:'+r[4]+';font-weight:700;">'+r[3]+'</span></div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:7px;"><span style="font-size:13px;font-weight:700;">'+r[1]+'</span><b style="font-size:15px;font-variant-numeric:tabular-nums;">'+r[2]+'</b></div></div>';
+      }).join('')+'</div>';
+      return h;
+    }
+    function meScreen(){
+      var manager=state.role==='manager';
+      var h=header('我的');
+      h+='<div style="margin:0 14px;background:linear-gradient(135deg,#3A2F1C,#241D12);border-radius:16px;padding:16px;display:flex;align-items:center;gap:12px;"><div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#C9A24B,#A87F2C);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;">'+(manager?'张':'雯')+'</div><div><div style="color:#F3E9D2;font-size:16px;font-weight:800;">'+(manager?'张店长':'李雯')+'</div><div style="color:#B7A888;font-size:11px;margin-top:3px;">'+(manager?'管理员 · 华山店':'导购（SALES）· 华山店')+'</div></div></div>';
+      function row(icon,title,sub,action,lock){
+        return '<div data-me="'+action+'" style="background:#fff;border:1px solid #EFE4CC;border-radius:13px;padding:13px 14px;margin:10px 14px 0;display:flex;align-items:center;gap:11px;cursor:pointer;"><div style="width:34px;height:34px;border-radius:10px;background:#F6EDD7;color:#A87F2C;display:flex;align-items:center;justify-content:center;flex:none;">'+icon+'</div><div style="flex:1;font-size:13px;font-weight:700;">'+title+(sub?'<div style="font-size:10px;color:#A99B7E;font-weight:400;margin-top:3px;">'+sub+'</div>':'')+'</div>'+(lock?'<span style="font-size:10px;color:#C0453B;">无权限</span>':'<span style="color:#C9B483;">›</span>')+'</div>';
+      }
+      var cog='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+      var shift='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M8 7V4h8v3"/></svg>';
+      var doc='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 3h7l4 4v14H7z"/><path d="M10 12h5M10 16h5"/></svg>';
+      h+=row(cog,'金价设置','自动/手动定价、加价扣减、取整规则','gold',!manager);
+      h+=row(shift,'交班对账','当班收银核对与交接','toast:交班对账',false);
+      h+=row(doc,'价格变更日志','查看每次自动/手动改价记录','toast:价格变更日志',false);
+      h+='<div style="margin:14px;font-size:10px;color:#A99B7E;text-align:center;">鑫铖金匠移动端 · 交互原型 v0.1</div>';
+      return h;
+    }
+
+    /* ---------- 渲染 ---------- */
+    function render(){
+      var sc=$('screen');if(!sc)return;
+      var html='',hideTab=false;
+      if(state.tab==='home'){html=state.role==='manager'?managerHome():salesHome();}
+      else if(state.tab==='order'){html=orderScreen();hideTab=true;}
+      else if(state.tab==='gold'){html=goldScreen();hideTab=true;}
+      else if(state.tab==='messages'){html=messagesScreen();hideTab=true;}
+      else if(state.tab==='orders'){html=ordersScreen();hideTab=true;}
+      else if(state.tab==='me'){html=meScreen();hideTab=true;}
+      sc.innerHTML=html;
+      var tb=$('tabbar');if(tb)tb.style.display=hideTab?'none':'flex';
+      syncPrices();
+      paintGold();
+      paintTabs();
+      bindScreen();
+    }
+    function paintTabs(){
+      var tabs=document.querySelectorAll('.tab');
+      for(var i=0;i<tabs.length;i++){(function(t){
+        var active=(t.getAttribute('data-tab')===state.tab);
+        t.style.color=active?'#A87F2C':'#A99B7E';
+        t.style.fontWeight=active?'700':'400';
+      })(tabs[i]);}
+    }
+    function syncPrices(){
+      var sp=salePrice(),rp=recPrice(),dp=dpOf(state.rule);
+      var e1=$('sSale');if(e1)e1.innerHTML=fmt(sp,dp)+'<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span>';
+      var e2=$('sRec');if(e2)e2.innerHTML=fmt(rp,dp)+'<span style="font-size:11px;color:#8A7B5E;font-weight:500;"> /克</span>';
+      var e3=$('sSrc');if(e3)e3.textContent='基准 Au(T+D) '+fmt(state.base,2)+'（极速数据）｜ 加价 +'+fmt(state.markup,2)+' ｜ 扣减 −'+fmt(state.deduct,2)+(state.mode==='MANUAL'?' ｜ 当前手动定价':'');
+      var e4=$('sGoldTitle');if(e4)e4.textContent=state.mode==='AUTO'?'今日金价（自动定价）':'今日金价（手动定价）';
+    }
+    function paintGold(){
+      var seg=document.querySelectorAll('#modeSeg span');
+      for(var i=0;i<seg.length;i++){(function(s){
+        var on=s.getAttribute('data-mode')===state.mode;
+        s.style.background=on?'linear-gradient(135deg,#C9A24B,#A87F2C)':'transparent';
+        s.style.color=on?'#fff':'#9A8B6E';
+      })(seg[i]);}
+      var chips=document.querySelectorAll('#ruleChips span');
+      for(var j=0;j<chips.length;j++){(function(c){
+        var on=c.getAttribute('data-rule')===state.rule;
+        c.style.background=on?'#A87F2C':'transparent';
+        c.style.color=on?'#fff':'#8A7B5E';
+        c.style.border=on?'1px solid #A87F2C':'1px solid #E7DCC6';
+        c.style.fontWeight=on?'700':'400';
+      })(chips[j]);}
+      var mk=$('gMk');if(mk)mk.textContent='+'+fmt(state.markup,2);
+      var dk=$('gDk');if(dk)dk.textContent='−'+fmt(state.deduct,2);
+      var fm=$('fMk');if(fm)fm.textContent=fmt(state.markup,2);
+      var fd=$('fDk');if(fd)fd.textContent=fmt(state.deduct,2);
+      var fs=$('fSale');if(fs)fs.textContent='¥'+fmt(rawSale(),dpOf(state.rule))+'/克';
+      var fr=$('fRec');if(fr)fr.textContent='¥'+fmt(rawRec(),dpOf(state.rule))+'/克';
+      var warn=$('goldWarn');
+      if(warn){var bad=rawSale()<=rawRec();warn.style.display=bad?'block':'none';}
+      var ctrls=$('goldControls');
+      if(ctrls)ctrls.style.pointerEvents=state.mode==='AUTO'?'auto':'none';
+    }
+
+    function openOrder(){
+      state.locked={sale:salePrice(),rec:recPrice(),time:'11:00'};
+      state.grams=28.6;state.oldG=5.2;state.guide=state.role==='manager'?0:0;
+      state.tab='order';render();
+    }
+    function gridAction(g){
+      if(g==='sale'){openOrder();return;}
+      if(g==='gold'){if(state.role!=='manager'){toast('403：需要 gold:manage 权限，仅管理员可改金价');return;}state.tab='gold';render();return;}
+      var map={proc:'加工开单',rec:'回收开单',member:'会员',stock:'库存',report:'报表',approval:'审批中心'};
+      coming(map[g]||'功能');
+    }
+
+    function bindScreen(){
+      var sc=$('screen');if(!sc)return;
+      var backs=sc.querySelectorAll('[data-back]');for(var i=0;i<backs.length;i++){backs[i].onclick=function(){state.tab='home';render();};}
+      var msgs=sc.querySelectorAll('[data-msg]');for(var a=0;a<msgs.length;a++){msgs[a].onclick=function(){state.tab='messages';render();};}
+      var grids=sc.querySelectorAll('[data-grid]');for(var b=0;b<grids.length;b++){grids[b].onclick=function(){gridAction(this.getAttribute('data-grid'));};}
+      var oo=sc.querySelectorAll('[data-openorder]');for(var c=0;c<oo.length;c++){oo[c].onclick=function(){openOrder();};}
+      var tips=sc.querySelectorAll('[data-toast]');for(var d=0;d<tips.length;d++){tips[d].onclick=function(){toast('「'+this.getAttribute('data-toast')+'」原型暂未包含');};}
+      var me=sc.querySelectorAll('[data-me]');for(var e=0;e<me.length;e++){me[e].onclick=function(){
+        var act=this.getAttribute('data-me');
+        if(act==='gold'){if(state.role!=='manager'){toast('403：需要 gold:manage 权限');return;}state.tab='gold';render();}
+        else if(act.indexOf('toast:')===0){coming(act.substring(6));}
+      };}
+      var gl=sc.querySelectorAll('[data-goldlog]');for(var f2=0;f2<gl.length;f2++){gl[f2].onclick=function(){coming('价格变更日志');};}
+      var ng=sc.querySelectorAll('[data-nextguide]');for(var g2=0;g2<ng.length;g2++){ng[g2].onclick=function(){state.guide=(state.guide+1)%3;this.textContent='导购：'+guides[state.guide]+' ▾';if(state.guide===2)toast('本单无导购，将不计销售提成');};}
+      var nm=sc.querySelectorAll('[data-nextmember]');for(var h2=0;h2<nm.length;h2++){nm[h2].onclick=function(){state.member=(state.member+1)%2;this.textContent=members[state.member]+' ▾';};}
+      var gst=sc.querySelectorAll('[data-gstep]');for(var k=0;k<gst.length;k++){gst[k].onclick=function(){state.grams=Math.max(0.1,Math.round((state.grams+parseFloat(this.getAttribute('data-gstep'))*0.1)*10)/10);render();};}
+      var ost=sc.querySelectorAll('[data-ostep]');for(var l=0;l<ost.length;l++){ost[l].onclick=function(){state.oldG=Math.max(0,Math.round((state.oldG+parseFloat(this.getAttribute('data-ostep'))*0.1)*10)/10);render();};}
+      var submit=$('submitOrder');if(submit)submit.onclick=function(){
+        if(state.guide===2){toast('已提交（无导购，不计提成），金价已锁定');}else{toast('订单已提交，金价与加价已快照锁定');}
+        setTimeout(function(){state.tab='home';render();},900);
+      };
+      var modes=sc.querySelectorAll('#modeSeg span');for(var m=0;m<modes.length;m++){modes[m].onclick=function(){state.mode=this.getAttribute('data-mode');paintGold();toast(state.mode==='AUTO'?'已切到自动定价（随行情联动）':'已切到手动定价（行情变动不重算）');};}
+      var mks=sc.querySelectorAll('[data-mk]');for(var n=0;n<mks.length;n++){mks[n].onclick=function(){state.markup=Math.max(0,Math.round((state.markup+parseFloat(this.getAttribute('data-mk')))*100)/100);paintGold();};}
+      var dks=sc.querySelectorAll('[data-dk]');for(var p=0;p<dks.length;p++){dks[p].onclick=function(){state.deduct=Math.max(0,Math.round((state.deduct+parseFloat(this.getAttribute('data-dk')))*100)/100);paintGold();};}
+      var rules=sc.querySelectorAll('#ruleChips span');for(var q=0;q<rules.length;q++){rules[q].onclick=function(){state.rule=this.getAttribute('data-rule');paintGold();};}
+      var save=$('saveGold');if(save)save.onclick=function(){
+        if(rawSale()<=rawRec()){toast('卖价 ≤ 回收价，已拦截保存');return;}
+        if(state.mode==='MANUAL'){toast('手动模式：配置已记录，价格保持不变');}
+        toast('已保存，全端 30 秒内同步生效');
+        setTimeout(function(){state.tab='home';render();},1000);
+      };
+    }
+
+    /* 外层固定控件 */
+    var rm=$('roleManager'),rs=$('roleSales');
+    function paintRole(){
+      if(!rm||!rs)return;
+      var gold='linear-gradient(135deg,#C9A24B,#A87F2C)';
+      rm.style.background=state.role==='manager'?gold:'#F3ECDB';rm.style.color=state.role==='manager'?'#fff':'#8A7B5E';
+      rs.style.background=state.role==='sales'?gold:'#F3ECDB';rs.style.color=state.role==='sales'?'#fff':'#8A7B5E';
+    }
+    rm.onclick=function(){state.role='manager';state.tab='home';paintRole();render();};
+    rs.onclick=function(){state.role='sales';state.tab='home';paintRole();render();};
+    var tabs=document.querySelectorAll('.tab');
+    for(var i=0;i<tabs.length;i++){tabs[i].onclick=function(){state.tab=this.getAttribute('data-tab');render();};}
+    $('centerBtn').onclick=function(){openOrder();};
+
+    paintRole();
+    render();
+  }catch(e){if(window&&window.console)console.error('prototype error:',e);var s=document.getElementById('screen');if(s)s.innerHTML='<div style="padding:30px;font-size:13px;color:#C0453B;">原型脚本出错，请刷新页面重试。</div>';}
+})();
+</script>
+</div>
+</html>
