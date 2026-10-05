@@ -5,8 +5,8 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   define: {
-    'import.meta.env.VITE_API_BASE': JSON.stringify('http://192.168.1.221:8080'),
-    'import.meta.env.VITE_WS_URL': JSON.stringify('ws://192.168.1.221:8080'),
+    'import.meta.env.VITE_API_BASE': JSON.stringify(''),
+    'import.meta.env.VITE_WS_URL': JSON.stringify(''),
     'import.meta.env.VITE_NATIVE_APP': JSON.stringify('true')
   },
   server: {
@@ -14,8 +14,8 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     proxy: {
-      '/api': { target: 'http://192.168.1.221:8080', changeOrigin: true },
-      '/uploads': { target: 'http://192.168.1.221:8080', changeOrigin: true }
+      '/api': { target: 'http://127.0.0.1:18080', changeOrigin: true },
+      '/uploads': { target: 'http://127.0.0.1:18080', changeOrigin: true }
     }
   },
   build: { outDir: 'dist/build/android', emptyOutDir: true }

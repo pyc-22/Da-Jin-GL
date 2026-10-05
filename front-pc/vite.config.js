@@ -12,9 +12,9 @@ export default defineConfig({
     allowedHosts: true,
     watch: { ignored: ['**/release/**'] },
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: true, headers: { origin: 'http://localhost:5173' } },
-      '/uploads': { target: 'http://localhost:8080', changeOrigin: true, headers: { origin: 'http://localhost:5173' } },
-      '/ws': { target: 'http://localhost:8080', changeOrigin: true, ws: true, headers: { origin: 'http://localhost:5173' } }
+      '/api': { target: 'http://127.0.0.1:18080', changeOrigin: true, headers: { origin: 'http://localhost:5173' } },
+      '/uploads': { target: 'http://127.0.0.1:18080', changeOrigin: true, headers: { origin: 'http://localhost:5173' } },
+      '/ws': { target: 'ws://127.0.0.1:18080', changeOrigin: true, ws: true, headers: { origin: 'http://localhost:5173' } }
     }
   },
   build: { outDir: 'dist', emptyOutDir: true, chunkSizeWarningLimit: 1200 }

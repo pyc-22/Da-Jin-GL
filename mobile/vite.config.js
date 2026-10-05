@@ -8,8 +8,8 @@ export default defineConfig(({ mode }) => ({
     host: true,
     allowedHosts: true,
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: true, headers: { origin: 'http://localhost:5175' } },
-      '/uploads': { target: 'http://localhost:8080', changeOrigin: true, headers: { origin: 'http://localhost:5175' } }
+      '/api': { target: 'http://127.0.0.1:18080', changeOrigin: true, headers: { origin: 'http://localhost:5175' } },
+      '/uploads': { target: 'http://127.0.0.1:18080', changeOrigin: true, headers: { origin: 'http://localhost:5175' } }
     }
   },
   build: { outDir: mode === 'android' ? 'dist/build/android' : 'dist/build/h5', emptyOutDir: true }

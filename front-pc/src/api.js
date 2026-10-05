@@ -1,5 +1,5 @@
 const isLocalPage = ['localhost', '127.0.0.1'].includes(location.hostname) || location.protocol === 'file:'
-let API_BASE = (localStorage.getItem('dajin_api_base') || (isLocalPage ? 'http://localhost:8080' : '')).replace(/\/$/, '')
+let API_BASE = (localStorage.getItem('dajin_api_base') || (isLocalPage ? 'http://127.0.0.1:18080' : '')).replace(/\/$/, '')
 let unauthorizedNotified = false
 console.info('[dajin-api] baseURL:', API_BASE)
 
