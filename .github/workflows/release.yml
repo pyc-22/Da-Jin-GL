@@ -133,13 +133,22 @@ jobs:
           mapfile -t installers < <(find release-assets -maxdepth 1 -type f -iname '*Setup*.exe' -print)
           test "${#installers[@]}" -eq 1
           installer="${installers[0]}"
-          gh release create "$GITHUB_REF_NAME" \
-            "$installer" \
-            release-assets/SHA256SUMS.txt \
-            release-assets/DEPLOY.txt \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Da-Jin-GL $GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "$installer" \
+              release-assets/SHA256SUMS.txt \
+              release-assets/DEPLOY.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "$installer" \
+              release-assets/SHA256SUMS.txt \
+              release-assets/DEPLOY.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Da-Jin-GL $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
 
   deploy:
     name: Deploy to production server
