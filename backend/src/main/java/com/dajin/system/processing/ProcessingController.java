@@ -9,6 +9,7 @@ import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.gold.GoldMarketService;
+import com.dajin.system.order.SalesOrderWithdrawalService;
 import com.dajin.system.pay.PaymentChannelPolicy;
 import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
@@ -331,7 +332,7 @@ public class ProcessingController {
                 + "left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id "
                 + "left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id "
                 + "left join sys_user creator on creator.user_id=o.created_by and creator.store_id=o.store_id "
-                + "where o.store_id=:s and (:keyword is null or o.order_no like :keyword or o.customer_name like :keyword or o.customer_phone like :keyword) "
+                + "where o.store_id=:s and o.status<>'WITHDRAWN' and (:keyword is null or o.order_no like :keyword or o.customer_name like :keyword or o.customer_phone like :keyword) "
                 + "and (:status is null or o.status=:status) and (:craftsman is null or o.craftsman_id=:craftsman) and (:sales is null or o.sales_id=:sales) "
                 + "and (:memberId is null or o.member_id=:memberId) "
                 + (sales ? "and (o.created_by=:uid or o.sales_id=:uid) " : "")
@@ -549,7 +550,7 @@ public class ProcessingController {
     @Transactional
     public ApiResponse<?> printRequest(@PathVariable long id, HttpServletRequest request) {
         long storeId = store(request);
-        Map<String, Object> o = orderDetail(id, storeId, request);
+        Map<String, Object> o = lockedOrder(id, storeId);
         Map<String, Object> existing = db.list("select job_id,status from print_job where store_id=:s and order_id=:oid and job_type='PROCESSING' and status='PENDING' order by job_id desc limit 1",
                 new MapSqlParameterSource().addValue("s", storeId).addValue("oid", id)).stream().findFirst().orElse(null);
         if (existing != null && !existing.isEmpty()) return ApiResponse.ok(Map.of("sent", true, "jobId", existing.get("job_id"), "duplicate", true));
@@ -641,7 +642,7 @@ public class ProcessingController {
                 "coalesce(sum(case when o.loss_weight>=0 then o.loss_over else 0 end),0) over_count," +
                 "coalesce(sum(case when o.loss_weight>=0 then 1 else 0 end),0) weighed_count," +
                 "coalesce(sum(case when o.loss_weight<0 then 1 else 0 end),0) anomaly_count " +
-                "from processing_order o left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id where o.store_id=:s and o.loss_weight is not null" + range +
+                "from processing_order o left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id where o.store_id=:s and o.status<>'WITHDRAWN' and o.loss_weight is not null" + range +
                 " group by o.craftsman_id,u.real_name order by over_count desc,loss_weight desc", p);
         long anomalyCount = rows.stream().mapToLong(row -> ((Number) row.getOrDefault("anomaly_count", 0)).longValue()).sum();
         return ApiResponse.ok(Map.of("permille", lossConfig(db.store(r)), "anomalyCount", anomalyCount, "rows", rows));
@@ -658,7 +659,7 @@ public class ProcessingController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r))
                 .addValue("from", from == null || from.isBlank() ? null : from)
                 .addValue("to", to == null || to.isBlank() ? null : to);
-        StringBuilder where = new StringBuilder(" where o.store_id=:s and o.loss_weight is not null")
+        StringBuilder where = new StringBuilder(" where o.store_id=:s and o.status<>'WITHDRAWN' and o.loss_weight is not null")
                 .append(" and (:from is null or o.create_time>=:from) and (:to is null or o.create_time<date_add(:to,interval 1 day))");
         if (craftsmanId != null) {
             if (craftsmanId == 0) where.append(" and o.craftsman_id is null");
@@ -779,26 +780,34 @@ public class ProcessingController {
         return ApiResponse.ok(result);
     }
 
-    /** Reopen a completed, not-yet-picked-up processing order and compensate every ledger. */
+    /** Terminates a completed processing order and compensates every related ledger. */
     @PostMapping("/orders/{id}/withdraw")
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
     @RequirePermission("processing:withdraw")
     @Transactional
     public ApiResponse<?> withdraw(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest request) {
         long storeId = store(request);
-        Map<String,Object> order = lockedOrder(id, storeId);
+        Long linkedSalesId = linkedSalesOrderId(id, storeId);
+        Map<String,Object> linkedSales = linkedSalesId == null ? null : lockLinkedSalesOrder(linkedSalesId, storeId);
+        Map<String,Object> order = lockedOrderForWithdrawal(id, storeId);
         String status = String.valueOf(order.get("status"));
+        String orderNo = String.valueOf(order.get("order_no"));
+        String withdrawRequestId = "WITHDRAW-PROCESSING-" + id;
+        if ("WITHDRAWN".equals(status) || !db.list("select log_id from operation_log where store_id=:s and module='PROCESSING' and action='WITHDRAW' and client_request_id=:client limit 1", Map.of("s",storeId,"client",withdrawRequestId)).isEmpty())
+            return ApiResponse.ok(Map.of("processingOrderId", id, "status", "WITHDRAWN", "withdrawn", true, "idempotentReplay", true, "message", "加工单已撤回"));
         Integer expectedVersion = body == null || body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version")));
         int version = number(order.get("version"));
         if (expectedVersion != null && expectedVersion != version) throw new BusinessException(409704, "加工单版本已变化，请刷新后重试");
         if ("PICKED_UP".equals(status)) throw new BusinessException(409706, "已取货加工单不能撤回");
         if (!"COMPLETED".equals(status)) throw new BusinessException(409704, "仅待取货加工单可以撤回");
-        String orderNo = String.valueOf(order.get("order_no"));
-        String withdrawRequestId = "WITHDRAW-PROCESSING-" + id;
-        if (!db.list("select log_id from operation_log where store_id=:s and module='PROCESSING' and action='WITHDRAW' and client_request_id=:client limit 1", Map.of("s",storeId,"client",withdrawRequestId)).isEmpty())
-            return ApiResponse.ok(Map.of("processingOrderId", id, "status", "PENDING", "withdrawn", true, "idempotentReplay", true, "message", "加工单已撤回"));
+        if (linkedSales != null) {
+            int salesStatus = number(linkedSales.get("status"));
+            if (salesStatus != SalesOrderWithdrawalService.WITHDRAWN_STATUS
+                    && !new SalesOrderWithdrawalService(db).canWithdraw(linkedSales))
+                throw new BusinessException(409109, "关联成品单已处于终态，整组撤回未执行");
+        }
         long operator = userId(request);
-        List<Map<String,Object>> payments = db.list("select payment_id,payment_type,amount,pay_method,client_request_id from processing_payment where store_id=:s and processing_order_id=:id order by payment_id", Map.of("s",storeId,"id",id));
+        List<Map<String,Object>> payments = db.list("select payment_id,payment_type,amount,pay_method,client_request_id from processing_payment where store_id=:s and processing_order_id=:id and payment_type<>'WITHDRAW' order by payment_id", Map.of("s",storeId,"id",id));
         for (Map<String,Object> payment : payments) {
             BigDecimal amount = decimal(payment.get("amount"));
             if (amount.signum() <= 0) continue;
@@ -806,36 +815,89 @@ public class ProcessingController {
             String client = "WITHDRAW-PROCESSING-" + id + "-PAY-" + payment.get("payment_id");
             db.jdbc().update("insert into processing_payment(store_id,processing_order_id,payment_type,amount,pay_method,client_request_id,operator_id,remark,create_time) values(:s,:id,'WITHDRAW',:amount,:method,:client,:uid,'加工单撤回反向流水',now()) on duplicate key update amount=values(amount)",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("amount",amount).addValue("method",method).addValue("client",client).addValue("uid",operator));
-            db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','PROCESSING_WITHDRAW',:amount,:method,:bill,:uid,'加工收款撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)",
-                    new MapSqlParameterSource().addValue("s",storeId).addValue("amount",amount).addValue("method",method).addValue("bill",orderNo).addValue("uid",operator).addValue("shift",shifts.current(storeId)).addValue("client",client + "-FIN"));
             if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
                 int restored = db.jdbc().update("update member set balance=balance+:amount,update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("amount",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
                 if (restored != 1) throw new BusinessException(409106, "储值退款会员不存在");
                 new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "PROCESSING_WITHDRAW", client, operator);
             }
         }
-        List<Map<String,Object>> refunds = db.list("select finance_id,amount,pay_method from finance_record where store_id=:s and related_bill_no=:bill and type='EXPENSE' and category='RECYCLE'", Map.of("s",storeId,"bill",orderNo));
+        List<Map<String,Object>> feeIncome = db.list("select finance_id,amount,pay_method,shift_no from finance_record where store_id=:s and related_bill_no=:bill and type='INCOME' and category='PROCESSING_FEE' order by finance_id", Map.of("s",storeId,"bill",orderNo));
+        for (Map<String,Object> line : feeIncome) {
+            String client = "WITHDRAW-PROCESSING-" + id + "-FIN-" + line.get("finance_id");
+            db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','PROCESSING_WITHDRAW',:amount,:method,:bill,:uid,'加工收款撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)",
+                    new MapSqlParameterSource().addValue("s",storeId).addValue("amount",line.get("amount")).addValue("method",line.get("pay_method")).addValue("bill",orderNo).addValue("uid",operator).addValue("shift",line.get("shift_no")).addValue("client",client));
+        }
+        List<Map<String,Object>> refunds = db.list("select finance_id,amount,pay_method,shift_no from finance_record where store_id=:s and related_bill_no=:bill and type='EXPENSE' and category='RECYCLE' and remark='加工旧金抵扣返款' order by finance_id", Map.of("s",storeId,"bill",orderNo));
         for (Map<String,Object> refund : refunds) {
             BigDecimal amount = decimal(refund.get("amount")); if (amount.signum() <= 0) continue;
             String client = "WITHDRAW-PROCESSING-" + id + "-REFUND-" + refund.get("finance_id");
-            db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'INCOME','PROCESSING_WITHDRAW',:amount,:method,:bill,:uid,'加工返款撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)", new MapSqlParameterSource().addValue("s",storeId).addValue("amount",amount).addValue("method",refund.get("pay_method")).addValue("bill",orderNo).addValue("uid",operator).addValue("shift",shifts.current(storeId)).addValue("client",client));
+            db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'INCOME','PROCESSING_WITHDRAW',:amount,:method,:bill,:uid,'加工返款撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)", new MapSqlParameterSource().addValue("s",storeId).addValue("amount",amount).addValue("method",refund.get("pay_method")).addValue("bill",orderNo).addValue("uid",operator).addValue("shift",refund.get("shift_no")).addValue("client",client));
         }
-        BigDecimal goldWeight = decimal(order.get("store_gold_weight"));
-        Object goldGoods = order.get("store_gold_goods_id");
-        if (goldWeight.signum() > 0 && goldGoods instanceof Number) {
-            long goodsId = ((Number) goldGoods).longValue();
-            db.jdbc().update("update goods set stock=stock+:w,version=version+1,update_time=now() where goods_id=:g and store_id=:s", new MapSqlParameterSource().addValue("w",goldWeight).addValue("g",goodsId).addValue("s",storeId));
-            db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:bill,'PROCESSING_WITHDRAW',:g,:w,0,:uid,now()) on duplicate key update qty=values(qty)", new MapSqlParameterSource().addValue("s",storeId).addValue("bill","WITHDRAW-PROCESSING-"+id).addValue("g",goodsId).addValue("w",goldWeight).addValue("uid",operator));
-        }
+        reverseProcessingGoldStock(order, storeId, operator);
         if (number(order.get("residual_material_recorded")) == 1) oldMaterialLedger.returnAndRecord(storeId, "PROCESSING:" + id, operator);
         db.jdbc().update("update processing_commission set status='CANCELLED',update_time=now() where store_id=:s and processing_order_id=:id and status<>'CANCELLED'", Map.of("s",storeId,"id",id));
-        db.jdbc().update("update approval set status=4,approver_id=:uid,approve_remark='加工单已撤回',approve_time=now() where store_id=:s and biz_id=:id and type in ('PROCESSING_REFUND','PROCESSING_PAYMENT_DISCOUNT') and status=1", new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("uid",operator));
-        db.jdbc().update("update processing_order set status='PENDING',store_gold_weight=0,store_gold_fineness=null,store_gold_price=0,store_gold_amount=0,store_gold_goods_id=null,store_gold_deducted=0,incoming_photos=null,weigh_photos=null,pickup_photos=null,finished_weight=null,finished_fineness=null,recovered_weight=null,loss_weight=null,loss_permille=null,loss_over=0,loss_note=null,loss_time=null,residual_material_type=null,residual_gold_weight=null,residual_gold_fineness=null,residual_gold_handling='TAKE_AWAY',residual_gold_deduction=0,residual_material_recorded=0,due_amount=labor_fee,original_due_amount=null,promotion_discount=0,promotion_channel=null,voucher_no=null,promotion_reason=null,paid_amount=0,refund_amount=0,refund_paid_amount=0,refund_pay_method=null,refund_approval_id=null,handover=0,handover_time=null,completed_time=null,picked_up_time=null,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='COMPLETED'", Map.of("id",id,"s",storeId));
+        db.jdbc().update("update approval set status=4,approver_id=:uid,approve_remark='加工单已撤回',approve_time=now() where store_id=:s and biz_id=:id and type in ('PROCESSING_REFUND','PROCESSING_PAYMENT_DISCOUNT') and status in (1,3)", new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("uid",operator));
+        db.jdbc().update("update print_job set status='IGNORED',ignored_time=now(),ignored_by=:uid where store_id=:s and order_id=:id and job_type='PROCESSING' and status='PENDING'", new MapSqlParameterSource().addValue("uid",operator).addValue("s",storeId).addValue("id",id));
+        int changed = db.jdbc().update("update processing_order set status='WITHDRAWN',version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='COMPLETED' and version=:version", Map.of("id",id,"s",storeId,"version",version));
+        if (changed != 1) throw new BusinessException(409704, "加工单版本已变化，请刷新后重试");
+        boolean salesWasWithdrawn = false;
+        BigDecimal linkedSalesPaid = BigDecimal.ZERO;
+        if (linkedSales != null && number(linkedSales.get("status")) != SalesOrderWithdrawalService.WITHDRAWN_STATUS) {
+            linkedSalesPaid = new SalesOrderWithdrawalService(db).withdraw(linkedSales, storeId, operator);
+            salesWasWithdrawn = true;
+        }
         db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'PROCESSING','WITHDRAW',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", storeId).addValue("uid", operator).addValue("content", "加工单=" + orderNo + ",原状态=COMPLETED").addValue("client", withdrawRequestId));
         Map<String,Object> event = Map.of("storeId",storeId,"processingOrderId",id,"orderNo",orderNo,"action","WITHDRAW");
         broadcast("PROCESSING_ORDER_UPDATED", event); broadcast("STOCK_UPDATED", event); broadcast("REPORT_UPDATED", event); broadcast("COMMISSION_UPDATED", event); broadcast("APPROVAL_UPDATED", event);
         new com.dajin.system.commission.CommissionLedger(db).rebuildForProcessingOrder(storeId, id);
-        return ApiResponse.ok(Map.of("processingOrderId",id,"status","PENDING","withdrawn",true,"clientRefundRequired",decimal(order.get("paid_amount")).signum()>0,"message","加工单已撤回到开加工单状态，客户款项需门店线下处理"));
+        if (salesWasWithdrawn) {
+            Map<String,Object> salesEvent = Map.of("storeId",storeId,"orderId",linkedSalesId,"action","WITHDRAW");
+            broadcast("ORDER_UPDATED", salesEvent); broadcast("MEMBER_UPDATED", salesEvent);
+        }
+        boolean clientRefundRequired = decimal(order.get("paid_amount")).signum() > 0 || linkedSalesPaid.signum() > 0;
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("processingOrderId", id); result.put("status", "WITHDRAWN"); result.put("withdrawn", true);
+        result.put("sourceSalesOrderId", linkedSalesId); result.put("sourceSalesOrderWithdrawn", linkedSalesId != null);
+        result.put("clientRefundRequired", clientRefundRequired);
+        result.put("message", clientRefundRequired ? "加工单及关联单据已撤回，账务已冲销，客户款项需门店线下退还" : "加工单及关联单据已撤回");
+        return ApiResponse.ok(result);
+    }
+
+    private Long linkedSalesOrderId(long processingOrderId, long storeId) {
+        List<Map<String,Object>> rows = db.list("select source_sales_order_id from processing_order where processing_order_id=:id and store_id=:s", Map.of("id",processingOrderId,"s",storeId));
+        if (rows.isEmpty()) throw new BusinessException(404701, "加工订单不存在");
+        Object value = rows.get(0).get("source_sales_order_id");
+        return value instanceof Number ? ((Number)value).longValue() : null;
+    }
+
+    private Map<String,Object> lockLinkedSalesOrder(long salesOrderId, long storeId) {
+        Map<String,Object> order = db.one("select o.*," + com.dajin.system.order.SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:id and o.store_id=:s for update", Map.of("id",salesOrderId,"s",storeId));
+        if (order == null) throw new BusinessException(409109, "关联成品单不存在，整组撤回未执行");
+        return order;
+    }
+
+    private void reverseProcessingGoldStock(Map<String,Object> order, long storeId, long operator) {
+        long id = ((Number)order.get("processing_order_id")).longValue();
+        String orderNo = String.valueOf(order.get("order_no"));
+        String issuePrefix = "JL" + orderNo;
+        String returnPrefix = "JI" + orderNo;
+        List<Map<String,Object>> issued = db.list("select stock_out_id,goods_id,qty from stock_out where store_id=:s and type='OUT' and reason=:reason order by stock_out_id", Map.of("s",storeId,"reason","加工领料:" + orderNo));
+        for (Map<String,Object> row : issued) {
+            BigDecimal qty = decimal(row.get("qty"));
+            if (qty.signum() <= 0 || row.get("goods_id") == null) continue;
+            long goodsId = ((Number)row.get("goods_id")).longValue();
+            db.jdbc().update("update goods set stock=stock+:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s", new MapSqlParameterSource().addValue("qty",qty).addValue("g",goodsId).addValue("s",storeId));
+            db.jdbc().update("insert into stock_in(store_id,bill_no,type,goods_id,qty,cost,operator_id,create_time) values(:s,:bill,'PROCESSING_WITHDRAW',:g,:qty,0,:uid,now()) on duplicate key update qty=values(qty)", new MapSqlParameterSource().addValue("s",storeId).addValue("bill","PW"+id+"O"+row.get("stock_out_id")).addValue("g",goodsId).addValue("qty",qty).addValue("uid",operator));
+        }
+        List<Map<String,Object>> returned = db.list("select stock_in_id,goods_id,qty from stock_in where store_id=:s and type='IN' and bill_no like :prefix order by stock_in_id", new MapSqlParameterSource().addValue("s",storeId).addValue("prefix",returnPrefix + "%"));
+        for (Map<String,Object> row : returned) {
+            BigDecimal qty = decimal(row.get("qty"));
+            if (qty.signum() <= 0 || row.get("goods_id") == null) continue;
+            long goodsId = ((Number)row.get("goods_id")).longValue();
+            int changed = db.jdbc().update("update goods set stock=stock-:qty,version=version+1,update_time=now() where goods_id=:g and store_id=:s and stock>=:qty", new MapSqlParameterSource().addValue("qty",qty).addValue("g",goodsId).addValue("s",storeId));
+            if (changed != 1) throw new BusinessException(409710, "金料库存已变化，无法完整撤回补金领料");
+            db.jdbc().update("insert into stock_out(store_id,bill_no,type,goods_id,qty,reason,operator_id,create_time) values(:s,:bill,'PROCESSING_WITHDRAW',:g,:qty,:reason,:uid,now()) on duplicate key update qty=values(qty)", new MapSqlParameterSource().addValue("s",storeId).addValue("bill","PW"+id+"I"+row.get("stock_in_id")).addValue("g",goodsId).addValue("qty",qty).addValue("reason","撤回加工补金退料:"+orderNo).addValue("uid",operator));
+        }
     }
 
     /**
@@ -1091,7 +1153,7 @@ public class ProcessingController {
                                      @RequestParam(required = false) Long craftsmanId, HttpServletRequest request) {
         long storeId = store(request);
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("from", blankToNull(from)).addValue("to", blankToNull(to)).addValue("craftsman", craftsmanId);
-        String filters = " where o.store_id=:s and (:from is null or date(o.create_time)>=:from) and (:to is null or date(o.create_time)<=:to) and (:craftsman is null or o.craftsman_id=:craftsman)";
+        String filters = " where o.store_id=:s and o.status<>'WITHDRAWN' and (:from is null or date(o.create_time)>=:from) and (:to is null or date(o.create_time)<=:to) and (:craftsman is null or o.craftsman_id=:craftsman)";
         String orderFrom = " from processing_order o" + filters;
         Map<String, Object> summary = db.one("select count(*) order_count,coalesce(sum(case when status='PENDING' then 1 else 0 end),0) pending_count,coalesce(sum(case when status='PROCESSING' then 1 else 0 end),0) processing_count,coalesce(sum(case when status in ('COMPLETED','PICKED_UP') then 1 else 0 end),0) completed_count,coalesce(sum(labor_fee),0) labor_fee,coalesce(sum(due_amount),0) due_amount,coalesce(sum(paid_amount),0) paid_amount,coalesce(sum(greatest(due_amount-paid_amount,0)),0) outstanding,coalesce(sum(refund_amount),0) refund_amount,coalesce(sum(refund_paid_amount),0) refund_paid_amount,coalesce(sum(greatest(refund_amount-refund_paid_amount,0)),0) refund_outstanding" + orderFrom, p);
         if (hasPermission(request, "processing:commissions")) {
@@ -1107,6 +1169,8 @@ public class ProcessingController {
         try {
             order = db.one("select o.*,m.name member_name,u.real_name craftsman_name,sales.real_name sales_name,creator.real_name creator_name from processing_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id left join sys_user u on u.user_id=o.craftsman_id and u.store_id=o.store_id left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id left join sys_user creator on creator.user_id=o.created_by and creator.store_id=o.store_id where o.processing_order_id=:id and o.store_id=:s", Map.of("id", id, "s", storeId));
         } catch (Exception e) { throw new BusinessException(404701, "加工订单不存在"); }
+        if ("WITHDRAWN".equals(String.valueOf(order.get("status"))))
+            throw new BusinessException(409704, "加工单已撤回，不能继续查看或操作");
         enrichSettlementFields(order);
         order.put("payments", db.list("select p.*,u.real_name operator_name from processing_payment p left join sys_user u on u.user_id=p.operator_id and u.store_id=p.store_id where p.store_id=:s and p.processing_order_id=:id order by p.payment_id", Map.of("s", storeId, "id", id)));
         if (hasPermission(request, "processing:commissions")) {
@@ -1142,6 +1206,12 @@ public class ProcessingController {
     }
 
     private Map<String, Object> lockedOrder(long id, long storeId) {
+        Map<String, Object> order = lockedOrderForWithdrawal(id, storeId);
+        if ("WITHDRAWN".equals(String.valueOf(order.get("status")))) throw new BusinessException(409704, "加工单已撤回，不能继续操作");
+        return order;
+    }
+
+    private Map<String, Object> lockedOrderForWithdrawal(long id, long storeId) {
         List<Map<String, Object>> rows = db.list("select * from processing_order where processing_order_id=:id and store_id=:s for update", Map.of("id", id, "s", storeId));
         if (rows.isEmpty()) throw new BusinessException(404701, "加工订单不存在");
         return rows.get(0);
