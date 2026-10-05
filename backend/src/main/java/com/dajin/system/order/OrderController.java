@@ -338,7 +338,8 @@ public class OrderController {
         Integer expectedVersion = body == null || body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version")));
         int version = ((Number) order.getOrDefault("version", 0)).intValue();
         if (expectedVersion != null && expectedVersion != version) throw new BusinessException(409107, "订单版本已变化，请刷新后重试");
-        List<Map<String,Object>> prior = db.list("select log_id from operation_log where store_id=:s and module='ORDER' and action='WITHDRAW' and content like :content limit 1", Map.of("s", storeId, "content", "%订单=" + order.get("order_no") + "%"));
+        String withdrawRequestId = "WITHDRAW-SALE-" + id;
+        List<Map<String,Object>> prior = db.list("select log_id from operation_log where store_id=:s and module='ORDER' and action='WITHDRAW' and client_request_id=:client limit 1", Map.of("s", storeId, "client", withdrawRequestId));
         if (!prior.isEmpty()) return ApiResponse.ok(Map.of("orderId", id, "status", 0, "idempotentReplay", true, "message", "订单已撤回"));
         int status = ((Number) order.get("status")).intValue();
         if (status == 4 || status == 5) return ApiResponse.ok(Map.of("orderId", id, "status", status, "idempotentReplay", true, "message", "订单已处于终态，未执行撤回"));
@@ -364,7 +365,7 @@ public class OrderController {
                 db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','SALE_WITHDRAW',:a,:m,:no,:uid,'销售单撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)", new MapSqlParameterSource().addValue("s",storeId).addValue("a",amount).addValue("m",method).addValue("no",order.get("order_no")).addValue("uid",operator).addValue("shift",order.get("shift_no")).addValue("client","WITHDRAW-SALE-" + id + "-" + method));
                 if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
                     db.jdbc().update("update member set balance=balance+:a,update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("a",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
-                    new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "SALE_WITHDRAW", String.valueOf(id), operator);
+                    new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "SALE_WITHDRAW", withdrawRequestId + "-" + method, operator);
                 }
             }
             if (order.get("member_id") != null) {
@@ -379,7 +380,7 @@ public class OrderController {
         }
         db.jdbc().update("update approval set status=4,approver_id=:uid,approve_remark='订单已撤回',approve_time=now() where store_id=:s and ((type='DISCOUNT' and biz_id=:id) or (type='REFUND' and biz_id=:id)) and status=1", new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("uid",operator));
         db.jdbc().update("update sales_order set status=0,pay_amount=0,pay_method=null,settlement_discount=0,settlement_discount_reason=null,old_material_payout_method=null,old_material_payout_amount=0,approval_id=null,paid_time=null,shift_no=null,version=version+1,update_time=now() where order_id=:id and store_id=:s", Map.of("id",id,"s",storeId));
-        log(storeId, operator, "WITHDRAW", "订单=" + order.get("order_no") + ",原状态=" + status + ",原实收=" + paid);
+        db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'ORDER','WITHDRAW',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", storeId).addValue("uid", operator).addValue("content", "订单=" + order.get("order_no") + ",原状态=" + status + ",原实收=" + paid).addValue("client", withdrawRequestId));
         Map<String,Object> event = Map.of("storeId",storeId,"orderId",id,"orderNo",order.get("order_no"),"action","WITHDRAW");
         ws.broadcast("ORDER_UPDATED", event); ws.broadcast("STOCK_UPDATED", event); ws.broadcast("REPORT_UPDATED", event); ws.broadcast("COMMISSION_UPDATED", event); ws.broadcast("MEMBER_UPDATED", event);
         Map<String,Object> result = new LinkedHashMap<>(); result.put("orderId",id); result.put("status",0); result.put("withdrawn",true); result.put("clientRefundRequired",paid.signum()>0); result.put("message",paid.signum()>0?"系统已完成账务冲销，客户款项需线下退还":"订单已撤回到草稿"); return ApiResponse.ok(result);

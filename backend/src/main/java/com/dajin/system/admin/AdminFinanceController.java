@@ -78,6 +78,8 @@ public class AdminFinanceController {
         MapSqlParameterSource query = params(request).addValue("start", rangeStart).addValue("end", rangeEnd);
         String businessType = "case "
                 + "when type='EXPENSE' and category='SALE_REFUND' then 'SALE_REFUND' "
+                + "when type='EXPENSE' and category in ('SALE_WITHDRAW','PROCESSING_WITHDRAW') then 'WITHDRAW_EXPENSE' "
+                + "when type='INCOME' and category='PROCESSING_WITHDRAW' then 'WITHDRAW_REVERSAL' "
                 + "when type='EXPENSE' and category='RECYCLE' then 'RECYCLE_EXPENSE' "
                 + "when type='EXPENSE' then 'OTHER_EXPENSE' "
                 + "when category='SALE' then 'SALE_INCOME' "

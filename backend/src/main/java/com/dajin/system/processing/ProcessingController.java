@@ -794,7 +794,8 @@ public class ProcessingController {
         if ("PICKED_UP".equals(status)) throw new BusinessException(409706, "已取货加工单不能撤回");
         if (!"COMPLETED".equals(status)) throw new BusinessException(409704, "仅待取货加工单可以撤回");
         String orderNo = String.valueOf(order.get("order_no"));
-        if (!db.list("select log_id from operation_log where store_id=:s and module='PROCESSING' and action='WITHDRAW' and content like :c limit 1", Map.of("s",storeId,"c","%加工单=" + orderNo + "%")).isEmpty())
+        String withdrawRequestId = "WITHDRAW-PROCESSING-" + id;
+        if (!db.list("select log_id from operation_log where store_id=:s and module='PROCESSING' and action='WITHDRAW' and client_request_id=:client limit 1", Map.of("s",storeId,"client",withdrawRequestId)).isEmpty())
             return ApiResponse.ok(Map.of("processingOrderId", id, "status", "PENDING", "withdrawn", true, "idempotentReplay", true, "message", "加工单已撤回"));
         long operator = userId(request);
         List<Map<String,Object>> payments = db.list("select payment_id,payment_type,amount,pay_method,client_request_id from processing_payment where store_id=:s and processing_order_id=:id order by payment_id", Map.of("s",storeId,"id",id));
@@ -804,13 +805,13 @@ public class ProcessingController {
             String method = String.valueOf(payment.get("pay_method"));
             String client = "WITHDRAW-PROCESSING-" + id + "-PAY-" + payment.get("payment_id");
             db.jdbc().update("insert into processing_payment(store_id,processing_order_id,payment_type,amount,pay_method,client_request_id,operator_id,remark,create_time) values(:s,:id,'WITHDRAW',:amount,:method,:client,:uid,'加工单撤回反向流水',now()) on duplicate key update amount=values(amount)",
-                    new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("amount",amount.negate()).addValue("method",method).addValue("client",client).addValue("uid",operator));
+                    new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("amount",amount).addValue("method",method).addValue("client",client).addValue("uid",operator));
             db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','PROCESSING_WITHDRAW',:amount,:method,:bill,:uid,'加工收款撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("amount",amount).addValue("method",method).addValue("bill",orderNo).addValue("uid",operator).addValue("shift",shifts.current(storeId)).addValue("client",client + "-FIN"));
             if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
                 int restored = db.jdbc().update("update member set balance=balance+:amount,update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("amount",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
                 if (restored != 1) throw new BusinessException(409106, "储值退款会员不存在");
-                new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "PROCESSING_WITHDRAW", String.valueOf(id), operator);
+                new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "PROCESSING_WITHDRAW", client, operator);
             }
         }
         List<Map<String,Object>> refunds = db.list("select finance_id,amount,pay_method from finance_record where store_id=:s and related_bill_no=:bill and type='EXPENSE' and category='RECYCLE'", Map.of("s",storeId,"bill",orderNo));
@@ -830,7 +831,7 @@ public class ProcessingController {
         db.jdbc().update("update processing_commission set status='CANCELLED',update_time=now() where store_id=:s and processing_order_id=:id and status<>'CANCELLED'", Map.of("s",storeId,"id",id));
         db.jdbc().update("update approval set status=4,approver_id=:uid,approve_remark='加工单已撤回',approve_time=now() where store_id=:s and biz_id=:id and type in ('PROCESSING_REFUND','PROCESSING_PAYMENT_DISCOUNT') and status=1", new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("uid",operator));
         db.jdbc().update("update processing_order set status='PENDING',store_gold_weight=0,store_gold_fineness=null,store_gold_price=0,store_gold_amount=0,store_gold_goods_id=null,store_gold_deducted=0,incoming_photos=null,weigh_photos=null,pickup_photos=null,finished_weight=null,finished_fineness=null,recovered_weight=null,loss_weight=null,loss_permille=null,loss_over=0,loss_note=null,loss_time=null,residual_material_type=null,residual_gold_weight=null,residual_gold_fineness=null,residual_gold_handling='TAKE_AWAY',residual_gold_deduction=0,residual_material_recorded=0,due_amount=labor_fee,original_due_amount=null,promotion_discount=0,promotion_channel=null,voucher_no=null,promotion_reason=null,paid_amount=0,refund_amount=0,refund_paid_amount=0,refund_pay_method=null,refund_approval_id=null,handover=0,handover_time=null,completed_time=null,picked_up_time=null,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='COMPLETED'", Map.of("id",id,"s",storeId));
-        log(storeId, operator, "WITHDRAW", "加工单=" + orderNo + ",原状态=COMPLETED");
+        db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'PROCESSING','WITHDRAW',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", storeId).addValue("uid", operator).addValue("content", "加工单=" + orderNo + ",原状态=COMPLETED").addValue("client", withdrawRequestId));
         Map<String,Object> event = Map.of("storeId",storeId,"processingOrderId",id,"orderNo",orderNo,"action","WITHDRAW");
         broadcast("PROCESSING_ORDER_UPDATED", event); broadcast("STOCK_UPDATED", event); broadcast("REPORT_UPDATED", event); broadcast("COMMISSION_UPDATED", event); broadcast("APPROVAL_UPDATED", event);
         new com.dajin.system.commission.CommissionLedger(db).rebuildForProcessingOrder(storeId, id);
