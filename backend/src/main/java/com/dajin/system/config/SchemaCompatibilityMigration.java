@@ -173,6 +173,10 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("update sys_config set config_value='0.02',description='默认成品销售提成比例（2%）' where config_key='default_commission_rate' and config_value='0.01' and enabled=1");
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','processing_sales_commission_rate','0.01','默认加工导购提成比例（1%）',6,1 from sys_store");
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','gold_market_freeze_threshold','0.05','行情异常冻结阈值（5%）',7,1 from sys_store");
+        // Cloud stores created before discount approval was configurable may be
+        // missing this row. Seed only absent rows so an operator's value wins.
+        jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
+                + "select store_id,'SYSTEM','discount_threshold','0.85','低于此折扣需审批',1,1 from sys_store");
         createGoldPricingTables();
         migrateGoldDefinitions();
     }

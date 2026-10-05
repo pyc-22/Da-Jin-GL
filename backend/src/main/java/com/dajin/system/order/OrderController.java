@@ -8,6 +8,7 @@ import com.dajin.system.gold.GoldMarketService;
 import com.dajin.system.stock.GoodsInventoryUnit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -127,7 +128,21 @@ public class OrderController {
         if (count == null || count == 0) throw new BusinessException(400107, "超额旧金返款方式未启用");
         return method;
     }
-    private BigDecimal configDecimal(HttpServletRequest r, String k) { String v = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key=:k and enabled=1", Map.of("s", db.store(r), "k", k), String.class); if (v == null) throw new BusinessException(500101, "缺少系统配置: " + k); return new BigDecimal(v); }
+    BigDecimal configDecimal(HttpServletRequest r, String k) {
+        String v;
+        try {
+            v = db.jdbc().queryForObject("select config_value from sys_config where store_id=:s and config_key=:k and enabled=1", Map.of("s", db.store(r), "k", k), String.class);
+        } catch (DataAccessException e) {
+            // Older cloud stores may not have received the additive config seed yet.
+            if ("discount_threshold".equals(k)) return new BigDecimal("0.85");
+            throw new BusinessException(500101, "缺少系统配置: " + k);
+        }
+        if (v == null) {
+            if ("discount_threshold".equals(k)) return new BigDecimal("0.85");
+            throw new BusinessException(500101, "缺少系统配置: " + k);
+        }
+        return new BigDecimal(v);
+    }
     Item priceItem(Item item, HttpServletRequest request) {
         if (item.goodsId() == null) return item;
         Map<String, Object> goods;
