@@ -1,5 +1,7 @@
 const isLocalPage = ['localhost', '127.0.0.1'].includes(location.hostname) || location.protocol === 'file:'
-let API_BASE = (localStorage.getItem('dajin_api_base') || (isLocalPage ? 'http://127.0.0.1:18080' : '')).replace(/\/$/, '')
+// 打包后的收银台默认连云端；开发时（vite dev）仍默认本机后端；门店可在「连接设置」里改，localStorage 优先。
+const PRODUCTION_API_BASE = 'https://admin.xinchengjinjiang.com'
+let API_BASE = (localStorage.getItem('dajin_api_base') || (import.meta.env.DEV && isLocalPage ? 'http://127.0.0.1:18080' : PRODUCTION_API_BASE)).replace(/\/$/, '')
 let unauthorizedNotified = false
 console.info('[dajin-api] baseURL:', API_BASE)
 
@@ -25,7 +27,15 @@ export async function fetchBackend(path, options = {}) {
       path, method: options.method || 'GET', headers: options.headers || {},
       body: options.body, timeoutMs: options.timeoutMs
     })
-    return new Response(result.status === 204 ? null : result.body, { status: result.status })
+    // Native bridges may return the decoded response object instead of the
+    // wire JSON string. Preserve it so ApiResponse business codes/messages are
+    // available to the cashier rather than collapsing into a generic error.
+    const body = result.status === 204 || result.body == null
+      ? null
+      : (typeof result.body === 'string' || result.body instanceof Blob
+        ? result.body
+        : JSON.stringify(result.body))
+    return new Response(body, { status: result.status })
   }
   return fetch(`${API_BASE}${path}`, options)
 }

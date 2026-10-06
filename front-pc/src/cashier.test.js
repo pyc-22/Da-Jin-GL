@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { buildProcessingPrintHtml, buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS } from './cashier'
+import { buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS, goldBalance } from './cashier'
 
 describe('cashier old material and shift helpers', () => {
   it('supports the required purity choices and parses custom 96.5%', () => {
     expect(PURITY_OPTIONS.map(item => item.label)).toEqual(['99.9%', '99%', '95%', '90%', '75%', '58.5%', '其他'])
     expect(parsePurity('other', 96.5)).toBe(0.965)
     expect(parsePurity('other', 100.1)).toBe(0)
+  })
+
+  it('prefills the top-up gold as 成品实重 − 融后金重', () => {
+    // 成品 10.0 − 融后 9.5 = +0.5 → 客户需补金 0.5g（下料照收，损耗由店里承担）
+    const short = goldBalance({ melt: 9.5, finished: 10 })
+    expect(short.balance).toBe(0.5)
+    expect(short.topUp).toBe(0.5)
+    expect(short.hint).toContain('客户需补金 0.500g')
+    // 成品 12 − 融后 15 = −3 → 没有补金，多出的金走回收屑抵扣
+    const surplus = goldBalance({ melt: 15, finished: 12 })
+    expect(surplus.balance).toBe(-3)
+    expect(surplus.topUp).toBe(0)
+    expect(surplus.hint).toContain('没有补金')
+    // 缺融后或成品时不预填、不提示
+    expect(goldBalance({ melt: null, finished: 12 })).toEqual({ balance: null, topUp: 0, hint: '' })
   })
 
   it('builds a complete shift handover preview with standard money formatting', () => {
@@ -26,12 +41,5 @@ describe('cashier old material and shift helpers', () => {
     expect(buildShiftPrintHtml(model, '58')).toContain('@page{size:58mm auto')
     expect(buildShiftPrintHtml(model, 'a4')).toContain('@page{size:A4')
     expect(buildShiftPrintHtml(model, 'a4')).toContain('差异原因：备用金')
-  })
-
-  it('builds the processing work order as a single-page A4 document', () => {
-    const html = buildProcessingPrintHtml({ orderNo: '加工-001', quantity: 1, itemName: '戒指' })
-    expect(html).toContain('@page{size:A4 portrait;margin:7mm}')
-    expect(html).toContain('打印格式：A4 纵向')
-    expect(html).not.toContain('size:A5')
   })
 })

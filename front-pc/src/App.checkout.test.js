@@ -235,7 +235,7 @@ describe('cashier mounted checkout and processing flows', () => {
     await start()
     await openTodo()
     expect(wrapper.get('tbody').text()).toContain('PROC-7')
-    await wrapper.get('tbody .primary-button').trigger('click')
+    await button('打印工单', 'tbody button').trigger('click')
     await flushPromises()
     await wrapper.get('.dialog-actions .primary-button').trigger('click')
     await flushPromises()
@@ -347,13 +347,13 @@ describe('cashier mounted checkout and processing flows', () => {
     window.dajin.print.system.mockResolvedValue({ success: false, reason: '打印机未响应' })
     await start()
     await openTodo()
-    await button('确认加工', 'tbody button').trigger('click')
+    await button('打印工单', 'tbody button').trigger('click')
     await flushPromises()
-    await button('打印加工工单', '[role="dialog"] button').trigger('click')
+    await button('打印工单', '[role="dialog"] button').trigger('click')
     await flushPromises()
     expect(ElMessage.warning).toHaveBeenCalledWith('打印机未响应')
     expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')).toHaveLength(0)
-    expect(wrapper.get('[role="dialog"]').text()).toContain('打印加工工单')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('打印工单')
   })
 
   it('does not print or advance a processing order when its document fails to load', async () => {
@@ -361,11 +361,44 @@ describe('cashier mounted checkout and processing flows', () => {
     await start()
     await openTodo()
     fetch.mockResolvedValue({ ok: false, status: 401 })
-    await button('确认加工', 'tbody button').trigger('click')
+    await button('打印工单', 'tbody button').trigger('click')
     await flushPromises()
     expect(ElMessage.error).toHaveBeenCalledWith('加工工单加载失败，请检查登录状态后重试')
     expect(window.dajin.print.system).not.toHaveBeenCalled()
     expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')).toHaveLength(0)
+  })
+
+  it('confirms and starts a processing order without printing a work order', async () => {
+    handovers = [processing]
+    await start()
+    await openTodo()
+    await button('确认加工', 'tbody button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining('已确认开始加工'))
+    const statusCalls = request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')
+    expect(statusCalls).toHaveLength(1)
+    expect(JSON.parse(statusCalls[0][1].body).status).toBe('PROCESSING')
+    expect(window.dajin.print.system).not.toHaveBeenCalled()
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/print'))).toBe(false)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('reprints a work order from the processing tab without advancing the status again', async () => {
+    handovers = [processing]
+    await start()
+    await openTodo()
+    await button('确认加工', 'tbody button').trigger('click')
+    await flushPromises()
+    await button('加工中', '.todo-tabs button').trigger('click')
+    await flushPromises()
+    const before = request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status').length
+    expect(before).toBe(1)
+    await button('打印工单', 'tbody button').trigger('click')
+    await flushPromises()
+    await button('打印工单', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(window.dajin.print.system).toHaveBeenCalledTimes(1)
+    expect(request.mock.calls.filter(([path]) => path === '/api/processing/orders/7/status')).toHaveLength(before)
   })
 
   it('prints the processing warranty through Electron without opening a browser popup', async () => {
@@ -424,5 +457,98 @@ describe('cashier mounted checkout and processing flows', () => {
     older.resolve([])
     await flushPromises()
     expect(wrapper.get('tbody').text()).toContain('PROC-7')
+  })
+
+  it('treats a gram-priced product as weighed-on-site instead of using its archived weight', async () => {
+    const gram = { goods_id: 2, name: '按克手镯', barcode: 'GRAM1', price_type: 1, weight: 10, sale_price: 0, stock: 50, available_stock: 50 }
+    const base = requestHandler
+    requestHandler = (path, options) => path.startsWith('/api/goods/list') ? { records: [product, gram] } : base(path, options)
+    await start()
+    await wrapper.findAll('.product-card')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.cart-item').text()).toContain('待称重录入')
+    expect(Number(wrapper.get('.weight-input input').element.value)).toBe(0)
+    await wrapper.get('.checkout-button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('请先录入'))
+    expect(requestOrQueue.mock.calls.filter(([path]) => path === '/api/order/create')).toHaveLength(0)
+  })
+
+  it('does not accumulate a gram-priced product when it is scanned twice', async () => {
+    const gram = { goods_id: 2, name: '按克手镯', barcode: 'GRAM1', price_type: 1, weight: 10, sale_price: 0, stock: 50, available_stock: 50 }
+    const base = requestHandler
+    requestHandler = (path, options) => path.startsWith('/api/goods/list') ? { records: [product, gram] } : base(path, options)
+    await start()
+    await wrapper.findAll('.product-card')[1].trigger('click')
+    await wrapper.findAll('.product-card')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.cart-item')).toHaveLength(1)
+    expect(Number(wrapper.get('.weight-input input').element.value)).toBe(0)
+    expect(ElMessage.info).toHaveBeenCalledWith(expect.stringContaining('录入实际克重'))
+  })
+
+  it('starts a stock-check row at zero grams instead of the archived weight', async () => {
+    const gram = { goods_id: 2, id: 2, name: '按克手镯', barcode: 'GRAM1', price_type: 1, weight: 10, sale_price: 0, stock: 50, available_stock: 50 }
+    const base = requestHandler
+    requestHandler = (path, options) => path.startsWith('/api/goods/list') ? { records: [product, gram] } : base(path, options)
+    await start()
+    await button('盘点', '.sidebar nav button').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.scan-shortcuts button')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('tbody').text()).toContain('按克手镯')
+    expect(Number(wrapper.get('tbody .number-input').element.value)).toBe(0)
+  })
+
+  it('requires the incoming old-gold weight before completing a processing order', async () => {
+    processings = [{ ...processing, status: 'PROCESSING' }]
+    await start()
+    await openTodo()
+    await button('加工中', '.todo-tabs button').trigger('click')
+    await flushPromises()
+    await button('完成加工', 'tbody button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('来料')
+    await button('确认完成加工', '[role="dialog"] button').trigger('click')
+    await flushPromises()
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('请先填写来料克重'))
+    expect(request.mock.calls.filter(([path]) => path.endsWith('/7/status'))).toHaveLength(0)
+  })
+
+  it('falls back to no guide when a member is bound to a non-sales account', async () => {
+    const base = requestHandler
+    let created = null
+    requestHandler = async (path, options) => {
+      if (path.startsWith('/api/processing/items')) return [{ item_id: 5, name: '戒指', labor_fee: 30, pricing_unit: '按件', status: 1 }]
+      if (path === '/api/processing/salespeople') return [{ user_id: 3, real_name: '销售演示' }]
+      if (path.startsWith('/api/member/list')) return { records: [
+        { member_id: 8200, id: 8200, name: '王小红', phone: '13800001234', sales_id: 1 },
+        { member_id: 8300, id: 8300, name: '李小美', phone: '13800005678', sales_id: 3 }
+      ] }
+      if (path === '/api/processing/orders') { created = JSON.parse(options.body); return { processing_order_id: 9, order_no: 'PROC-9', due_amount: 30 } }
+      return base(path, options)
+    }
+    await start()
+    await button('加工开单', '.sidebar nav button').trigger('click')
+    await flushPromises()
+    const selects = wrapper.findAll('.processing-fields select')
+
+    await selects[0].setValue('8200')
+    await flushPromises()
+    expect(wrapper.get('.processing-fields').text()).toContain('已停用或不是销售账号')
+    expect(selects[3].element.value).toBe('')
+
+    await selects[0].setValue('8300')
+    await flushPromises()
+    expect(wrapper.get('.processing-fields').text()).not.toContain('已停用或不是销售账号')
+    expect(selects[3].element.value).toBe('3')
+
+    await selects[0].setValue('8200')
+    await selects[1].setValue('5')
+    await flushPromises()
+    await button('创建加工单并收定金').trigger('click')
+    await flushPromises()
+    expect(created).toBeTruthy()
+    expect(created.salesId).toBeNull()
   })
 })
