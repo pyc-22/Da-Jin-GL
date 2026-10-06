@@ -96,7 +96,7 @@ export const OPERATION_ACTION_LABELS = Object.freeze({
   PRINT_JOB_DONE: '完成打印',
   PRINT_JOB_IGNORE: '忽略打印',
   COMMISSION_PAY: '发放加工提成',
-  RESIDUAL_MATERIAL_IN: '剩余旧料入库',
+  RESIDUAL_MATERIAL_IN: '回收屑入库',
   PROCESSING_READY: '发送取货通知'
 })
 

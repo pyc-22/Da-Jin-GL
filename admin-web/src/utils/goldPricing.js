@@ -4,6 +4,13 @@ const numeric = value => value !== null && value !== undefined && value !== '' &
 export const hasQuote = value => numeric(value) && Number(value) > 0
 export const quoteMoney = value => hasQuote(value) ? `¥${Number(value).toFixed(2)}` : '—'
 
+// 甲方口径：成色 0.995 及以上（足金线）视作 1，按整克不折；低于才按含金量折算
+export const finenessFactor = value => {
+  const f = Number(value)
+  if (!Number.isFinite(f) || f <= 0) return 1
+  return f >= 0.995 ? 1 : f
+}
+
 function round(value, rule) {
   if (rule === 'TAIL_8') return Math.floor(value) + 0.8
   if (rule === 'TAIL_9') return Math.floor(value) + 0.9
@@ -14,7 +21,7 @@ function round(value, rule) {
 export function pricingPreview(row, recycle = false) {
   if (row.pricingMode !== 'AUTO') return Number(recycle ? row.recyclePrice : row.salePrice)
   if (!hasQuote(row.basePrice)) return null
-  const value = Number(row.basePrice) * Number(row.purityCoefficient)
+  const value = Number(row.basePrice) * finenessFactor(row.purityCoefficient)
     + (recycle ? -Number(row.recycleDeduction) : Number(row.markup))
   return round(Math.max(0, value), row.roundingRule)
 }
