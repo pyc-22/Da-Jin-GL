@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { beforeEach, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-const fixture = vi.hoisted(() => ({ quote: null }))
-beforeEach(() => { fixture.quote = { salePrice: 700, recyclePrice: 600, price: 999 } })
-vi.mock('vue-router', () => ({ useRouter: () => ({ back: vi.fn() }), useRoute: () => ({ query: { goods: JSON.stringify({ goods_id: 1, name: '照片样本', price_type: 1, weight: 2, images: ['/api/file/goods/test.jpg'] }) } }) }))
+const fixture = vi.hoisted(() => ({ quote: null, goods: null }))
+beforeEach(() => {
+  fixture.quote = { salePrice: 700, recyclePrice: 600, price: 999 }
+  fixture.goods = { goods_id: 1, name: '照片样本', price_type: 1, weight: 2, images: ['/api/file/goods/test.jpg'] }
+})
+vi.mock('vue-router', () => ({ useRouter: () => ({ back: vi.fn() }), useRoute: () => ({ query: { goods: JSON.stringify(fixture.goods) } }) }))
 vi.mock('../api/request.js', () => ({ api: {}, http: { defaults: { baseURL: 'https://admin.example.com' } } }))
 vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ primaryGold: fixture.quote, loadGold: vi.fn() }) }))
 vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({}) }))
@@ -30,5 +33,13 @@ it('shows a pending quote instead of an invented amount when the sale price is m
   await flushPromises()
   expect(wrapper.get('.detail-price').text()).toContain('待同步金价')
   expect(wrapper.get('.detail-price').text()).not.toContain('1,224.00')
+  wrapper.unmount()
+})
+it('asks for in-store weighing when a gram-priced product has no archived weight', async () => {
+  fixture.goods = { goods_id: 2, name: '按克手镯', price_type: 1, images: [] }
+  const wrapper = mount(GoodsDetail)
+  await flushPromises()
+  expect(wrapper.get('.detail-price').text()).toContain('到店称重计价')
+  expect(wrapper.get('.detail-price').text()).toContain('按克称重')
   wrapper.unmount()
 })

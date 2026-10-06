@@ -57,12 +57,14 @@
               <div><span>旧金成色</span><b>{{ fineness(detail.old_gold_fineness) }}</b></div>
               <div v-if="Number(detail.store_gold_weight) > 0"><span>店供金料</span><b>{{ Number(detail.store_gold_weight).toFixed(3) }}g · {{ Number(detail.store_gold_price).toFixed(2) }}/g</b></div>
               <div v-if="Number(detail.store_gold_weight) > 0"><span>补金金额</span><b>{{ money(detail.store_gold_amount) }}</b></div>
+              <div v-if="Number(detail.down_material_weight) > 0"><span>下料</span><b>{{ Number(detail.down_material_weight).toFixed(3) }}g</b></div>
               <div v-if="detail.finished_weight != null"><span>成品实重</span><b>{{ grams(detail.finished_weight) }}{{ detail.finished_fineness ? ' · ' + fineness(detail.finished_fineness) : '' }}</b></div>
-              <div v-if="detail.loss_weight != null"><span>损耗{{ detail.loss_over ? '（超标）' : '' }}</span><b :style="detail.loss_over ? 'color:var(--err)' : ''">{{ grams(detail.loss_weight) }}{{ detail.loss_permille != null ? ' · ' + detail.loss_permille + '‰' : '' }}</b></div>
-              <div><span>剩余旧料</span><b>{{ handlingLabel(detail.residual_gold_handling) }}</b></div>
-              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料类型</span><b>{{ detail.residual_material_type || '—' }}</b></div>
-              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>旧料克重/成色</span><b>{{ grams(detail.residual_gold_weight) }} · {{ fineness(detail.residual_gold_fineness) }}</b></div>
-              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>留店抵扣</span><b>{{ money(detail.residual_gold_deduction) }}</b></div>
+              <div v-if="detail.recovered_weight != null"><span>损耗</span><b>{{ grams(detail.recovered_weight) }}</b></div>
+              <div v-if="detail.melt_weight != null"><span>融后金重</span><b>{{ grams(detail.melt_weight) }}</b></div>
+              <div><span>回收屑</span><b>{{ handlingLabel(detail.residual_gold_handling) }}</b></div>
+              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>回收屑类型</span><b>{{ detail.residual_material_type || '—' }}</b></div>
+              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>回收屑克重</span><b>{{ grams(detail.residual_gold_weight) }}</b></div>
+              <div v-if="detail.residual_gold_handling === 'STORE_DEDUCT'"><span>回收屑抵扣</span><b>{{ money(detail.residual_gold_deduction) }}</b></div>
               <div><span>整单应收</span><b>{{ money(detail.settlement_due_amount ?? detail.due_amount) }}</b></div>
               <div><span>已收</span><b>{{ money(detail.actual_paid_amount ?? detail.paid_amount) }}</b></div>
               <div><span>尾款</span><b>{{ money(outstanding(detail)) }}</b></div>
@@ -131,8 +133,8 @@
             </select>
           </label>
           <div class="form-row">
-            <label class="form-label">旧金克重<input v-model="form.oldGoldWeight" type="number" min="0" step="0.001" placeholder="选填"/></label>
-            <label class="form-label">旧金成色<input v-model="form.oldGoldFineness" type="number" min="0" max="1" step="0.001" placeholder="如 0.999"/></label>
+            <label class="form-label">来料克重 (g)<input v-model="form.oldGoldWeight" type="number" min="0" step="0.001" placeholder="必填，如 20.000"/></label>
+            <label class="form-label">来料成色<input v-model="form.oldGoldFineness" type="number" min="0" max="1" step="0.001" placeholder="必填，如 0.999"/></label>
           </div>
           <div class="estimate-lines">
             <div><span>加工工费</span><b>{{ money(laborFee) }}</b></div>
@@ -323,14 +325,16 @@ async function submit() {
   if (!form.itemId) { createError.value = '请选择加工项目'; return }
   if (!(Number(form.quantity) > 0)) { createError.value = '数量必须大于 0'; return }
   if (selectedItem.value?.pricing_unit === '按克' && !(Number(form.billingWeight) > 0)) { createError.value = '请填写大于0的计费总克重'; return }
+  if (!(Number(form.oldGoldWeight) > 0)) { createError.value = '请填写来料克重（客户没有旧金请到收银端开单）'; return }
+  if (!(Number(form.oldGoldFineness) > 0 && Number(form.oldGoldFineness) <= 1)) { createError.value = '请填写 0~1 之间的来料成色'; return }
   const payload = {
     customerName: form.customerName, customerPhone: form.customerPhone, processingItemId: Number(form.itemId), quantity: Number(form.quantity),
     billingWeight: selectedItem.value?.pricing_unit === '按克' ? Number(form.billingWeight) : null,
     ...(form.memberId ? { memberId: Number(form.memberId) } : {}),
     ...(form.craftsmanId ? { craftsmanId: Number(form.craftsmanId) } : {}),
     ...(form.pickupDate ? { pickupDate: form.pickupDate } : {}),
-    ...(form.oldGoldWeight !== '' ? { oldGoldWeight: Number(form.oldGoldWeight) } : {}),
-    ...(form.oldGoldFineness !== '' ? { oldGoldFineness: Number(form.oldGoldFineness) } : {}),
+    oldGoldWeight: Number(form.oldGoldWeight),
+    oldGoldFineness: Number(form.oldGoldFineness),
     ...(form.remark ? { remark: form.remark } : {})
   }
   saving.value = true

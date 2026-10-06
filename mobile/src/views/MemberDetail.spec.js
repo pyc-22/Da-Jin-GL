@@ -8,7 +8,7 @@ vi.mock('../api/request.js', () => ({ api: {
   consume: vi.fn().mockResolvedValue([{ consume_id: 5, order_id: 9, order_no: 'XS20260917001', consume_time: '2026-09-17 12:00:00', amount: 888, items: '足金戒指 × 1', pay_method: 'WECHAT' }]),
   processingOrders: vi.fn().mockResolvedValue([])
 } }))
-vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'SALES' }) }))
+vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'SALES', can: () => true }) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '1' } }), useRouter: () => ({ back: vi.fn(), push: vi.fn() }) }))
 
 describe('MemberDetail consumption records', () => {

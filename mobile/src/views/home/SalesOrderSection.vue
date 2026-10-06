@@ -46,7 +46,7 @@
 <div class="section-label">旧金抵扣</div>
 <div v-for="(m,i) in order.oldMetals" :key="m.id" class="old-line">
 <span>{{m.materialType}} · {{m.weight}}g · {{(Number(m.purity||0)*100).toFixed(1)}}%</span>
-<b>¥{{money(m.weight*m.purity*(m.price||recyclePrice||0))}}</b>
+<b>¥{{money(m.weight*finenessFactor(m.purity)*(m.price||recyclePrice||0))}}</b>
 <button @click="order.oldMetals.splice(i,1)">删除</button>
 </div>
 <div class="old-add">
@@ -81,5 +81,6 @@ import PriceLockBadge from '../../components/PriceLockBadge.vue'
 import Panel from '../../components/Panel.vue'
 import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
+import { finenessFactor } from '../../utils/goldPricing.js'
 const { lastSubmitted, salespeople, app, section, threshold, oldMaterialTypes, oldMaterialTypeError, oldMetal, order, orderMemberHits, recyclePrice, isGramItem, oldDeduct, orderTotal, money, scan, previewGoods, scanOrSearch, normalizeOrderQty, addOldMetal, searchOrderMember, pickOrderMember, clearOrderMember, startCheckout } = inject(roleHomeKey)
 </script>

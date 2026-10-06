@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { getStorage, setStorage } from '../utils/storage.js'
-import { readMessagePreferences, saveMessagePreferences, messageRead } from '../utils/messagePreferences.js'
+import { readMessagePreferences, saveMessagePreferences, messageRead, messageId } from '../utils/messagePreferences.js'
 import { api } from '../api/request.js'
 
 export const useMessagesStore = defineStore('messages', {
@@ -27,6 +27,18 @@ export const useMessagesStore = defineStore('messages', {
       const id = notice.notification_id ?? notice.id ?? notice.log_id
       await api.markNotificationRead(id)
       this.rows = this.rows.map(row => String(row.notification_id ?? row.id ?? row.log_id) === String(id) ? { ...row, read: true } : row)
+    },
+    /** 划掉一条消息（服务端软删除）。 */
+    async remove(notice) {
+      const id = messageId(notice)
+      if (!id) return
+      await api.deleteNotification(id)
+      this.rows = this.rows.filter(row => messageId(row) !== id)
+    },
+    /** 清空全部消息（服务端软删除）。 */
+    async clearAll() {
+      await api.clearNotifications()
+      this.rows = []
     },
     readSeen(owner) {
       try { return JSON.parse(getStorage(`dajin-message:${owner}:seen`, 'null')) } catch { return null }

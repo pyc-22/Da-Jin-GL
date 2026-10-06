@@ -12,6 +12,12 @@ it('isolates drafts and pending records by employee and store, retaining each or
   login(1, 7); expect(getStorage('dajin-inbound-queue')).toContain('A')
   removeStorage('dajin-user'); expect(getStorage('dajin-inbound-queue', '[]')).toBe('[]')
 })
+it('keeps the cashier order draft isolated by store and user', () => {
+  login(1, 7); const first = scopedStorage(); first.set('dajin-order-draft', 'order A')
+  login(1, 8); expect(scopedStorage().get('dajin-order-draft', '')).toBe('')
+  login(2, 7); expect(scopedStorage().get('dajin-order-draft', '')).toBe('')
+  login(1, 7); expect(scopedStorage().get('dajin-order-draft', '')).toBe('order A')
+})
 it('does not assign ownerless old drafts to the next user logging in', () => {
   localStorage.setItem('dajin-inbound-draft', 'old private draft')
   login(1, 9)

@@ -193,7 +193,7 @@ export const useAppStore = defineStore('app', {
         const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
         const pageProtocol = typeof location !== 'undefined' ? location.protocol : 'http:'
         const scheme = pageProtocol === 'https:' ? 'wss' : 'ws'
-        const port = typeof location !== 'undefined' && location.port === '5175' ? ':8080' : (typeof location !== 'undefined' && location.port ? `:${location.port}` : '')
+        const port = typeof location !== 'undefined' && location.port ? `:${location.port}` : ''
         base = `${scheme}://${host}${port}`
       }
       return `${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(this.wsToken)}`

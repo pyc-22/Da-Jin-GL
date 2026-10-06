@@ -8,9 +8,9 @@
           <h2>{{ goods.name }}</h2>
           <p class="muted">条码：{{ goods.barcode || '—' }}</p>
           <div class="detail-price">
-            <div><span>售价</span><b>{{ priceOf(goods) == null ? '待同步金价' : '¥' + money(priceOf(goods)) }}</b></div>
+            <div><span>售价</span><b>{{ Number(goods.price_type) === 1 && !(Number(goods.weight) > 0) ? '到店称重计价' : (priceOf(goods) == null ? '待同步金价' : '¥' + money(priceOf(goods))) }}</b></div>
             <div><span>成本</span><b>¥{{ money(goods.cost_price) }}</b></div>
-            <div><span>克重</span><b>{{ goods.weight ? goods.weight + 'g' : '—' }}</b></div>
+            <div><span>克重</span><b>{{ Number(goods.price_type) === 1 && !(Number(goods.weight) > 0) ? '按克称重' : (goods.weight ? goods.weight + 'g' : '—') }}</b></div>
           </div>
         </div>
         <div class="photo-card">
@@ -81,7 +81,9 @@ const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDig
 function priceOf(g) {
   if (Number(g.price_type) === 1) {
     const quote = Number(app.primaryGold?.salePrice || 0)
-    return quote > 0 ? Number(g.weight || 0) * quote : null
+    const weight = Number(g.weight || 0)
+    // 按克商品不设档案克重：只有已知克重时才给估算价，否则到店称重计价。
+    return quote > 0 && weight > 0 ? weight * quote : null
   }
   return Number(g.sale_price || 0)
 }
@@ -187,7 +189,9 @@ async function makePoster() {
   ctx.fillStyle = color('--ink'); ctx.font = 'bold 34px sans-serif'
   const gold = Number(app.primaryGold?.salePrice || 0)
   const priceText = Number(g.price_type) === 1
-    ? (gold > 0 ? `金价 ¥${money(gold)}/g × ${g.weight || 0}g` : '金价待同步，请咨询门店')
+    ? (gold > 0
+      ? (Number(g.weight || 0) > 0 ? `金价 ¥${money(gold)}/g × ${g.weight}g` : `金价 ¥${money(gold)}/g · 以门店称重为准`)
+      : '金价待同步，请咨询门店')
     : `一口价 ¥${money(g.sale_price)}`
   const amountText = priceOf(g) == null ? '价格待确认' : `¥${money(priceOf(g))}`
   ctx.fillText(priceText, 40, 760)

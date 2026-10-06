@@ -22,34 +22,14 @@ http.interceptors.response.use((response) => {
     const auth = useAuthStore()
     // A late response from the previous account must not sign out the new account.
     if (!original._sessionToken || original._sessionToken !== auth.token) return Promise.reject(error)
-    if (auth.refreshToken) return refreshAndRetry(auth, original)
     forceRelogin(auth)
   }
   return Promise.reject(error)
 })
 
-async function refreshAndRetry(auth, original) {
-  original._retried = true
-  const sessionToken = auth.token
-  try {
-    const res = await axios.post(`${http.defaults.baseURL}/api/auth/refresh`, { refreshToken: auth.refreshToken })
-    const data = res.data?.data ?? res.data
-    if (auth.token !== sessionToken) throw new Error('账号已切换')
-    if (!data?.token) throw new Error('no token')
-    auth.token = data.token
-    if (data.refreshToken) auth.refreshToken = data.refreshToken
-    auth.persist()
-    original.headers = { ...original.headers, Authorization: `Bearer ${data.token}` }
-    return http(original)
-  } catch {
-    if (auth.token === sessionToken) forceRelogin(auth)
-    return Promise.reject(new Error('登录已过期，请重新登录'))
-  }
-}
-
 function forceRelogin(auth) {
   auth.logout()
-  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) window.location.replace('/login')
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dajin-auth-expired'))
 }
 
 export const api = {
@@ -72,6 +52,8 @@ export const api = {
   completeVisit: (id, record) => http.post('/api/visit/complete', { id, record }),
   recordVisit: (taskId, record, nextFollowUp, callResult, callStartedAt) => http.post('/api/visit/record', { taskId, record, nextFollowUp, callResult, callStartedAt }),
   markNotificationRead: (id) => http.post(`/api/notification/${id}/read`),
+  deleteNotification: (id) => http.delete(`/api/notification/${id}`),
+  clearNotifications: () => http.post('/api/notification/clear'),
   notifications: () => http.get('/api/notification'),
   // The overview endpoint is the canonical source for weekly ranges. There is
   // no separate /weekly resource, so keep this compatibility helper aligned

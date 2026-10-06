@@ -35,7 +35,7 @@ describe('RecycleCreate', () => {
     mocks.recycleCreate.mockReset().mockResolvedValue({
       recycleOrderId: 9,
       billNo: 'HS20260917001',
-      amount: 2997,
+      amount: 3000,
       approvalRequired: false
     })
   })
@@ -52,7 +52,7 @@ describe('RecycleCreate', () => {
     expect(materialSelect.text()).not.toContain('18K金')
 
     await wrapper.get('[data-testid="recycle-weight"] input').setValue('10')
-    expect(wrapper.get('[data-testid="quote-card"]').text()).toContain('¥2,997.00')
+    expect(wrapper.get('[data-testid="quote-card"]').text()).toContain('¥3,000.00')
 
     await wrapper.get('[data-testid="open-confirm"]').trigger('click')
     expect(mocks.recycleCreate).not.toHaveBeenCalled()
@@ -62,7 +62,7 @@ describe('RecycleCreate', () => {
     await flushPromises()
     expect(mocks.recycleCreate).toHaveBeenCalledTimes(1)
     expect(wrapper.get('[data-testid="success-result"]').text()).toContain('回收成功')
-    expect(wrapper.get('[data-testid="success-result"]').text()).toContain('¥2,997.00')
+    expect(wrapper.get('[data-testid="success-result"]').text()).toContain('¥3,000.00')
     expect(wrapper.find('[data-testid="recycle-form"]').exists()).toBe(false)
   })
 
@@ -70,7 +70,7 @@ describe('RecycleCreate', () => {
     mocks.recycleCreate.mockResolvedValueOnce({
       recycleOrderId: 10,
       billNo: 'HS20260917002',
-      amount: 5994,
+      amount: 6000,
       approvalRequired: true
     })
     const wrapper = mount(RecycleCreate)

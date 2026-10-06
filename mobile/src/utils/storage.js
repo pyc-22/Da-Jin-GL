@@ -1,6 +1,6 @@
 const native = () => typeof uni !== 'undefined' && typeof uni.getStorageSync === 'function'
 const readRaw = key => native() ? uni.getStorageSync(key) : localStorage.getItem(key)
-const scoped = key => /^(dajin-inbound-|dajin-stock-check-)/.test(key) || key === 'dajin-gold'
+const scoped = key => /^(dajin-inbound-|dajin-stock-check-|dajin-order-)/.test(key) || key === 'dajin-gold'
 export function storageOwner() {
   try {
     const user = JSON.parse(readRaw('dajin-user') || 'null')

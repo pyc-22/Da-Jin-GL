@@ -123,6 +123,7 @@ import DesignHeader from '../components/DesignHeader.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app.js'
+import { finenessFactor } from '../utils/goldPricing.js'
 import { api } from '../api/request.js'
 
 const router = useRouter()
@@ -156,7 +157,7 @@ const payOptions = [
 
 const safeLossRate = computed(() => Math.min(99, Math.max(0, Number(lossRate.value || 0))))
 const recycleAvailable = computed(() => Number(recycle.value) > 0)
-const grossAmount = computed(() => Number(weight.value || 0) * Number(purity.value || 0) * Number(recycle.value || 0))
+const grossAmount = computed(() => Number(weight.value || 0) * finenessFactor(purity.value) * Number(recycle.value || 0))
 const lossAmount = computed(() => grossAmount.value * safeLossRate.value / 100)
 const estimate = computed(() => grossAmount.value - lossAmount.value)
 const canQuote = computed(() => recycleAvailable.value && Boolean(materialType.value) && Number(weight.value) > 0)

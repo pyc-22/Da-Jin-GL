@@ -15,7 +15,9 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': { target: 'http://127.0.0.1:18080', changeOrigin: true },
-      '/uploads': { target: 'http://127.0.0.1:18080', changeOrigin: true }
+      '/uploads': { target: 'http://127.0.0.1:18080', changeOrigin: true },
+      '/actuator': { target: 'http://127.0.0.1:18080', changeOrigin: true },
+      '/ws': { target: 'ws://127.0.0.1:18080', changeOrigin: true, ws: true }
     }
   },
   build: { outDir: 'dist/build/android', emptyOutDir: true }

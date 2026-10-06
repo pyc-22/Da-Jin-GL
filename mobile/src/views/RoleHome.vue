@@ -56,7 +56,8 @@ import { useAuthStore } from '../stores/auth.js'; import { useAppStore } from '.
 import { useMessagesStore } from '../stores/messages.js'
 import Kpi from '../components/Kpi.vue'; import Panel from '../components/Panel.vue'; import MemberList from '../components/MemberList.vue'; import PageTitle from '../components/PageTitle.vue'; import TrendBars from '../components/TrendBars.vue'; import CategoryPie from '../components/CategoryPie.vue'; import GoldTrend from '../components/GoldTrend.vue'; import ProfilePanel from '../components/ProfilePanel.vue'; import MarketQuoteBar from '../components/MarketQuoteBar.vue'
 import { managerFunctions as managerFunctionCatalog, salesFunctions as salesFunctionCatalog, sectionForRole, canViewReports } from '../config/roles.js'
-import { getStorage, setStorage } from '../utils/storage.js'
+import { getStorage, setStorage, removeStorage, scopedStorage } from '../utils/storage.js'
+import { stableOrderClientRequestId } from '../utils/orderIdentity.js'
 import { formatApprovalReason, maskPhone } from '../utils/format.js'
 import { parseInboundScanPayload } from '../utils/inboundIdentity.js'
 import { scanBarcodeFromCamera } from '../utils/browserBarcode.js'
@@ -68,10 +69,31 @@ const managerFunctions = computed(() => managerFunctionCatalog.filter(item => (i
 const salesFunctions = computed(() => salesFunctionCatalog.filter(item => item.key !== 'gold-settings'))
 const spotMeta=ref(null)
 async function loadSpotPrice(){try{const d=await api.goldSpot();spotMeta.value=d;spotPrice.value=Number(d?.price||0)}catch{spotPrice.value=0}}
+const orderCache = scopedStorage()
+function restoreOrderDraft(){
+  if(section.value!=='order')return
+  try {
+    const draft=JSON.parse(orderCache.get('dajin-order-draft','null'))
+    if(!draft || !Array.isArray(draft.items))return
+    order.value={...order.value,...draft,items:draft.items,oldMetals:Array.isArray(draft.oldMetals)?draft.oldMetals:[]}
+  } catch {}
+}
+function persistOrderDraft(){
+  if(section.value!=='order')return
+  if(!order.value.items.length && !order.value.oldMetals.length && !order.value.memberId && !order.value.memberKeyword)return
+  orderCache.set('dajin-order-draft',JSON.stringify({memberId:order.value.memberId,memberName:order.value.memberName,memberPhone:order.value.memberPhone,memberKeyword:order.value.memberKeyword,barcode:'',items:order.value.items,laborFee:order.value.laborFee,discount:order.value.discount,oldMetals:order.value.oldMetals,salesId:order.value.salesId||null}))
+}
+async function openMemberFromQuery(){
+  const memberId = route.query?.memberId
+  if(section.value!=='order' || !memberId)return
+  try { const data=await api.member(memberId); pickOrderMember(data?.member||data||{}) } catch {}
+}
 onMounted(() => {
+  restoreOrderDraft()
   const draft = app.tradeInDraft
   if (section.value === 'order' && draft?.owner === auth.user?.user_id) order.value.oldMetals.push(...draft.materials)
   app.tradeInDraft = null
+  void openMemberFromQuery()
 })
 const approvalView=ref('pending'); const approvalHistoryData=ref([]); const approvalDetail=ref(null); const approvalItems=ref([]); const approvalRemark=ref('')
 const stockRoots=ref([]); const oldMaterials=ref([]); const stockChecks=ref([]); const paySummaryData=ref([]); const recycleData=ref({}); const birthdayMembers=ref([]); const messages=useMessagesStore(); const notices=computed(()=>messages.rows)
@@ -231,7 +253,7 @@ function pickOrderMember(m){order.value.memberId=m.member_id;order.value.memberN
 function clearOrderMember(){order.value.memberId=null;order.value.memberName='';order.value.memberPhone='';order.value.memberKeyword='';orderMemberHits.value=[]}
 async function loadNotifications(){try{await messages.refresh?.()}catch{}}
 async function markNotificationRead(notice){if(notice.read)return;try{await messages.markRead?.(notice)}catch{}}
-  function orderPayload(){return {memberId:order.value.memberId||null,discount:order.value.discount||1,oldMaterialDeduct:round2(oldDeduct.value),laborFee:round2(order.value.laborFee||0),payAmount:round2(orderTotal.value),payMethod:'PENDING',salesId:order.value.salesId || null,remark:order.value.memberId?null:(order.value.memberKeyword?`客户:${order.value.memberKeyword}`:null),items:order.value.items.map(i=>{const pieceNos=Array.isArray(i.pieceNos)?i.pieceNos:[];const gram=isGramItem(i);const qty=gram?1:(pieceNos.length||i.qty||1);return {goodsId:i.goodsId,itemName:i.itemName,weight:gram&&Number(i.weight)>0?i.weight:null,unitPrice:round2(i.unitPrice||0),laborFee:0,qty,pieceNos:gram?[]:pieceNos,subtotal:round2(i.subtotal||0),goldType:i.goldType,priceType:Number(i.priceType ?? i.price_type ?? 2)}}),oldMaterials:order.value.oldMetals.map(m=>({materialType:m.materialType||'旧金抵扣',weight:m.weight,purity:m.purity,priceType:'回收金价',price:m.price})),clientRequestId:`mobile-${Date.now()}`,version:1}} function resetCart(){order.value.items=[];order.value.oldMetals=[];clearOrderMember()}
+  function orderPayload(){return {memberId:order.value.memberId||null,discount:order.value.discount||1,oldMaterialDeduct:round2(oldDeduct.value),laborFee:round2(order.value.laborFee||0),payAmount:round2(orderTotal.value),payMethod:'PENDING',salesId:order.value.salesId || null,remark:order.value.memberId?null:(order.value.memberKeyword?`客户:${order.value.memberKeyword}`:null),items:order.value.items.map(i=>{const pieceNos=Array.isArray(i.pieceNos)?i.pieceNos:[];const gram=isGramItem(i);const qty=gram?1:(pieceNos.length||i.qty||1);return {goodsId:i.goodsId,itemName:i.itemName,weight:gram&&Number(i.weight)>0?i.weight:null,unitPrice:round2(i.unitPrice||0),laborFee:0,qty,pieceNos:gram?[]:pieceNos,subtotal:round2(i.subtotal||0),goldType:i.goldType,priceType:Number(i.priceType ?? i.price_type ?? 2)}}),oldMaterials:order.value.oldMetals.map(m=>({materialType:m.materialType||'旧金抵扣',weight:m.weight,purity:m.purity,priceType:'回收金价',price:m.price})),clientRequestId:stableOrderClientRequestId(order.value,orderCache),version:1}} function resetCart(){order.value.items=[];order.value.oldMetals=[];clearOrderMember();removeStorage('dajin-order-draft');orderCache.set('dajin-order-client-id','');orderCache.set('dajin-order-client-fp','')}
 async function startCheckout(){if(!(Number(order.value.discount)>0&&Number(order.value.discount)<=1))return alert('折扣应填 0.01~1 之间的小数，例如 0.85 表示 85折');if(!order.value.items.length)return alert('请先扫码或输入条码添加商品，再转交');const unavailable=order.value.items.find(item=>isGramItem(item)?Number(item.weight||0)>Number(item.availableStock||0):Number(item.qty||0)>Number(item.availableStock||0));if(unavailable)return alert(`${unavailable.itemName} 可售库存不足，请删除后重新扫码`);try{const d=await api.createOrder({ ...orderPayload(), handover:true });lastSubmitted.value={orderNo:d.orderNo,hasGramItems:order.value.items.some(isGramItem)};if(d.approvalRequired){alert('折扣低于阈值，已提交店长审批，审批通过后前台可收款');resetCart();return}resetCart();alert(`订单 ${d.orderNo || ''} 已转交前台，请在收银端「前台待办」完成收款`)}catch(e){const status=e?.response?.status;const detail=e?.response?.data?.message||e?.response?.data?.error;alert(detail||`${e?.message||'提交失败'}${status?`（HTTP ${status}）`:''}`)}}
 function touchStart(e){const point=e.changedTouches?.[0];touchStartPoint.value={x:point?.screenX||0,y:point?.screenY||0};touchMoved.value=false}
 function touchMove(e){const point=e.changedTouches?.[0];if(!point)return;touchMoved.value ||= Math.abs(point.screenX-touchStartPoint.value.x)>8 || Math.abs(point.screenY-touchStartPoint.value.y)>8}
@@ -254,6 +276,7 @@ watch(()=>app.eventVersion,()=>{
   if(isManager.value)loadManager();else if(auth.can('report:view'))loadReport()
 })
 watch(()=>order.value.items,items=>{for(const item of items){if(Array.isArray(item.pieceNos)&&item.pieceNos.length)item.qty=item.pieceNos.length}},{deep:true})
+watch(()=>order.value,()=>persistOrderDraft(),{deep:true})
 watch(memberTab,()=>loadMembers())
 watch(()=>JSON.stringify(auth.user?.permissions),()=>{dashboard.value={};ranking.value=[];recycleData.value={};performance.value={};report.value={};commission.value=[];trendValues.value=[];kpiDetailRows.value=[];kpiDetailSummary.value='';if(isManager.value)loadManager();else if(auth.can('report:view'))loadReport()})
 watch(section,(v)=>{const normalized=sectionForRole(v,role.value);if(normalized!==v){section.value=normalized;return}if(v==='visits'){router.push('/visits');return}if(canInbound.value&&v==='inbound'){router.push('/inbound/create');return}if((v==='report'||v==='performance')&&auth.can('report:view')){router.replace('/report');return}if(isManager.value&&v==='member'){loadTiers();loadBirthdayMembers();loadMemberReport()}if(v==='notifications')loadNotifications();if(v==='members')loadMembers()},{immediate:true})
