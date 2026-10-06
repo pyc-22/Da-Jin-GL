@@ -854,7 +854,7 @@ public class StockController {
             BigDecimal rowWeight = new BigDecimal(String.valueOf(row.getOrDefault("weight", 0)));
             BigDecimal rowPurity = new BigDecimal(String.valueOf(row.getOrDefault("purity", 0)));
             BigDecimal rowValue = new BigDecimal(String.valueOf(row.getOrDefault("value", 0)));
-            available = available.add(rowWeight.multiply(rowPurity).multiply(direction));
+            available = available.add(com.dajin.system.common.Fineness.weight(rowWeight, rowPurity).multiply(direction));
             currentValue = currentValue.add(rowValue.multiply(direction));
         }
         BigDecimal effective = OldMaterialLedgerService.effectiveWeight(weight, purity);

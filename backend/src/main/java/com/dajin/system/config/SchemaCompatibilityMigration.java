@@ -149,6 +149,9 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         createStockSupplierTable();
         createAccessControlTables();
         upgradeSalesMobilePermissions();
+        upgradeCashierPermissions();
+        upgradeSalesOrderCreatePermission();
+        reconcileSalesPermissions();
         addColumn("print_job", "ignored_time", "DATETIME NULL AFTER printed_by");
         addColumn("print_job", "ignored_by", "BIGINT NULL AFTER ignored_time");
         seedStockInboundPermissions();
@@ -255,6 +258,8 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "pricing_unit", "VARCHAR(10) NOT NULL DEFAULT '按件'");
         addColumn("processing_order", "billing_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "store_gold_weight", "DECIMAL(10,3) NOT NULL DEFAULT 0");
+        // 下料：客户来料不够做活时店里额外加的金料（方便师傅做工），不计费、不扣金料库存，只计入损耗率分母。
+        addColumn("processing_order", "down_material_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "store_gold_fineness", "DECIMAL(6,4) NULL");
         addColumn("processing_order", "store_gold_price", "DECIMAL(12,2) NOT NULL DEFAULT 0");
         addColumn("processing_order", "store_gold_amount", "DECIMAL(12,2) NOT NULL DEFAULT 0");
@@ -265,6 +270,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "pickup_photos", "TEXT NULL");
         addColumn("processing_order", "finished_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "finished_fineness", "DECIMAL(6,4) NULL");
+        addColumn("processing_order", "melt_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "recovered_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "loss_weight", "DECIMAL(10,3) NULL");
         addColumn("processing_order", "loss_permille", "DECIMAL(8,2) NULL");
@@ -331,6 +337,29 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.update("update sys_user set permission_initialized=1 where permission_initialized=0");
     }
 
+    /**
+     * 补齐收银端角色的目录权限（金价查看、撤回）：老库的角色权限在目录扩充前就初始化过，
+     * 导致真收银员账号拿不到金价（/api/gold-price/current 403）、撤回被拒。
+     */
+    private void upgradeCashierPermissions() {
+        String marker = "cashier_permissions_v1";
+        java.util.List<Long> stores = jdbc.queryForList(
+                "select s.store_id from sys_store s where not exists (select 1 from sys_config c where c.store_id=s.store_id and c.config_group='MIGRATION' and c.config_key=?)",
+                Long.class, marker);
+        java.util.List<String> permissions = java.util.List.of("gold:view", "order:withdraw", "processing:withdraw");
+        for (Long storeId : stores) {
+            for (String permission : permissions) {
+                jdbc.update("insert ignore into sys_role_permission(store_id,role_code,permission_code) values(?,'CASHIER',?)", storeId, permission);
+                jdbc.update("insert ignore into sys_user_permission(store_id,user_id,permission_code) "
+                                + "select u.store_id,u.user_id,? from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id "
+                                + "where u.store_id=? and r.role_code='CASHIER'",
+                        permission, storeId);
+            }
+            jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
+                            + "values(?,'MIGRATION',?,'1','收银端权限补齐（金价/撤回）',0,1)", storeId, marker);
+        }
+    }
+
     /** Adds the expanded sales workflow once without re-applying it after later per-user edits. */
     private void upgradeSalesMobilePermissions() {
         String marker = "sales_mobile_permissions_v2";
@@ -350,6 +379,56 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
             }
             jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
                             + "values(?,'MIGRATION',?,'1','销售默认移动端权限升级',0,1)",
+                    storeId, marker);
+        }
+    }
+
+    /** Grants the sales order-entry permission to existing stores and users once. */
+    private void upgradeSalesOrderCreatePermission() {
+        String marker = "sales_order_create_v3";
+        java.util.List<Long> stores = jdbc.queryForList(
+                "select s.store_id from sys_store s where not exists (select 1 from sys_config c where c.store_id=s.store_id and c.config_group='MIGRATION' and c.config_key=?)",
+                Long.class, marker);
+        for (Long storeId : stores) {
+            jdbc.update("insert ignore into sys_role_permission(store_id,role_code,permission_code) values(?,'SALES','order:create')", storeId);
+            jdbc.update("insert ignore into sys_user_permission(store_id,user_id,permission_code) "
+                    + "select u.store_id,u.user_id,'order:create' from sys_user u join sys_role r "
+                    + "on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=? and r.role_code='SALES'",
+                    storeId);
+            jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
+                            + "values(?,'MIGRATION',?,'1','销售移动开单权限升级',0,1)",
+                    storeId, marker);
+        }
+    }
+
+    /** Reconciles legacy SALES grants to the code catalog once, including per-user overrides. */
+    private void reconcileSalesPermissions() {
+        String marker = "sales_permissions_reconcile_v1";
+        java.util.List<Long> stores = jdbc.queryForList(
+                "select s.store_id from sys_store s where not exists (select 1 from sys_config c where c.store_id=s.store_id and c.config_group='MIGRATION' and c.config_key=?)",
+                Long.class, marker);
+        String permissionsJson;
+        try {
+            permissionsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(PermissionCatalog.defaults("SALES"));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Unable to serialize SALES permissions", e);
+        }
+        for (Long storeId : stores) {
+            jdbc.update("delete from sys_role_permission where store_id=? and role_code='SALES'", storeId);
+            jdbc.update("delete p from sys_user_permission p join sys_user u on u.user_id=p.user_id and u.store_id=p.store_id "
+                    + "join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id "
+                    + "where p.store_id=? and r.role_code='SALES'", storeId);
+            for (String permission : PermissionCatalog.defaults("SALES")) {
+                jdbc.update("insert ignore into sys_role_permission(store_id,role_code,permission_code) values(?,'SALES',?)", storeId, permission);
+                jdbc.update("insert ignore into sys_user_permission(store_id,user_id,permission_code) "
+                                + "select u.store_id,u.user_id,? from sys_user u join sys_role r "
+                                + "on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=? and r.role_code='SALES'",
+                        permission, storeId);
+            }
+            jdbc.update("update sys_role set permissions=?,permission_initialized=1 where store_id=? and role_code='SALES'",
+                    permissionsJson, storeId);
+            jdbc.update("insert into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) "
+                            + "values(?,'MIGRATION',?,'1','销售权限漂移对齐',0,1)",
                     storeId, marker);
         }
     }

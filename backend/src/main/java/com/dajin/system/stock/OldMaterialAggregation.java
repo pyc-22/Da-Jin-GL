@@ -19,7 +19,7 @@ public final class OldMaterialAggregation {
             BigDecimal purity = decimal(source.get("purity"));
             BigDecimal value = decimal(source.get("value"));
             BigDecimal direction = decimal(source.getOrDefault("direction", 1));
-            BigDecimal effective = weight.multiply(purity).multiply(direction).setScale(3, RoundingMode.HALF_UP);
+            BigDecimal effective = com.dajin.system.common.Fineness.weight(weight, purity).multiply(direction).setScale(3, RoundingMode.HALF_UP);
             Map<String, Object> group = groups.computeIfAbsent(type, key -> {
                 Map<String, Object> created = new LinkedHashMap<>();
                 created.put("material_type", key);

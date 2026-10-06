@@ -19,5 +19,11 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> validation(MethodArgumentNotValidException e) { return ApiResponse.error(400000, e.getBindingResult().getFieldError().getDefaultMessage()); }
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ApiResponse<Void> other(Exception e) { log.error("Unhandled server error", e); return ApiResponse.error(500000, "服务器内部错误"); }
+    public ApiResponse<Void> other(Exception e) {
+        // Keep the fallback handler itself reliable even when the runtime logging
+        // bridge cannot materialize ThrowableProxy. The request must still receive
+        // the standard JSON response so the client can show the actual status.
+        log.error("Unhandled server error {}: {}", e.getClass().getName(), e.getMessage());
+        return ApiResponse.error(500000, "服务器内部错误");
+    }
 }

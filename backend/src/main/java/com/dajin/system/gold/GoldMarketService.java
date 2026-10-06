@@ -210,14 +210,39 @@ public class GoldMarketService {
         applyDefinitionUpdate(item, request);
         // Validate before any configuration write or resume side effect.
         validateAuto(storeId, item);
-        persistDefinitions(storeId, definitions);
         if (Boolean.TRUE.equals(request.get("resumeAuto")) || "true".equalsIgnoreCase(String.valueOf(request.get("resumeAuto")))) {
             clearFrozen(storeId, baseInstrument(item));
         }
+        // The management screen edits manual sale/recycle values through the
+        // type configuration endpoint. Persist those values as a price row and
+        // publish the same event used by the legacy manual-price endpoint so
+        // cashiers update immediately without reloading their order.
+        boolean manualPricesProvided = "MANUAL".equals(pricingMode(item))
+                && (request.get("salePrice") != null || request.get("recyclePrice") != null);
+        if (manualPricesProvided) {
+            BigDecimal sale = request.get("salePrice") == null
+                    ? decimal(previous == null ? null : previous.get("sale_price"))
+                    : decimalRequired(request.get("salePrice"), "卖价");
+            BigDecimal recycle = request.get("recyclePrice") == null
+                    ? decimal(previous == null ? null : previous.get("recycle_price"))
+                    : decimalRequired(request.get("recyclePrice"), "回收价");
+            if ((sale != null && sale.signum() < 0) || (recycle != null && recycle.signum() < 0)) {
+                throw new BusinessException(400302, "卖价和回收价不能小于0");
+            }
+            if (sale == null && recycle == null) throw new BusinessException(400302, "至少填写卖价或回收价");
+            item.put("price", isRecycleType(item) ? recycle : sale);
+            persistDefinitions(storeId, definitions);
+            insertPrice(storeId, item, recycle, sale,
+                    previous == null ? null : decimal(previous.get("base_price")),
+                    "MANUAL", null, "MANUAL", false);
+            logChange(storeId, userId, item, previous, sale, recycle, "MANUAL");
+            broadcastPrice(storeId, item, sale, recycle, "MANUAL", null);
+        }
+        if (!manualPricesProvided) persistDefinitions(storeId, definitions);
         Map<String, Map<String, Object>> quotes = new LinkedHashMap<>();
         quotes.put(AU_TD, refreshQuote(storeId, AU_TD)); quotes.put(AG_TD, refreshQuote(storeId, AG_TD));
         repriceAuto(storeId, quotes, true);
-        if (!"AUTO".equals(pricingMode(item))) {
+        if (!"AUTO".equals(pricingMode(item)) && !manualPricesProvided) {
             Map<String, Object> latest = latestPrices(storeId).get(String.valueOf(item.get("name")));
             logChange(storeId, userId, item, previous, latest == null ? null : decimal(latest.get("sale_price")), latest == null ? null : decimal(latest.get("recycle_price")), "MANUAL_CONFIG");
         }
@@ -279,13 +304,18 @@ public class GoldMarketService {
 
     public static BigDecimal coefficient(Map<String, Object> item) {
         BigDecimal explicit = decimal(item.get("purityCoefficient"));
-        if (explicit != null && explicit.signum() > 0 && explicit.compareTo(BigDecimal.ONE) <= 0) return explicit;
-        BigDecimal purity = decimal(item.get("purity"));
-        return purity == null ? BigDecimal.ONE : (purity.compareTo(BigDecimal.ONE) > 0 ? purity.movePointLeft(2) : purity);
+        BigDecimal value;
+        if (explicit != null && explicit.signum() > 0 && explicit.compareTo(BigDecimal.ONE) <= 0) value = explicit;
+        else {
+            BigDecimal purity = decimal(item.get("purity"));
+            value = purity == null ? BigDecimal.ONE : (purity.compareTo(BigDecimal.ONE) > 0 ? purity.movePointLeft(2) : purity);
+        }
+        // 成色 ≥ 0.995 视作足金：单价按整克计，不再乘 0.999
+        return com.dajin.system.common.Fineness.factor(value);
     }
 
     public static BigDecimal calculate(BigDecimal base, BigDecimal purity, BigDecimal markup, BigDecimal deduction, String rule, boolean recycle) {
-        BigDecimal value = base.multiply(purity).add(recycle ? deduction.negate() : markup);
+        BigDecimal value = base.multiply(com.dajin.system.common.Fineness.factor(purity)).add(recycle ? deduction.negate() : markup);
         return round(value.max(BigDecimal.ZERO), rule);
     }
 

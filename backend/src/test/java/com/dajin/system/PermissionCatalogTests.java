@@ -21,6 +21,8 @@ class PermissionCatalogTests {
         assertTrue(PermissionCatalog.defaults("SALES").contains("member:view"));
         assertTrue(PermissionCatalog.defaults("SALES").contains("member:create"));
         assertTrue(PermissionCatalog.defaults("SALES").contains("member:follow"));
+        assertTrue(PermissionCatalog.defaults("SALES").contains("order:create"));
+        assertFalse(PermissionCatalog.defaults("SALES").contains("order:checkout"));
     }
 
     @Test void managerCanApproveStockChecks() {

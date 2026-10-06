@@ -42,14 +42,14 @@ public class RecycleController {
         BigDecimal lossRate = q.get("deductLossRate") == null ? BigDecimal.ZERO : decimal(q, "deductLossRate");
         if (lossRate.compareTo(BigDecimal.ONE) > 0) lossRate = lossRate.divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
         if (lossRate.signum() < 0 || lossRate.compareTo(BigDecimal.ONE) >= 0) throw new BusinessException(400402, "扣损比例应在0到1之间");
-        BigDecimal base = weight.multiply(purity).multiply(price), lossAmount = base.multiply(lossRate).setScale(2, RoundingMode.HALF_UP), amount = base.subtract(lossAmount).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal base = com.dajin.system.common.Fineness.weight(weight, purity).multiply(price), lossAmount = base.multiply(lossRate).setScale(2, RoundingMode.HALF_UP), amount = base.subtract(lossAmount).setScale(2, RoundingMode.HALF_UP);
         String payMethod = PaymentChannelPolicy.requireActiveExternal(db, db.store(r), q.getOrDefault("payMethod", "CASH"));
         int status = amount.compareTo(config(r, "recycle_approval_limit")) > 0 ? 3 : 1;
         String billNo = "HS" + System.currentTimeMillis();
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", billNo).addValue("m", q.get("memberId")).addValue("type", q.getOrDefault("materialType", "足金旧料")).addValue("w", weight).addValue("purity", purity).addValue("instrument", snapshot.get("baseInstrument")).addValue("base", snapshot.get("basePrice")).addValue("coefficient", snapshot.get("purityCoefficient")).addValue("recyclePrice", price).addValue("quoteTime", snapshot.get("quoteTime")).addValue("source", snapshot.get("source")).addValue("marketStatus", snapshot.get("marketStatus")).addValue("loss", lossAmount).addValue("amount", amount).addValue("pay", payMethod).addValue("status", status).addValue("creator", userId(r));
         db.jdbc().update("insert into recycle_order(store_id,bill_no,created_by,member_id,material_type,weight,purity,gold_base_instrument,gold_base_price,gold_purity_coefficient,gold_recycle_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,deduct_loss,total_amount,pay_method,status,create_time,update_time) values(:s,:no,:creator,:m,:type,:w,:purity,:instrument,:base,:coefficient,:recyclePrice,:quoteTime,:source,:marketStatus,:loss,:amount,:pay,:status,now(),now())", p);
         long recycleId = db.jdbc().queryForObject("select recycle_order_id from recycle_order where store_id=:s and bill_no=:no", p, Long.class);
-        BigDecimal effectivePurity = purity.multiply(BigDecimal.ONE.subtract(lossRate)).setScale(4, RoundingMode.HALF_UP);
+        BigDecimal effectivePurity = com.dajin.system.common.Fineness.factor(purity).multiply(BigDecimal.ONE.subtract(lossRate)).setScale(4, RoundingMode.HALF_UP);
         db.jdbc().update("insert into old_material(store_id,material_type,weight,purity,source,value,status,create_time,update_time) values(:s,:type,:w,:p,:source,:value,:st,now(),now())", new MapSqlParameterSource().addValue("s", db.store(r)).addValue("type", q.getOrDefault("materialType", "足金旧料")).addValue("w", weight).addValue("p", effectivePurity).addValue("source", "RECYCLE:" + recycleId).addValue("value", amount).addValue("st", status == 1 ? 1 : 0));
         Long approvalId = null;
         if (status == 3) {

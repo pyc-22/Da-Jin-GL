@@ -20,7 +20,7 @@ public class NotificationController {
     public ApiResponse<?> list(HttpServletRequest req) {
         long uid = userId(req);
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(req)).addValue("uid", uid);
-        return ApiResponse.ok(db.list("select log_id notification_id,action,content,create_time from operation_log where store_id=:s and module='NOTIFICATION' and user_id=:uid order by log_id desc limit 100", p));
+        return ApiResponse.ok(db.list("select log_id notification_id,action,content,create_time from operation_log where store_id=:s and module='NOTIFICATION' and user_id=:uid and action<>'DELETED' order by log_id desc limit 100", p));
     }
 
     @PostMapping("/{id}/read")
@@ -29,6 +29,24 @@ public class NotificationController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(req)).addValue("uid", uid).addValue("id", id);
         int changed = db.jdbc().update("update operation_log set action='READ' where log_id=:id and store_id=:s and user_id=:uid and module='NOTIFICATION'", p);
         return ApiResponse.ok(Map.of("read", changed > 0));
+    }
+
+    /** 划掉单条消息：软删除（action=DELETED），操作日志保留。 */
+    @DeleteMapping("/{id}")
+    public ApiResponse<?> remove(@PathVariable long id, HttpServletRequest req) {
+        long uid = userId(req);
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(req)).addValue("uid", uid).addValue("id", id);
+        int changed = db.jdbc().update("update operation_log set action='DELETED' where log_id=:id and store_id=:s and user_id=:uid and module='NOTIFICATION'", p);
+        return ApiResponse.ok(Map.of("deleted", changed > 0));
+    }
+
+    /** 清空我的全部消息：软删除，操作日志保留。 */
+    @PostMapping("/clear")
+    public ApiResponse<?> clear(HttpServletRequest req) {
+        long uid = userId(req);
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(req)).addValue("uid", uid);
+        int changed = db.jdbc().update("update operation_log set action='DELETED' where store_id=:s and module='NOTIFICATION' and user_id=:uid and action<>'DELETED'", p);
+        return ApiResponse.ok(Map.of("cleared", changed));
     }
 
     private long userId(HttpServletRequest req) {

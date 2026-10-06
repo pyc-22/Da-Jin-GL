@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
+import org.mockito.ArgumentCaptor;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,6 +31,7 @@ class GoldMarketRegressionTests {
     @SuppressWarnings("unchecked") private final ValueOperations<String, String> values = mock(ValueOperations.class);
     private final MockEnvironment env = new MockEnvironment();
     private final HttpClient http = mock(HttpClient.class);
+    private SyncWebSocketHandler ws;
     private GoldMarketService service;
     private AdjustableClock clock;
     private static final String DEFINITIONS = """
@@ -47,7 +49,8 @@ class GoldMarketRegressionTests {
     }
     private void at(String time) {
         clock = new AdjustableClock(LocalDateTime.parse(time).atZone(ZoneId.of("Asia/Shanghai")).toInstant());
-        service = new GoldMarketService(db, mock(SyncWebSocketHandler.class), new ObjectMapper(), redis, env, clock, http);
+        ws = mock(SyncWebSocketHandler.class);
+        service = new GoldMarketService(db, ws, new ObjectMapper(), redis, env, clock, http);
     }
 
     @Test void missingKeysDoNotConsumeQuotaAndExposeReason() {
@@ -89,6 +92,15 @@ class GoldMarketRegressionTests {
         assertEquals(new BigDecimal("950.00"), result.get("salePrice"));
         assertEquals(new BigDecimal("880.00"), result.get("recyclePrice"));
         verify(jdbc).update(contains("insert into gold_price("), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(ws).broadcast(eq("GOLD_PRICE_UPDATED"), event.capture());
+        Map<?, ?> payload = (Map<?, ?>) event.getValue();
+        assertEquals(9105L, payload.get("storeId"));
+        // Events identify the row by its display/config name; clients also
+        // accept the stable code when loading legacy rows.
+        assertEquals("足金", payload.get("priceType"));
+        assertEquals(new BigDecimal("950.00"), payload.get("salePrice"));
+        assertEquals(new BigDecimal("880.00"), payload.get("recyclePrice"));
     }
 
     @Test void legacyManualPriceOnlyChangesItsMappedSide() {
@@ -104,6 +116,32 @@ class GoldMarketRegressionTests {
 
         assertEquals(new BigDecimal("950.00"), result.get("salePrice"));
         assertEquals(new BigDecimal("870.00"), result.get("recyclePrice"));
+    }
+
+    @Test void managementTypeUpdatePersistsManualPricesAndBroadcastsCashierEvent() {
+        Map<String, Object> oldPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("940.00"),
+                "recycle_price", new BigDecimal("870.00"), "price", new BigDecimal("940.00")));
+        Map<String, Object> updatedPrice = new HashMap<>(Map.of(
+                "price_type", "足金", "sale_price", new BigDecimal("860.00"),
+                "recycle_price", new BigDecimal("820.00"), "price", new BigDecimal("860.00")));
+        when(db.list(contains("select gp.*"), anyMap()))
+                .thenReturn(List.of(oldPrice), List.of(updatedPrice), List.of(updatedPrice), List.of(updatedPrice));
+
+        service.updateType(9107, 2, "GOLD", Map.of(
+                "pricingMode", "MANUAL", "salePrice", new BigDecimal("860.00"),
+                "recyclePrice", new BigDecimal("820.00"), "baseInstrument", "Au_TD",
+                "purityCoefficient", new BigDecimal("0.999"), "markup", BigDecimal.ZERO,
+                "recycleDeduction", BigDecimal.ZERO, "roundingRule", "NONE"));
+
+        verify(jdbc).update(contains("insert into gold_price("), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(ws).broadcast(eq("GOLD_PRICE_UPDATED"), event.capture());
+        Map<?, ?> payload = (Map<?, ?>) event.getValue();
+        assertEquals(9107L, payload.get("storeId"));
+        assertEquals("足金", payload.get("priceType"));
+        assertEquals(new BigDecimal("860.00"), payload.get("salePrice"));
+        assertEquals(new BigDecimal("820.00"), payload.get("recyclePrice"));
     }
 
     @Test void invalidAutoIsRejectedBeforeConfigPersistence() {

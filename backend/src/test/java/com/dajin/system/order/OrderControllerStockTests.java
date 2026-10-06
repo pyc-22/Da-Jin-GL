@@ -5,6 +5,7 @@ import com.dajin.system.common.DbSupport;
 import com.dajin.system.common.ApiResponse;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
@@ -164,6 +165,49 @@ class OrderControllerStockTests {
         assertEquals(409110, error.getCode());
         verify(jdbc, never()).update(org.mockito.ArgumentMatchers.contains("goods_piece set status=1"),
                 org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    void salesCanCancelOnlyAnOrderTheyOwn() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(request)).thenReturn(1L);
+        when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "SALES")).setSubject("7"));
+        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order o where o.order_id=:id"),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(Map.of(
+                "order_id", 91L, "order_no", "XS-91", "status", 0,
+                "sales_id", 7L, "cashier_id", 7L, "actual_paid", BigDecimal.ZERO)));
+        OrderController controller = new OrderController(db, mock(SyncWebSocketHandler.class), new ObjectMapper());
+
+        assertDoesNotThrow(() -> controller.cancel(91L, Map.of(), request));
+        verify(jdbc).update(org.mockito.ArgumentMatchers.contains("update sales_order set status=4"),
+                org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
+    }
+
+    @Test
+    void salesCannotCancelAnotherSalesOrderThroughClientRequestPath() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(request)).thenReturn(1L);
+        when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "SALES")).setSubject("7"));
+        when(jdbc.queryForObject(org.mockito.ArgumentMatchers.contains("select action from operation_log"),
+                org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.eq(String.class))).thenReturn("OPEN");
+        when(db.list(org.mockito.ArgumentMatchers.contains("from sales_order"),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(Map.of(
+                "order_id", 92L, "order_no", "XS-92", "status", 0,
+                "sales_id", 8L, "cashier_id", 8L, "actual_paid", BigDecimal.ZERO)));
+        OrderController controller = new OrderController(db, mock(SyncWebSocketHandler.class), new ObjectMapper());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> controller.cancelByClient(Map.of("orderClientRequestId", "offline-other"), request));
+
+        assertEquals(403707, error.getCode());
+        verify(jdbc, never()).update(org.mockito.ArgumentMatchers.contains("update sales_order set status=4"),
+                org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
     }
 
     @Test

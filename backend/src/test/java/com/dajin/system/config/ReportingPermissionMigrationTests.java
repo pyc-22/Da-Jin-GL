@@ -40,4 +40,34 @@ class ReportingPermissionMigrationTests {
                 && sql.contains("a.creator=l.creator") && sql.contains("having count(distinct")
                 && !sql.contains("finance_record")));
     }
+
+    @Test void salesOrderCreateMigrationWritesBothPermissionRelations() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(contains("select s.store_id"), eq(Long.class), eq("sales_order_create_v3")))
+                .thenReturn(List.of(3L));
+        var migration = new SchemaCompatibilityMigration(jdbc);
+        var method = SchemaCompatibilityMigration.class.getDeclaredMethod("upgradeSalesOrderCreatePermission");
+        method.setAccessible(true);
+        method.invoke(migration);
+        verify(jdbc).update("insert ignore into sys_role_permission(store_id,role_code,permission_code) values(?,'SALES','order:create')", 3L);
+        verify(jdbc).update(contains("insert ignore into sys_user_permission"), eq(3L));
+        verify(jdbc).update(contains("insert into sys_config"), eq(3L), eq("sales_order_create_v3"));
+    }
+
+    @Test void salesPermissionReconciliationRebuildsBothRelationsAndLeavesMarker() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(contains("select s.store_id"), eq(Long.class), eq("sales_permissions_reconcile_v1")))
+                .thenReturn(List.of(3L));
+        var migration = new SchemaCompatibilityMigration(jdbc);
+        var method = SchemaCompatibilityMigration.class.getDeclaredMethod("reconcileSalesPermissions");
+        method.setAccessible(true);
+        method.invoke(migration);
+
+        verify(jdbc).update("delete from sys_role_permission where store_id=? and role_code='SALES'", 3L);
+        verify(jdbc).update(contains("delete p from sys_user_permission"), eq(3L));
+        verify(jdbc).update("insert ignore into sys_role_permission(store_id,role_code,permission_code) values(?,'SALES',?)", 3L, "order:create");
+        verify(jdbc).update(contains("insert ignore into sys_user_permission"), eq("order:create"), eq(3L));
+        verify(jdbc).update(contains("update sys_role set permissions=?"), anyString(), eq(3L));
+        verify(jdbc).update(contains("insert into sys_config"), eq(3L), eq("sales_permissions_reconcile_v1"));
+    }
 }

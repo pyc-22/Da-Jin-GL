@@ -287,6 +287,28 @@ public class OrderController {
     }
     @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("limit", size).addValue("off", (page - 1) * size); return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, " + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, " + SalesAmounts.remainingDue("o") + " remaining_due, sales.real_name sales_name from sales_order o left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id where o.store_id=:s and o.status<>6 and (:st is null or o.status=:st) and (:ho is null or o.handover=:ho) order by o.order_id desc limit :limit offset :off", p)); }
 
+    /**
+     * Compatibility endpoint for older cashier builds.  Older builds used
+     * /pending for the cashier queue; without an explicit mapping Spring
+     * matched the /{id} detail route and returned a 500 while parsing "pending".
+     */
+    @GetMapping("/pending")
+    @RequirePermission("order:checkout")
+    public ApiResponse<?> pending(@RequestParam(defaultValue = "1") int page,
+                                  @RequestParam(defaultValue = "100") int size,
+                                  HttpServletRequest r) {
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("s", db.store(r))
+                .addValue("limit", size)
+                .addValue("off", (page - 1) * size);
+        return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, "
+                + SalesAmounts.discountedDue("o") + " discounted_due, "
+                + SalesAmounts.actualPaid("o") + " actual_paid, "
+                + SalesAmounts.remainingDue("o") + " remaining_due, sales.real_name sales_name "
+                + "from sales_order o left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id "
+                + "where o.store_id=:s and o.status in (0,3) order by o.order_id desc limit :limit offset :off", p));
+    }
+
     @PutMapping("/{id}/sales")
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
     @Transactional
@@ -320,9 +342,18 @@ public class OrderController {
     @Transactional
     public ApiResponse<?> cancel(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest r) {
         long storeId = db.store(r);
-        List<Map<String,Object>> rows = db.list("select o.order_id,o.order_no,o.status," + SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:id and o.store_id=:s for update", Map.of("id", id, "s", storeId));
+        List<Map<String,Object>> rows = db.list("select o.order_id,o.order_no,o.status,o.sales_id,o.cashier_id," + SalesAmounts.actualPaid("o") + " actual_paid from sales_order o where o.order_id=:id and o.store_id=:s for update", Map.of("id", id, "s", storeId));
         if (rows.isEmpty()) throw new BusinessException(404108, "销售订单不存在");
         Map<String,Object> order = rows.get(0);
+        Claims claims = (Claims) r.getAttribute("claims");
+        if (claims != null && "SALES".equalsIgnoreCase(String.valueOf(claims.get("role")))) {
+            long operator = userId(r);
+            Object salesId = order.get("sales_id");
+            Object cashierId = order.get("cashier_id");
+            boolean ownsOrder = (salesId instanceof Number && ((Number) salesId).longValue() == operator)
+                    || (cashierId instanceof Number && ((Number) cashierId).longValue() == operator);
+            if (!ownsOrder) throw new BusinessException(403707, "销售只能取消自己创建的订单");
+        }
         int status = ((Number) order.get("status")).intValue();
         if (status == 4) return ApiResponse.ok(Map.of("orderId", id, "status", 4, "idempotentReplay", true));
         if (status != 0 && status != 3) throw new BusinessException(409109, "只有待收款或待审批订单可以取消");
@@ -409,7 +440,7 @@ public class OrderController {
             if (item.weight() == null || item.purity() == null || item.weight().signum() <= 0
                     || item.purity().signum() <= 0 || item.purity().compareTo(BigDecimal.ONE) > 0)
                 throw new BusinessException(400103, "旧料克重和成色必须大于0且成色不超过100%");
-            return item.weight().multiply(item.purity()).multiply(recyclePrice);
+            return com.dajin.system.common.Fineness.weight(item.weight(), item.purity()).multiply(recyclePrice);
         }).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
     }
 
@@ -437,7 +468,7 @@ public class OrderController {
         if (materials == null || materials.isEmpty()) return;
         BigDecimal recyclePrice = db.jdbc().queryForObject("select price from gold_price where store_id=:s and price_type='回收金价' order by date desc,price_id desc limit 1", Map.of("s", db.store(r)), BigDecimal.class);
         for (OldMaterialItem item : materials) {
-            BigDecimal value = item.weight().multiply(item.purity()).multiply(recyclePrice).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal value = com.dajin.system.common.Fineness.weight(item.weight(), item.purity()).multiply(recyclePrice).setScale(2, RoundingMode.HALF_UP);
             db.jdbc().update("insert into old_material(store_id,material_type,weight,purity,source,value,status,create_time,update_time) values(:s,:type,:weight,:purity,:source,:value,0,now(),now())", new MapSqlParameterSource().addValue("s", db.store(r)).addValue("type", item.materialType() == null ? "旧金抵扣" : item.materialType()).addValue("weight", item.weight()).addValue("purity", item.purity()).addValue("source", "ORDER:" + orderId).addValue("value", value));
         }
     }

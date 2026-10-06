@@ -39,7 +39,7 @@ public class OldMaterialLedgerService {
         for (Map<String,Object> material : materials) {
             var p = new MapSqlParameterSource().addValue("s",storeId).addValue("type",material.get("material_type"));
             var availableRows = db.list("select weight,purity,direction from old_material where store_id=:s and material_type=:type and status=1 order by material_id for update",p);
-            BigDecimal available = availableRows.stream().map(row -> decimal(row.get("weight")).multiply(decimal(row.get("purity"))).multiply(decimal(row.get("direction")))).reduce(BigDecimal.ZERO,BigDecimal::add);
+            BigDecimal available = availableRows.stream().map(row -> com.dajin.system.common.Fineness.weight(decimal(row.get("weight")), decimal(row.get("purity"))).multiply(decimal(row.get("direction")))).reduce(BigDecimal.ZERO,BigDecimal::add);
             BigDecimal weight = effectiveWeight(decimal(material.get("weight")),decimal(material.get("purity")));
             if (available.setScale(3,RoundingMode.HALF_UP).compareTo(weight)<0)
                 throw new com.dajin.system.common.BusinessException(409111,"旧料已领用或库存不足，不能直接退还，请先核对旧料库存");
@@ -58,7 +58,7 @@ public class OldMaterialLedgerService {
     }
 
     static BigDecimal effectiveWeight(BigDecimal weight, BigDecimal purity) {
-        return weight.multiply(purity).setScale(3, RoundingMode.HALF_UP);
+        return com.dajin.system.common.Fineness.weight(weight, purity).setScale(3, RoundingMode.HALF_UP);
     }
 
     private MapSqlParameterSource parameters(long storeId, long materialId, String source, BigDecimal weight,
