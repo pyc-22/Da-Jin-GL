@@ -22,6 +22,8 @@ const typeOptions = [
   { value: 'STOCK_CHECK', label: '盘点审批' },
   { value: 'PROCESSING_REFUND', label: '加工返款审批' }
   ,{ value: 'MEMBER_CLAIM', label: '会员认领' }
+  ,{ value: 'TRADE_IN', label: '以旧换新审批' }
+  ,{ value: 'STOCK_OUT', label: '出库审批' }
 ]
 const typeLabel = (type) => typeOptions.find(item => item.value === type)?.label || type || '-'
 const pendingRows = computed(() => selectedType.value === 'ALL' ? pending.value : pending.value.filter(row => row.type === selectedType.value))
