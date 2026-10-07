@@ -11,7 +11,7 @@ import {
 import { apiBase, fetchBackend, getToken, login, openBackendSocket, request, setApiBase, setToken, uploadBackendPhoto } from './api'
 import { filterCatalogProducts } from './catalog'
 import { calculateOldMaterialSettlement, handoverCheckout } from './checkout'
-import { buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS, goldBalance } from './cashier'
+import { buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS, goldBalance, finenessFactor, oldGoldDeduction } from './cashier'
 import { isBackendOnline } from './connectivity'
 import { buildReceiptPreview, formatPrintTime } from './escpos'
 import { cancelQueuedOrder, enqueueWithId, localConflicts, localGold, localMembers, localProducts, requestOrQueue, resolveLocalConflict, syncQueue, uuid } from './offline'
@@ -759,7 +759,7 @@ const cartCountLabel = computed(() => {
 })
 const cartSubtotal = computed(() => orderDraft.value?.settlement?.subtotal ?? cart.value.reduce((sum, item) => sum + (isGramItem(item) ? Number(item.amount || 0) : Number(item.amount || 0) * Number(item.qty || 1)), 0))
 const cartLabor = computed(() => orderDraft.value?.settlement?.laborFee ?? cart.value.reduce((sum, item) => sum + (isGramItem(item) ? Number(item.laborFee || 0) : Number(item.laborFee || 0) * Number(item.qty || 1)), 0))
-const oldDeduct = computed(() => orderDraft.value?.settlement?.oldMaterialValue ?? oldMetals.value.reduce((sum, m) => sum + Number(m.weight || 0) * finenessFactor(m.purity) * (goldMap.value[m.priceType] || recycleSpot.value), 0))
+const oldDeduct = computed(() => orderDraft.value?.settlement?.oldMaterialValue ?? oldMetals.value.reduce((sum, m) => sum + oldGoldDeduction(m.weight, m.purity, goldMap.value[m.priceType] || recycleSpot.value), 0))
 const discounted = computed(() => cartSubtotal.value * discount.value)
 const oldMaterialSettlement = computed(() => calculateOldMaterialSettlement(cartSubtotal.value, discount.value, cartLabor.value, oldDeduct.value))
 const appliedOldDeduct = computed(() => oldMaterialSettlement.value.appliedDeduction)
@@ -777,7 +777,7 @@ const recyclePurity = computed(() => parsePurity(recycleForm.purityChoice, recyc
 const recycleAmount = computed(() => { const base = Number(recycleForm.weight || 0) * finenessFactor(recyclePurity.value) * Number(recycleForm.recyclePrice || recycleSpot.value); return Math.max(0, base * (1 - Number(recycleForm.deductLossRate || 0) / 100)) })
 const tradeDiff = computed(() => Number(tradeForm.newValue || 0) - Number(tradeForm.oldValue || 0))
 const tradeOldPurity = computed(() => parsePurity(tradeOldForm.purityChoice, tradeOldForm.customPurity))
-const tradeOldTotal = computed(() => tradeOldMetals.value.reduce((sum, item) => sum + Number(item.weight || 0) * Number(item.purity || 0) * recycleSpot.value, 0))
+const tradeOldTotal = computed(() => tradeOldMetals.value.reduce((sum, item) => sum + oldGoldDeduction(item.weight, item.purity, recycleSpot.value), 0))
 const shiftTotal = computed(() => shiftRows.value.reduce((sum, row) => sum + Number(row.amount || 0), 0))
 const shiftCashSystem = computed(() => { const meta = shiftMeta.value?.cashSystem; return meta == null ? Number(shiftRows.value.find(row => String(row.pay_method || '').toUpperCase() === 'CASH')?.amount || 0) : Number(meta) })
 const shiftCashDifference = computed(() => Number(shiftCash.value || 0) - shiftCashSystem.value)
@@ -787,12 +787,7 @@ const processingResidualDeduction = computed(() => {
   return 0
 })
 const processingDue = computed(() => Math.max(0, processingLaborFee.value))
-// 甲方口径：成色 0.995 及以上（足金线）视作 1，按整克不折；低于才按含金量折算
-function finenessFactor(fineness) {
-  const value = Number(fineness)
-  if (!Number.isFinite(value) || value <= 0) return 1
-  return value >= 0.995 ? 1 : value
-}
+// 成色因子（0.995 及以上按整克）与旧金折抵统一走 cashier.js，避免各页面自己写漏掉足金线规则
 // 补金参考 = 成品实重 − 融后金重（成品超出客户融后金的部分由客户付，含店里下料；损耗由店里承担）
 // 只做预填与提示，柜面确认后可手改，最终以后端登记值为准
 const procFinishGold = computed(() => goldBalance({ melt: procFinish.meltWeight, finished: procFinish.finishedWeight }))

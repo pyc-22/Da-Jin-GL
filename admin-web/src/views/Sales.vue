@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { processingApi, salesApi } from '../api/modules'
 import { formatMoney, formatPaymentMethod, formatTime, orderStatus } from '../utils/format'
+import { finenessFactor } from '../utils/goldPricing'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 
@@ -95,7 +96,8 @@ function itemSummary({ columns, data }) {
 }
 
 function oldMaterialPrice(item) {
-  const denominator = Number(item.weight || 0) * Number(item.purity || 0)
+  // 折抵口径同样走足金线规则：0.995 及以上按整克，否则按含金量折算
+  const denominator = Number(item.weight || 0) * finenessFactor(item.purity)
   return denominator ? Number(item.value || 0) / denominator : 0
 }
 

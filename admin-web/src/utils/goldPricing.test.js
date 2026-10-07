@@ -19,4 +19,12 @@ describe.each([['admin', admin], ['mobile', mobile]])('%s gold pricing', (_, pri
     expect(pricing.autoPricingIssue({ ...valid, marketStatus: 'ERROR' })).toContain('行情异常')
     expect(pricing.autoPricingIssue({ ...valid, pricingMode: 'MANUAL', basePrice: null })).toBe('')
   })
+  it('applies the full-gold line when converting old gold into money', () => {
+    expect(pricing.finenessFactor(0.999)).toBe(1)
+    expect(pricing.finenessFactor(0.995)).toBe(1)
+    expect(pricing.finenessFactor(0.916)).toBeCloseTo(0.916)
+    // 门店实际那单：旧金 10g、足金999、回收价 860 → 折抵 8600（不是 8591.40）
+    expect(pricing.oldGoldDeduction(10, 0.999, 860)).toBeCloseTo(8600)
+    expect(pricing.oldGoldDeduction(10, 0.916, 860)).toBeCloseTo(7877.6)
+  })
 })

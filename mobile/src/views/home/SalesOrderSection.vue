@@ -46,7 +46,7 @@
 <div class="section-label">旧金抵扣</div>
 <div v-for="(m,i) in order.oldMetals" :key="m.id" class="old-line">
 <span>{{m.materialType}} · {{m.weight}}g · {{(Number(m.purity||0)*100).toFixed(1)}}%</span>
-<b>¥{{money(m.weight*finenessFactor(m.purity)*(m.price||recyclePrice||0))}}</b>
+<b>¥{{money(oldGoldDeduction(m.weight, m.purity, m.price||recyclePrice||0))}}</b>
 <button @click="order.oldMetals.splice(i,1)">删除</button>
 </div>
 <div class="old-add">

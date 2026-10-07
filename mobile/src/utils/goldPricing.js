@@ -11,6 +11,11 @@ export const finenessFactor = value => {
   return f >= 0.995 ? 1 : f
 }
 
+// 旧金折抵 = 克重 × 成色因子(足金线规则) × 单价。三端所有"旧金折抵/回收金额"都必须走这里，
+// 避免各页面自己写 weight*成色*单价 而漏掉足金线规则。
+export const oldGoldDeduction = (weight, purity, price) =>
+  Number(weight || 0) * finenessFactor(purity) * Number(price || 0)
+
 function round(value, rule) {
   if (rule === 'TAIL_8') return Math.floor(value) + 0.8
   if (rule === 'TAIL_9') return Math.floor(value) + 0.9

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS, goldBalance } from './cashier'
+import { buildShiftPreview, buildShiftPrintHtml, parsePurity, PURITY_OPTIONS, goldBalance, finenessFactor, oldGoldDeduction } from './cashier'
 
 describe('cashier old material and shift helpers', () => {
   it('supports the required purity choices and parses custom 96.5%', () => {
@@ -41,5 +41,17 @@ describe('cashier old material and shift helpers', () => {
     expect(buildShiftPrintHtml(model, '58')).toContain('@page{size:58mm auto')
     expect(buildShiftPrintHtml(model, 'a4')).toContain('@page{size:A4')
     expect(buildShiftPrintHtml(model, 'a4')).toContain('差异原因：备用金')
+  })
+
+  it('applies the full-gold line when converting old gold into money', () => {
+    expect(finenessFactor(0.999)).toBe(1)
+    expect(finenessFactor(0.995)).toBe(1)
+    expect(finenessFactor(0.916)).toBeCloseTo(0.916)
+    // 旧金 10g、足金999、回收价 860 → 折抵 8600（不是 8591.40）
+    expect(oldGoldDeduction(10, 0.999, 860)).toBeCloseTo(8600)
+    expect(oldGoldDeduction(10, 0.916, 860)).toBeCloseTo(7877.6)
+    // 足金990（0.99）低于 0.995 足金线，仍按含金量折算
+    expect(oldGoldDeduction(10, 0.99, 860)).toBeCloseTo(8514)
+    expect(oldGoldDeduction(0, 0.999, 860)).toBe(0)
   })
 })

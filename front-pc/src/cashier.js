@@ -18,6 +18,18 @@ export function formatCashierMoney(value) {
   }).format(Number(value || 0))
 }
 
+// 甲方口径：成色 0.995 及以上（足金线）视作 1，按整克不折；低于才按含金量折算
+export function finenessFactor(value) {
+  const fineness = Number(value)
+  if (!Number.isFinite(fineness) || fineness <= 0) return 1
+  return fineness >= 0.995 ? 1 : fineness
+}
+
+// 旧金折抵 = 克重 × 成色因子(足金线规则) × 单价。收银端所有旧金折抵都必须走这里。
+export function oldGoldDeduction(weight, purity, price) {
+  return Number(weight || 0) * finenessFactor(purity) * Number(price || 0)
+}
+
 export function parsePurity(choice, custom) {
   const percentage = Number(custom)
   if (choice === 'other') {
