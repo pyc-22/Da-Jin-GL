@@ -415,7 +415,7 @@ public class ProcessingController {
         db.jdbc().update("update processing_order set store_gold_weight=:w,down_material_weight=:dm,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,gold_base_instrument=:goldInstrument,gold_base_price=:goldBase,gold_purity_coefficient=:goldPurity,gold_markup=:goldMarkup,gold_recycle_deduction=:goldDeduction,gold_price_snapshot=:goldSnapshot,gold_quote_time=:goldQuoteTime,gold_quote_source=:goldSource,gold_market_status=:goldMarketStatus,due_amount=:due,refund_amount=:refund,refund_paid_amount=least(refund_paid_amount,:refund),original_due_amount=case when promotion_discount>0 then coalesce(original_due_amount,:grossDue) else original_due_amount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("w", weight).addValue("dm", downMaterial).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", price).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus")).addValue("due", due)
                         .addValue("refund", refund).addValue("grossDue", grossDue).addValue("id", id).addValue("s", storeId));
-        // 补金或下料变动后，已称重的单按新分母（来料折重 + 补金 + 下料）重算损耗率，避免考核口径过期
+        // 补金或下料变动后，已称重的单按新分母（融后金重 + 下料）重算损耗率，避免考核口径过期
         if (order.get("finished_weight") != null) {
             BigDecimal weightedBase = lossBase(decimal(order.get("melt_weight")), decimal(order.get("old_gold_weight")), decimalValue(order.get("old_gold_fineness")), downMaterial);
             BigDecimal recomputed = dustPermille(decimal(order.get("recovered_weight")), weightedBase);
@@ -431,7 +431,7 @@ public class ProcessingController {
         return ApiResponse.ok(result);
     }
 
-    /** 成品称重与损耗登记：损耗（打磨屑）计入师傅考核，损耗率 = 损耗 ÷ (来料折重 + 店供金)‰，超约定值标预警。 */
+    /** 成品称重与损耗登记：损耗（打磨屑）计入师傅考核，损耗率 = 损耗 ÷ (融后金重 + 下料)‰，超约定值标预警。 */
     @PostMapping("/orders/{id}/weighing")
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
     @Transactional
@@ -467,7 +467,7 @@ public class ProcessingController {
         java.math.BigDecimal recoveredWeight = recovered == null ? BigDecimal.ZERO : recovered;
         // 只考核损耗（打磨屑）；成品比来料+补金重（含称重误差）不再拦截，仅提示核对补金登记
         boolean refillMissing = base.compareTo(finishedNet) < 0;
-        // 考核口径：损耗(打磨屑) ÷ (来料折重 + 店供金 + 下料)，见上方 base
+        // 考核口径：损耗(打磨屑) ÷ (融后金重 + 下料)，见上方 base
         java.math.BigDecimal permille = dustPermille(recoveredWeight, base);
         java.math.BigDecimal config = lossConfig(storeId);
         boolean over = permille != null && permille.compareTo(config) > 0;
@@ -517,7 +517,7 @@ public class ProcessingController {
         return dustWeight.multiply(recyclePrice).setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** 损耗率（千分比）= 损耗(打磨屑) ÷ (来料折重 + 店供补金)。 */
+    /** 损耗率（千分比）= 损耗(打磨屑) ÷ (融后金重 + 下料)。 */
     static BigDecimal dustPermille(BigDecimal recoveredWeight, BigDecimal base) {
         if (base == null || base.signum() <= 0) return null;
         BigDecimal recovered = recoveredWeight == null ? BigDecimal.ZERO : recoveredWeight;
@@ -583,8 +583,7 @@ public class ProcessingController {
         String printIncomingNet = "";
         if (o.get("old_gold_weight") != null) {
             printIncomingNet = decimal(o.get("old_gold_weight")).toPlainString() + "g"
-                    + (o.get("old_gold_fineness") == null ? "" : " · " + decimal(o.get("old_gold_fineness")).multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%")
-                    + "（折重 " + decimal(o.get("old_gold_weight")).multiply(finenessFactor(decimalValue(o.get("old_gold_fineness")))).setScale(3, RoundingMode.HALF_UP).toPlainString() + "g）";
+                    + (o.get("old_gold_fineness") == null ? "" : " · " + decimal(o.get("old_gold_fineness")).multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%");
         }
         String printFinished = "";
         if (o.get("finished_weight") != null) {
