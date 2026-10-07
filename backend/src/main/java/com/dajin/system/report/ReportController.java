@@ -141,19 +141,19 @@ public class ReportController {
         String activeScope = salesWhere(request, "ma.sales_id");
         Map<String,Object> summary = db.one(
                 "select count(*) new_members,"
-                        + "(select count(*) from member mx where mx.store_id=:s" + totalScope + ") total_members,"
+                        + "(select count(*) from member mx where mx.store_id=:s and mx.deleted=0" + totalScope + ") total_members,"
                         + "coalesce((select sum(mc.amount) from member_consume mc "
                         + "join member mx on mx.member_id=mc.member_id and mx.store_id=mc.store_id "
-                        + "where mc.store_id=:s and mc.order_id is not null" + totalScope + r.sql("mc.consume_time") + "),0) consume_amount,"
-                        + "coalesce((select sum(mb.balance) from member mb where mb.store_id=:s"
+                        + "where mc.store_id=:s and mc.order_id is not null and mx.deleted=0" + totalScope + r.sql("mc.consume_time") + "),0) consume_amount,"
+                        + "coalesce((select sum(mb.balance) from member mb where mb.store_id=:s and mb.deleted=0"
                         + balanceScope + "),0) balance_total,"
-                        + "coalesce((select count(*) from member ma where ma.store_id=:s"
+                        + "coalesce((select count(*) from member ma where ma.store_id=:s and ma.deleted=0"
                         + activeScope + " and ma.total_consume>0),0) active_members "
-                        + "from member m where m.store_id=:s" + memberScope + r.sql("m.create_time"), p);
+                        + "from member m where m.store_id=:s and m.deleted=0" + memberScope + r.sql("m.create_time"), p);
         Map<String,Object> result = new LinkedHashMap<>(summary);
         result.put("records", db.list(
                 "select m.member_id,m.name,m.phone,m.gender,m.total_consume,m.create_time "
-                        + "from member m where m.store_id=:s" + memberScope + r.sql("m.create_time")
+                        + "from member m where m.store_id=:s and m.deleted=0" + memberScope + r.sql("m.create_time")
                         + " order by m.total_consume desc limit 100", p));
         return ApiResponse.ok(ReportAccess.filter(request, result));
     }

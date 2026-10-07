@@ -257,6 +257,8 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "commission_rate_snapshot", "DECIMAL(5,2) NOT NULL DEFAULT 0");
         addColumn("processing_order", "pricing_unit", "VARCHAR(10) NOT NULL DEFAULT '按件'");
         addColumn("processing_order", "billing_weight", "DECIMAL(10,3) NULL");
+        // 会员删除用软删除：列表/未分配池/统计里消失，但历史订单、消费与账务记录完整保留。
+        addColumn("member", "deleted", "TINYINT NOT NULL DEFAULT 0");
         // 已取货的单允许在手机端手动隐藏（只影响手机端列表，管理端与账务记录完整保留）。
         addColumn("processing_order", "mobile_archived", "TINYINT NOT NULL DEFAULT 0");
         addColumn("processing_order", "store_gold_weight", "DECIMAL(10,3) NOT NULL DEFAULT 0");

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { memberApi, staffApi } from '../api/modules'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -108,6 +108,23 @@ async function show(row) {
     detailVisible.value = true
   } catch (error) {
     ElMessage.error(error?.message || '会员详情加载失败')
+  }
+}
+
+// 删除会员（软删除）：列表里不再出现，历史订单、消费与账务记录完整保留
+async function remove(row) {
+  if (!canManageMembers.value) return ElMessage.error('当前账号没有会员删除权限')
+  try {
+    await ElMessageBox.confirm(
+      `确认删除会员「${row.name}」（${row.phone}）？\n\n删除后本列表、未分配会员池、会员统计和客户回访里都不再出现；历史订单、消费流水与储值记录会完整保留。`,
+      '删除会员', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
+  } catch { return }
+  try {
+    await memberApi.remove(row.member_id)
+    ElMessage.success(`会员「${row.name}」已删除`)
+    await load()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
   }
 }
 
@@ -244,7 +261,7 @@ watch(() => app.eventVersion, () => {
       <el-table-column v-if="tab === 'pool'" label="归属" min-width="140">
         <template #default="scope"><el-button v-if="canAssignMembers" link type="primary" @click="openAssign(scope.row)">分配</el-button><el-button v-if="auth.role === 'SALES' && auth.can('member:follow')" link :loading="claimingId === scope.row.member_id" :disabled="claimingId === scope.row.member_id" @click="requestClaim(scope.row)">申请认领</el-button></template>
       </el-table-column>
-      <el-table-column label="操作" min-width="130"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button v-if="canManageMembers" link @click="openEdit(scope.row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" min-width="180"><template #default="scope"><el-button link type="primary" @click="show(scope.row)">详情</el-button><el-button v-if="canManageMembers" link @click="openEdit(scope.row)">编辑</el-button><el-button v-if="canManageMembers" link type="danger" @click="remove(scope.row)">删除</el-button></template></el-table-column>
     </el-table>
   </section>
 

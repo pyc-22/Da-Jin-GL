@@ -31,10 +31,10 @@ class ReportMemberScopeTests {
         when(db.list(anyString(), any(SqlParameterSource.class))).thenReturn(List.of());
         when(db.one(anyString(), any(SqlParameterSource.class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
-            assertTrue(sql.contains("from member m where m.store_id=:s and m.sales_id=:uid"));
-            assertTrue(sql.contains("from member mx where mx.store_id=:s and mx.sales_id=:uid"));
-            assertTrue(sql.contains("from member mb where mb.store_id=:s and mb.sales_id=:uid"));
-            assertTrue(sql.contains("from member ma where ma.store_id=:s and ma.sales_id=:uid"));
+            assertTrue(sql.contains("from member m where m.store_id=:s and m.deleted=0 and m.sales_id=:uid"));
+            assertTrue(sql.contains("from member mx where mx.store_id=:s and mx.deleted=0 and mx.sales_id=:uid"));
+            assertTrue(sql.contains("from member mb where mb.store_id=:s and mb.deleted=0 and mb.sales_id=:uid"));
+            assertTrue(sql.contains("from member ma where ma.store_id=:s and ma.deleted=0 and ma.sales_id=:uid"));
             assertFalse(sql.contains("from member mb where mb.store_id=:s and mx.sales_id=:uid"));
             assertFalse(sql.contains("from member ma where ma.store_id=:s and mx.sales_id=:uid"));
             return new LinkedHashMap<>();

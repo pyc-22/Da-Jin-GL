@@ -22,7 +22,7 @@ public class VisitController {
         MapSqlParameterSource p=params(req).addValue("status",status).addValue("type",blank(visitType)).addValue("keyword",keyword==null||keyword.isBlank()?"%":"%"+keyword.trim()+"%");
         String sql="select v.*,m.name member_name,coalesce(v.phone_snapshot,m.phone) phone,coalesce(v.gender_snapshot,m.gender) gender,coalesce(v.order_no_snapshot,o.order_no) order_no,coalesce(v.amount_snapshot,o.pay_amount,0) pay_amount,coalesce(v.purchase_time_snapshot,o.create_time) purchase_time,u.real_name sales_name "
                 +"from visit_task v join member m on m.member_id=v.member_id and m.store_id=v.store_id left join sales_order o on o.order_id=v.order_id and o.store_id=v.store_id left join sys_user u on u.user_id=v.sales_id and u.store_id=v.store_id "
-                +"where v.store_id=:s"+salesScope(req)+" and (:status is null or v.status=:status) and (:type is null or v.visit_type=:type) and (m.name like :keyword or coalesce(v.phone_snapshot,m.phone) like :keyword or coalesce(v.order_no_snapshot,o.order_no,'') like :keyword) order by v.plan_time,v.task_id";
+                +"where v.store_id=:s and m.deleted=0"+salesScope(req)+" and (:status is null or v.status=:status) and (:type is null or v.visit_type=:type) and (m.name like :keyword or coalesce(v.phone_snapshot,m.phone) like :keyword or coalesce(v.order_no_snapshot,o.order_no,'') like :keyword) order by v.plan_time,v.task_id";
         return ApiResponse.ok(db.list(sql,p));
     }
     @GetMapping("/stats") public ApiResponse<?> stats(HttpServletRequest req) {

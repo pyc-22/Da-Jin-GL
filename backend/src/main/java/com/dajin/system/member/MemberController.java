@@ -42,7 +42,7 @@ public class MemberController {
                 .addValue("limit", Math.min(Math.max(size, 1), 200)).addValue("off", Math.max(page - 1, 0) * Math.min(Math.max(size, 1), 200))
                 .addValue("todayMonth", LocalDate.now(ZoneId.of("Asia/Shanghai")).getMonthValue()).addValue("todayDay", LocalDate.now(ZoneId.of("Asia/Shanghai")).getDayOfMonth())
                 .addValue("from", normalizedFrom).addValue("to", normalizedTo);
-        String base = " from member where store_id=:s" + scope + " and (name like :k or phone like :k)" + birthdayWhere;
+        String base = " from member where store_id=:s and deleted=0" + scope + " and (name like :k or phone like :k)" + birthdayWhere;
         return ApiResponse.ok(Map.of("records", db.list("select *" + base + " order by " + order + " limit :limit offset :off", p),
                 "total", db.jdbc().queryForObject("select count(*)" + base, p, Integer.class)));
     }
@@ -54,6 +54,16 @@ public class MemberController {
         Long salesId = q.salesId();
         if ("SALES".equals(String.valueOf(claims.get("role")))) salesId = Long.valueOf(claims.getSubject());
         MapSqlParameterSource p=new MapSqlParameterSource().addValue("s",db.store(r)).addValue("n",q.name()).addValue("p",q.phone()).addValue("tags",q.tags()).addValue("b",birthday).addValue("gender",q.gender()).addValue("sid",salesId).addValue("src",q.source());
+        // member 对 (store_id, phone) 有唯一键：手机号曾被软删除档案占用时复用它，避免撞唯一键
+        List<Map<String,Object>> existingRows = db.list("select member_id,deleted from member where store_id=:s and phone=:p limit 1", p);
+        if (!existingRows.isEmpty()) {
+            Map<String,Object> existing = existingRows.get(0);
+            if (existing.get("deleted") != null && ((Number) existing.get("deleted")).intValue() == 0) throw new BusinessException(409301, "该手机号已有会员档案");
+            db.jdbc().update("update member set name=:n,tags=:tags,source=:src,sales_id=:sid,birthday=:b,gender=:gender,deleted=0,update_time=now() where member_id=:id and store_id=:s",
+                    p.addValue("id", existing.get("member_id")));
+            broadcastMemberUpdated(db.store(r), "RESTORE", ((Number) existing.get("member_id")).longValue());
+            return ApiResponse.ok();
+        }
         db.jdbc().update("insert into member(store_id,name,phone,tags,balance,points,total_consume,source,sales_id,birthday,gender,create_time,update_time) values(:s,:n,:p,:tags,0,0,0,:src,:sid,:b,:gender,now(),now())",p);
         broadcastMemberUpdated(db.store(r), "CREATE", null);
         return ApiResponse.ok();
@@ -88,10 +98,29 @@ public class MemberController {
                 .addValue("todayMonth", LocalDate.now(ZoneId.of("Asia/Shanghai")).getMonthValue())
                 .addValue("todayDay", LocalDate.now(ZoneId.of("Asia/Shanghai")).getDayOfMonth())
                 .addValue("from", normalizedFrom).addValue("to", normalizedTo);
-        String base = " from member where store_id=:s and (sales_id is null or sales_id=0) and (name like :k or phone like :k)" + birthdayWhere;
+        String base = " from member where store_id=:s and deleted=0 and (sales_id is null or sales_id=0) and (name like :k or phone like :k)" + birthdayWhere;
         return ApiResponse.ok(Map.of("records", db.list("select *" + base + " order by " + order + " limit :limit offset :off", p),
                 "total", db.jdbc().queryForObject("select count(*)" + base, p, Integer.class)));
     }
+    /**
+     * 删除会员：软删除。列表、未分配池、会员统计与回访任务里都不再出现，但历史订单、消费流水与账务记录完整保留
+     * （订单上仍能显示会员姓名）。还有储值余额的会员不允许删除，必须先退余额。
+     */
+    @DeleteMapping("/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("member:manage") @Transactional
+    public ApiResponse<?> remove(@PathVariable long id, HttpServletRequest r) {
+        long storeId = db.store(r);
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("id", id).addValue("s", storeId);
+        List<Map<String,Object>> rows = db.list("select member_id,name,balance,points,deleted from member where member_id=:id and store_id=:s for update", p);
+        if (rows.isEmpty()) throw new BusinessException(404301, "会员不存在");
+        Map<String,Object> member = rows.get(0);
+        if (member.get("deleted") != null && ((Number) member.get("deleted")).intValue() == 1) return ApiResponse.ok(Map.of("memberId", id, "deleted", true));
+        BigDecimal balance = member.get("balance") == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(member.get("balance")));
+        if (balance.signum() != 0) throw new BusinessException(409203, "该会员还有储值余额 " + balance.setScale(2, java.math.RoundingMode.HALF_UP) + " 元，请先退款再删除");
+        db.jdbc().update("update member set deleted=1,update_time=now() where member_id=:id and store_id=:s", p);
+        broadcastMemberUpdated(storeId, "DELETE", id);
+        return ApiResponse.ok(Map.of("memberId", id, "deleted", true));
+    }
+
     @PostMapping("/{id}/assign") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("member:manage") public ApiResponse<?> assign(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){if(q.get("salesId")==null)throw new BusinessException(400301,"salesId不能为空");long storeId=db.store(r);Long salesId;try{salesId=Long.valueOf(String.valueOf(q.get("salesId")));}catch(Exception e){throw new BusinessException(400301,"salesId格式不正确");}Integer salesCount=db.jdbc().queryForObject("select count(*) from sys_user u join sys_role role on role.role_id=u.role_id and role.store_id=u.store_id where u.user_id=:sales and u.store_id=:s and u.status=1 and role.status=1 and role.role_code='SALES'",Map.of("sales",salesId,"s",storeId),Integer.class);if(salesCount==null||salesCount==0)throw new BusinessException(400302,"接收员工必须是当前门店的在职销售");int changed=db.jdbc().update("update member set sales_id=:sales,update_time=now() where member_id=:id and store_id=:s",new MapSqlParameterSource().addValue("sales",salesId).addValue("id",id).addValue("s",storeId));if(changed==0)throw new BusinessException(404301,"会员不存在");broadcastMemberUpdated(storeId,"ASSIGN",id);return ApiResponse.ok();}
     @PostMapping("/{id}/balance") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("member:manage")
     @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)

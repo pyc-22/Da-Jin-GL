@@ -36,8 +36,16 @@ public class PublicMemberRegisterController {
                 "select count(*) from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id " +
                         "where u.user_id=:sales and u.store_id=:store and u.status=1 and r.status=1 and r.role_code in ('SALES','MANAGER','ADMIN')", p, Integer.class);
         if (validSales == null || validSales != 1) throw new BusinessException(403401, "归属人与门店不匹配");
-        Integer duplicate = db.jdbc().queryForObject("select count(*) from member where store_id=:store and phone=:phone", p, Integer.class);
+        Integer duplicate = db.jdbc().queryForObject("select count(*) from member where store_id=:store and phone=:phone and deleted=0", p, Integer.class);
         if (duplicate != null && duplicate > 0) throw new BusinessException(409401, "手机号已登记");
+        // member 对 (store_id, phone) 有唯一键：如果该号码是曾被删除的档案，复用它（历史消费记录保留）
+        java.util.List<Map<String,Object>> archivedRows = db.list("select member_id from member where store_id=:store and phone=:phone and deleted=1 limit 1", p);
+        if (!archivedRows.isEmpty()) {
+            db.jdbc().update("update member set name=:name,birthday=:birthday,gender=:gender,source='QR_REGISTER',sales_id=:sales,deleted=0,update_time=now() where member_id=:id and store_id=:store",
+                    p.addValue("name", q.name().trim()).addValue("birthday", blankToNull(q.birthday())).addValue("gender", blankToNull(q.gender()))
+                            .addValue("id", archivedRows.get(0).get("member_id")));
+            return ApiResponse.ok(Map.of("registered", true));
+        }
         db.jdbc().update("insert into member(store_id,name,phone,balance,points,total_consume,source,sales_id,birthday,gender,create_time,update_time) " +
                 "values(:store,:name,:phone,0,0,0,'QR_REGISTER',:sales,:birthday,:gender,now(),now())",
                 p.addValue("name", q.name().trim()).addValue("birthday", blankToNull(q.birthday())).addValue("gender", blankToNull(q.gender())));
