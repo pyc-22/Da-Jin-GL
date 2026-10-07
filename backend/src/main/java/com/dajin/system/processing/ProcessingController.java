@@ -579,7 +579,7 @@ public class ProcessingController {
         BigDecimal printRefund = decimal(o.get("refund_amount"));
         BigDecimal printRefundPaid = decimal(o.get("refund_paid_amount"));
         BigDecimal printRefundOutstanding = printRefund.subtract(printRefundPaid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-        h.append("<h2>费用</h2><div class=\"calc\"><div>加工工费</div><div class=\"v\">").append(decimal(o.get("labor_fee")).toPlainString()).append("</div><div>补金金额</div><div class=\"v\">").append(decimal(o.get("store_gold_amount")).signum() > 0 ? decimal(o.get("store_gold_amount")).toPlainString() : "").append("</div><div>回收屑抵扣</div><div class=\"v\">").append(decimal(o.get("residual_gold_deduction")).signum() > 0 ? "-" + decimal(o.get("residual_gold_deduction")).toPlainString() : "").append("</div><div>整单应收</div><div class=\"v\">").append(printDue.toPlainString()).append("</div><div>已收定金/收款</div><div class=\"v\">").append(printPaid.toPlainString()).append("</div><div>尾款待收</div><div class=\"v\">").append(printTail.toPlainString()).append("</div><div>客户返款</div><div class=\"v\">").append(printRefund.toPlainString()).append("</div><div>待返款</div><div class=\"v\">").append(printRefundOutstanding.toPlainString()).append("</div></div><p class=\"tip\">完工金额以完成加工登记为准</p>");
+        h.append("<h2>费用</h2><div class=\"calc\"><div>加工工费</div><div class=\"v\">").append(decimal(o.get("labor_fee")).toPlainString()).append("</div><div>补金金额</div><div class=\"v\">").append(decimal(o.get("store_gold_amount")).signum() > 0 ? decimal(o.get("store_gold_amount")).toPlainString() : "").append("</div><div>回收屑抵扣</div><div class=\"v\">").append(decimal(o.get("residual_gold_deduction")).signum() > 0 ? "-" + decimal(o.get("residual_gold_deduction")).toPlainString() + (decimal(o.get("residual_gold_weight")).signum() > 0 ? "（" + decimal(o.get("residual_gold_weight")).toPlainString() + "g）" : "") : "").append("</div><div>整单应收</div><div class=\"v\">").append(printDue.toPlainString()).append("</div><div>已收定金/收款</div><div class=\"v\">").append(printPaid.toPlainString()).append("</div><div>尾款待收</div><div class=\"v\">").append(printTail.toPlainString()).append("</div><div>客户返款</div><div class=\"v\">").append(printRefund.toPlainString()).append("</div><div>待返款</div><div class=\"v\">").append(printRefundOutstanding.toPlainString()).append("</div></div><p class=\"tip\">完工金额以完成加工登记为准</p>");
         String printIncomingNet = "";
         if (o.get("old_gold_weight") != null) {
             printIncomingNet = decimal(o.get("old_gold_weight")).toPlainString() + "g"
@@ -590,14 +590,13 @@ public class ProcessingController {
             printFinished = decimal(o.get("finished_weight")).toPlainString() + "g"
                     + (o.get("finished_fineness") == null ? "" : " · " + decimal(o.get("finished_fineness")).multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%");
         }
-        h.append("<h2>称重记录（g）</h2><div class=\"hand\">")
+        h.append("<h2>称重记录</h2><div class=\"hand\">")
                 .append("<div><span>来料</span><b>").append(escHtml(printIncomingNet)).append("</b></div>")
-                .append("<div><span>店供补金</span><b>").append(decimal(o.get("store_gold_weight")).signum() > 0 ? escHtml(decimal(o.get("store_gold_weight")).toPlainString()) : "").append("</b></div>")
-                .append("<div><span>下料</span><b>").append(decimal(o.get("down_material_weight")).signum() > 0 ? escHtml(decimal(o.get("down_material_weight")).toPlainString()) : "").append("</b></div>")
+                .append("<div><span>店供补金</span><b>").append(decimal(o.get("store_gold_weight")).signum() > 0 ? escHtml(decimal(o.get("store_gold_weight")).toPlainString() + "g") : "").append("</b></div>")
+                .append("<div><span>下料</span><b>").append(decimal(o.get("down_material_weight")).signum() > 0 ? escHtml(decimal(o.get("down_material_weight")).toPlainString() + "g") : "").append("</b></div>")
                 .append("<div><span>成品实重</span><b>").append(escHtml(printFinished)).append("</b></div>")
-                .append("<div><span>损耗</span><b>").append(o.get("recovered_weight") == null ? "" : escHtml(decimal(o.get("recovered_weight")).toPlainString())).append("</b></div>")
-                .append("<div><span>融后金重</span><b>").append(o.get("melt_weight") == null ? "" : escHtml(decimal(o.get("melt_weight")).toPlainString())).append("</b></div>")
-                .append("<div><span>回收屑</span><b>").append(o.get("residual_gold_weight") == null ? "" : escHtml(decimal(o.get("residual_gold_weight")).toPlainString())).append("</b></div>")
+                .append("<div><span>融后金重</span><b>").append(o.get("melt_weight") == null ? "" : escHtml(decimal(o.get("melt_weight")).toPlainString() + "g")).append("</b></div>")
+                .append("<div><span>回收屑</span><b>").append(o.get("residual_gold_weight") == null ? "" : escHtml(decimal(o.get("residual_gold_weight")).toPlainString() + "g")).append("</b></div>")
                 .append("</div>");
         h.append("<div class=\"remark\"><b>备注：</b>").append(escHtml(String.valueOf(o.getOrDefault("remark", "")))).append("</div>");
         h.append("<div class=\"sign\"><div>加工师傅签字：</div><div>客户取货签字：</div></div>");
