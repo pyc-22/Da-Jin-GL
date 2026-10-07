@@ -112,6 +112,7 @@ export const api = {
   ,stockCheckHistory: () => http.get('/api/stock/check/history')
   ,stockCheckDetail: (id) => http.get(`/api/stock/check/${id}`)
   ,processingOrders: (params = {}) => http.get('/api/processing/orders', { params })
+  ,archiveProcessingOrder: (id) => http.post(`/api/processing/orders/${id}/archive`)
   ,processingOrder: (id) => http.get(`/api/processing/orders/${id}`)
   ,processingStatistics: (params = {}) => http.get('/api/processing/statistics', { params })
   ,processingStatus: (id, status) => http.patch(`/api/processing/orders/${id}/status`, { status })

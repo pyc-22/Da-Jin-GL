@@ -371,6 +371,25 @@ public class ProcessingController {
         return ApiResponse.ok(Map.of("notified", true));
     }
 
+    /**
+     * 手机端把「已取货」的加工单从手机列表里隐藏。
+     * 只置 mobile_archived 标记：不删数据、不影响管理端列表与账务/库存/提成记录。
+     */
+    @PostMapping("/orders/{id}/archive")
+    @RequireRoles({"ADMIN", "MANAGER"})
+    @Transactional
+    public ApiResponse<?> archiveOnMobile(@PathVariable long id, HttpServletRequest request) {
+        long storeId = store(request);
+        Map<String, Object> order = lockedOrder(id, storeId);
+        if (!"PICKED_UP".equals(String.valueOf(order.get("status")))) {
+            throw new BusinessException(409716, "只有已取货的加工单可以从手机端删除");
+        }
+        db.jdbc().update("update processing_order set mobile_archived=1,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='PICKED_UP'",
+                Map.of("id", id, "s", storeId));
+        log(storeId, userId(request), "ORDER_MOBILE_ARCHIVE", "加工单=" + order.get("order_no") + ",手机端隐藏（管理端保留记录）");
+        return ApiResponse.ok(Map.of("processingOrderId", id, "mobileArchived", true));
+    }
+
     private boolean salesCanView(Map<String, Object> order, long userId) {
         return matchesUser(order.get("created_by"), userId) || matchesUser(order.get("sales_id"), userId);
     }

@@ -257,6 +257,8 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "commission_rate_snapshot", "DECIMAL(5,2) NOT NULL DEFAULT 0");
         addColumn("processing_order", "pricing_unit", "VARCHAR(10) NOT NULL DEFAULT '按件'");
         addColumn("processing_order", "billing_weight", "DECIMAL(10,3) NULL");
+        // 已取货的单允许在手机端手动隐藏（只影响手机端列表，管理端与账务记录完整保留）。
+        addColumn("processing_order", "mobile_archived", "TINYINT NOT NULL DEFAULT 0");
         addColumn("processing_order", "store_gold_weight", "DECIMAL(10,3) NOT NULL DEFAULT 0");
         // 下料：客户来料不够做活时店里额外加的金料（方便师傅做工），不计费、不扣金料库存，只计入损耗率分母。
         addColumn("processing_order", "down_material_weight", "DECIMAL(10,3) NULL");

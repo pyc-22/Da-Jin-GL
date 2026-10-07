@@ -13,4 +13,13 @@ describe('document aggregation',()=>{
   expect(mergeDocuments(null,{},undefined)).toEqual([])
   expect(mergeDocuments([{order_id:2}],[],[])[0].amount).toBeNull()
  })
+ it('hides processing orders the operator deleted on mobile without touching other rows',()=>{
+  const processing=[
+   {processing_order_id:1,order_no:'J1',due_amount:100,create_time:'2026-10-02 10:00',status:'PICKED_UP',mobile_archived:1},
+   {processing_order_id:2,order_no:'J2',due_amount:200,create_time:'2026-10-03 10:00',status:'PICKED_UP',mobile_archived:0},
+   {processing_order_id:3,order_no:'J3',due_amount:300,create_time:'2026-10-04 10:00',status:'PROCESSING'}
+  ]
+  const result=mergeDocuments([],processing,[])
+  expect(result.map(row=>row.no)).toEqual(['J3','J2'])
+ })
 })

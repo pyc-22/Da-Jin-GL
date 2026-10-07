@@ -17,7 +17,9 @@ export function mergeDocuments(sales, processing, recycle) {
     status: row.remaining_amount != null ? (Number(row.remaining_amount) > 0 ? '待收尾款' : '已结清') : '状态待同步',
     tone: row.remaining_amount == null ? 'muted' : Number(row.remaining_amount) > 0 ? 'err' : 'ok', raw: row
   }))
-  const processingDocuments = rowsOf(processing).map(row => ({
+  // 已取货的单允许柜面在手机端手动“删除”：只置 mobile_archived 标记并从手机列表隐藏，
+  // 管理端列表与账务/库存/提成记录不受影响，所以这里过滤掉已隐藏的行。
+  const processingDocuments = rowsOf(processing).filter(row => Number(row.mobile_archived) !== 1).map(row => ({
     key: 'processing-' + row.processing_order_id, type: 'processing', typeLabel: '加工', id: row.processing_order_id,
     no: row.order_no, title: row.item_name_snapshot || '加工单', amount: numberOrNull(row.due_amount), amountLabel: '应收',
     time: row.create_time || '', customer: row.customer_name || row.member_name || '散客',
