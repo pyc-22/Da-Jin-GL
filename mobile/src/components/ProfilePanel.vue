@@ -6,7 +6,7 @@
     <button v-else-if="!isManager && auth.can('report:view')" class="entry" @click="$emit('go','performance')"><span class="entry-main">个人业绩</span><span class="entry-sub">本月销售与提成 ›</span></button>
   </div>
   <section class="profile-card qr-card"><template v-if="registrationUrl"><canvas ref="qrCanvas" width="200" height="200"></canvas><p class="qr-title">我的专属二维码</p><small class="muted">客户扫码登记会员并绑定专属顾问</small><button class="outline" @click="saveQr">保存二维码</button></template><template v-else><p class="qr-title">会员登记二维码</p><small class="muted">当前环境未配置会员登记地址，请联系管理员配置后使用。</small></template></section>
-  <div class="settings"><button @click="pwDialog=true">修改密码 <span>›</span></button><button @click="openNotify">消息设置 <span>›</span></button><button @click="showVersion">关于与版本 <span>v1.0.0-rc.3 ›</span></button></div><button class="danger full" @click="logout">退出登录</button>
+  <div class="settings"><button @click="pwDialog=true">修改密码 <span>›</span></button><button @click="openNotify">消息设置 <span>›</span></button><button @click="showVersion">关于与版本 <span>v{{ appVersion }} ›</span></button></div><button class="danger full" @click="logout">退出登录</button>
   <div v-if="pwDialog" class="mobile-modal"><div class="mobile-modal-card"><h3>修改密码</h3><label class="form-label">旧密码<input v-model="pwForm.oldPassword" type="password" autocomplete="current-password"/></label><label class="form-label">新密码<input v-model="pwForm.newPassword" type="password" autocomplete="new-password" placeholder="至少6位"/></label><label class="form-label">确认新密码<input v-model="pwForm.confirm" type="password" autocomplete="new-password"/></label><p v-if="pwError" class="error">{{ pwError }}</p><p v-if="pwOk" class="success-text">{{ pwOk }}</p><div class="action-row"><button class="outline" @click="closePw">取消</button><button class="primary" :disabled="pwSubmitting" @click="submitPw">{{ pwSubmitting ? '提交中...' : '确认修改' }}</button></div></div></div><MessageSettings v-if="notifyDialog" @close="notifyDialog=false" />
 </section></template>
 <script setup>
@@ -22,6 +22,7 @@ import { api } from '../api/request.js'
 import MessageSettings from './MessageSettings.vue'
 import { canViewReports } from '../config/roles.js'
 defineEmits(['go'])
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.7'
 const router=useRouter(); const auth=useAuthStore(); const app=useAppStore()
 const isManager=computed(()=>auth.role==='MANAGER'||auth.role==='ADMIN')
 const shortcuts=computed(()=>[
@@ -39,7 +40,7 @@ const pwDialog=ref(false); const pwSubmitting=ref(false); const pwError=ref('');
 const notifyDialog=ref(false)
 function closePw(){pwDialog.value=false;pwError.value='';pwOk.value='';pwForm.oldPassword='';pwForm.newPassword='';pwForm.confirm=''}
 async function submitPw(){pwError.value='';pwOk.value='';if(!pwForm.oldPassword||!pwForm.newPassword)return pwError.value='请填写完整';if(pwForm.newPassword.length<6)return pwError.value='新密码至少6位';if(pwForm.newPassword!==pwForm.confirm)return pwError.value='两次输入的新密码不一致';pwSubmitting.value=true;try{await api.changePassword({oldPassword:pwForm.oldPassword,newPassword:pwForm.newPassword});pwOk.value='密码修改成功，请重新登录';setTimeout(()=>{closePw();auth.logout();router.replace('/login')},1200)}catch(e){pwError.value=e?.response?.status===401002?'旧密码错误，请重新输入':(e.message||'修改失败')}finally{pwSubmitting.value=false}}
-function showVersion(){toast('打金店移动端 1.0.0-rc.3\n请通过门店管理员获取更新安装包，覆盖安装以保留本账号草稿。')}
+function showVersion(){toast(`打金店移动端 ${appVersion}\n请通过门店管理员获取更新安装包，覆盖安装以保留本账号草稿。`)}
 function openNotify(){notifyDialog.value=true}
 
 function logout(){
@@ -47,7 +48,14 @@ function logout(){
   auth.logout();router.replace('/login')
 }
 const qrCanvas=ref(null); const qrDataUrl=ref('')
-const registrationUrl = computed(() => String(import.meta.env.VITE_MEMBER_REGISTER_URL || '').trim())
+// 浏览器（H5）按当前域名推导会员登记地址；原生 App 没有域名，必须靠 VITE_MEMBER_REGISTER_URL 构建期注入
+const registrationUrl = computed(() => {
+  const configured = String(import.meta.env.VITE_MEMBER_REGISTER_URL || '').trim()
+  if (configured) return configured
+  if (String(import.meta.env.VITE_NATIVE_APP || '') === 'true') return ''
+  const origin = typeof window !== 'undefined' ? window.location?.origin : ''
+  return origin && origin !== 'null' ? `${origin}/member-register` : ''
+})
 onMounted(async()=>{
   if (!registrationUrl.value) return
   try{

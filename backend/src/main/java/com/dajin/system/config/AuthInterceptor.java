@@ -14,7 +14,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     @Override public boolean preHandle(HttpServletRequest req, HttpServletResponse res, Object handler) throws Exception {
         // Let WebConfig add CORS headers to browser preflight requests before JWT checks.
         if ("OPTIONS".equalsIgnoreCase(req.getMethod())) return true;
-        String path=req.getRequestURI(); if (path.equals("/api/auth/login") || path.equals("/api/auth/logout") || path.startsWith("/api/file/") || path.equals("/api/user/login") || path.startsWith("/swagger") || path.startsWith("/v3/api-docs") || path.equals("/actuator/health")) return true;
+        String path=req.getRequestURI(); if (path.equals("/api/auth/login") || path.equals("/api/auth/logout") || path.startsWith("/api/file/") || path.equals("/api/user/login") || path.startsWith("/api/public/") || path.startsWith("/swagger") || path.startsWith("/v3/api-docs") || path.equals("/actuator/health")) return true;
         String value=req.getHeader("Authorization");
         if (value==null || !value.startsWith("Bearer ")) { res.setStatus(401); return false; }
         try { Claims c=jwt.parse(value.substring(7)); long userId=Long.parseLong(c.getSubject()); long storeId=((Number)c.get("storeId")).longValue();

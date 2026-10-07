@@ -1,8 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { readFileSync } from 'node:fs'
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
 export default defineConfig(({ mode }) => ({
   plugins: [vue()],
+  // 版本号只保留 package.json 一处来源，避免「关于与版本」写死后和安装包对不上
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   server: {
     port: 5175,
     host: true,
