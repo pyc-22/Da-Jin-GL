@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -17,7 +18,7 @@ class PublicMemberRegisterControllerTests {
         when(db.jdbc()).thenReturn(jdbc); when(jdbc.queryForObject(anyString(), any(MapSqlParameterSource.class), eq(Integer.class))).thenReturn(0);
         var controller = new PublicMemberRegisterController(db);
         var error = assertThrows(com.dajin.system.common.BusinessException.class, () -> controller.register(new PublicMemberRegisterController.Req("会员", "13800138000", "", null, 7L, 2L)));
-        assertEquals("销售人员与门店不匹配", error.getMessage());
+        assertEquals("归属人与门店不匹配", error.getMessage());
     }
 
     @Test void rejectsDuplicatePhoneInStore() {
@@ -35,5 +36,19 @@ class PublicMemberRegisterControllerTests {
         var controller = new PublicMemberRegisterController(db);
         controller.register(new PublicMemberRegisterController.Req("会员", "13800138000", "女", "1990-01-01", 7L, 2L));
         verify(jdbc).update(anyString(), any(MapSqlParameterSource.class));
+    }
+
+    @Test void qrOwnerMayBeSalesManagerOrAdmin() {
+        DbSupport db = mock(DbSupport.class); NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        when(db.jdbc()).thenReturn(jdbc); when(jdbc.queryForObject(anyString(), any(MapSqlParameterSource.class), eq(Integer.class))).thenReturn(1, 0);
+        var controller = new PublicMemberRegisterController(db);
+        controller.register(new PublicMemberRegisterController.Req("会员", "13800138001", "", null, 1L, 2L));
+        var captured = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(jdbc, atLeastOnce()).queryForObject(captured.capture(), any(MapSqlParameterSource.class), eq(Integer.class));
+        String sql = captured.getAllValues().get(0);
+        assertTrue(sql.contains("'SALES'"), sql);
+        assertTrue(sql.contains("'MANAGER'"), sql);
+        assertTrue(sql.contains("'ADMIN'"), sql);
+        assertTrue(sql.contains("u.status=1") && sql.contains("r.status=1"), sql);
     }
 }
