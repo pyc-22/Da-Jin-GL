@@ -58,6 +58,7 @@
               <div v-if="Number(detail.store_gold_weight) > 0"><span>店供金料</span><b>{{ Number(detail.store_gold_weight).toFixed(3) }}g · {{ Number(detail.store_gold_price).toFixed(2) }}/g</b></div>
               <div v-if="Number(detail.store_gold_weight) > 0"><span>补金金额</span><b>{{ money(detail.store_gold_amount) }}</b></div>
               <div v-if="Number(detail.down_material_weight) > 0"><span>下料</span><b>{{ Number(detail.down_material_weight).toFixed(3) }}g</b></div>
+              <div v-if="Number(detail.billing_weight) > 0"><span>计费总克重</span><b>{{ Number(detail.billing_weight).toFixed(3) }}g · 工费 {{ money(detail.labor_fee) }}</b></div>
               <div v-if="detail.finished_weight != null"><span>成品实重</span><b>{{ grams(detail.finished_weight) }}{{ detail.finished_fineness ? ' · ' + fineness(detail.finished_fineness) : '' }}</b></div>
               <div v-if="detail.recovered_weight != null"><span>损耗</span><b>{{ grams(detail.recovered_weight) }}</b></div>
               <div v-if="detail.melt_weight != null"><span>融后金重</span><b>{{ grams(detail.melt_weight) }}</b></div>
@@ -124,7 +125,7 @@
             </select>
           </label>
           <label class="form-label">数量 *<input v-model.number="form.quantity" type="number" min="1" step="1"/></label>
-          <label v-if="selectedItem?.pricing_unit === '按克'" class="form-label">计费总克重 (g) *<input v-model.number="form.billingWeight" type="number" min="0.001" step="0.001"/></label>
+          <p v-if="selectedItem?.pricing_unit === '按克'" class="muted small" style="width:100%">按克项目：工费在完工登记成品实重时按「计费总克重 × {{ money(selectedItem.labor_fee) }}/g」计算，开单可留空。</p>
           <label class="form-label">加工师傅
             <select v-model="form.craftsmanId">
               <option value="">暂不指派</option>
@@ -324,12 +325,12 @@ async function submit() {
   if (!/^1\d{10}$/.test(form.customerPhone)) { createError.value = '请填写 11 位手机号'; return }
   if (!form.itemId) { createError.value = '请选择加工项目'; return }
   if (!(Number(form.quantity) > 0)) { createError.value = '数量必须大于 0'; return }
-  if (selectedItem.value?.pricing_unit === '按克' && !(Number(form.billingWeight) > 0)) { createError.value = '请填写大于0的计费总克重'; return }
+  // 按克项目的计费总克重要等完工、知道成品实际克重后才填，开单阶段允许留空（工费先记 0）
   if (!(Number(form.oldGoldWeight) > 0)) { createError.value = '请填写来料克重（客户没有旧金请到收银端开单）'; return }
   if (!(Number(form.oldGoldFineness) > 0 && Number(form.oldGoldFineness) <= 1)) { createError.value = '请填写 0~1 之间的来料成色'; return }
   const payload = {
     customerName: form.customerName, customerPhone: form.customerPhone, processingItemId: Number(form.itemId), quantity: Number(form.quantity),
-    billingWeight: selectedItem.value?.pricing_unit === '按克' ? Number(form.billingWeight) : null,
+    billingWeight: null,
     ...(form.memberId ? { memberId: Number(form.memberId) } : {}),
     ...(form.craftsmanId ? { craftsmanId: Number(form.craftsmanId) } : {}),
     ...(form.pickupDate ? { pickupDate: form.pickupDate } : {}),

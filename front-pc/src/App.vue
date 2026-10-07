@@ -189,8 +189,8 @@ const procPayMethods = computed(() => {
 const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includes(procPayMethod.value))
 const procPayDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0, downMaterial: null })
-const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, meltedWeight: null, note: '' })
-const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, downMaterialWeight: null, oldGoldWeight: null, oldGoldFineness: 0.999, meltWeight: null, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999', residualRecyclePrice: 0, residualGoldWeight: null, residualGoldFineness: 0.999, incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
+const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, meltedWeight: null, billingWeight: null, note: '' })
+const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, downMaterialWeight: null, billingWeight: null, oldGoldWeight: null, oldGoldFineness: 0.999, meltWeight: null, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999', residualRecyclePrice: 0, residualGoldWeight: null, residualGoldFineness: 0.999, incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
 const procPickup = reactive({ row: null, photos: [], busy: false })
 async function loadFrontTodo() {
   if (!online.value || !getToken()) return
@@ -299,12 +299,12 @@ async function confirmProcGold() {
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '补金登记失败') }
 }
-function openProcWeigh(row) { procManage.value = row; procWeighForm.finishedWeight = row.finished_weight || null; procWeighForm.finishedFineness = null; procWeighForm.recoveredWeight = null; procWeighForm.meltedWeight = row.melt_weight != null ? Number(row.melt_weight) : null; procWeighForm.note = row.loss_note || ''; activeDialog.value = 'procWeigh' }
+function openProcWeigh(row) { procManage.value = row; procWeighForm.finishedWeight = row.finished_weight || null; procWeighForm.finishedFineness = null; procWeighForm.recoveredWeight = null; procWeighForm.meltedWeight = row.melt_weight != null ? Number(row.melt_weight) : null; procWeighForm.billingWeight = Number(row.billing_weight) > 0 ? Number(row.billing_weight) : (row.pricing_unit === '按克' ? (row.finished_weight || null) : null); procWeighForm.note = row.loss_note || ''; activeDialog.value = 'procWeigh' }
 async function confirmProcWeigh() {
   const row = procManage.value; if (!row) return
   if (!(Number(procWeighForm.finishedWeight) > 0)) return ElMessage.warning('成品实重必须大于 0')
   try {
-    const result = await request(`/api/processing/orders/${row.processing_order_id}/weighing`, { method: 'POST', body: JSON.stringify({ finishedWeight: Number(procWeighForm.finishedWeight), finishedFineness: procWeighForm.finishedFineness ? Number(procWeighForm.finishedFineness) : null, recoveredWeight: procWeighForm.recoveredWeight != null && procWeighForm.recoveredWeight !== '' ? Number(procWeighForm.recoveredWeight) : null, meltedWeight: procWeighForm.meltedWeight != null && procWeighForm.meltedWeight !== '' ? Number(procWeighForm.meltedWeight) : null, note: procWeighForm.note || '' }) })
+    const result = await request(`/api/processing/orders/${row.processing_order_id}/weighing`, { method: 'POST', body: JSON.stringify({ finishedWeight: Number(procWeighForm.finishedWeight), finishedFineness: procWeighForm.finishedFineness ? Number(procWeighForm.finishedFineness) : null, recoveredWeight: procWeighForm.recoveredWeight != null && procWeighForm.recoveredWeight !== '' ? Number(procWeighForm.recoveredWeight) : null, meltedWeight: procWeighForm.meltedWeight != null && procWeighForm.meltedWeight !== '' ? Number(procWeighForm.meltedWeight) : null, billingWeight: Number(procWeighForm.billingWeight) > 0 ? Number(procWeighForm.billingWeight) : null, note: procWeighForm.note || '' }) })
     if (result?.loss_over) ElMessage.warning(`已登记：损耗 ${Number(procWeighForm.recoveredWeight || 0)}g 超过约定比例，已标预警`)
     else if (result?.refillMissing) ElMessage.warning('成品比来料+补金还重，已按实际登记；请确认是否漏登记补金')
     else ElMessage.success('称重损耗已登记')
@@ -321,6 +321,10 @@ function openProcFinish(row) {
     procFinish.baseIncoming = parsePhotoList(o.incoming_photos); procFinish.incoming = [...procFinish.baseIncoming]
     procFinish.baseWeigh = parsePhotoList(o.weigh_photos); procFinish.weighPhotos = [...procFinish.baseWeigh]
     procFinish.finishedWeight = o.finished_weight != null ? Number(o.finished_weight) : null
+    // 按克项目：计费总克重到成品称重这一步才知道，默认带出成品实重（可手改）
+    procFinish.billingWeight = Number(o.billing_weight) > 0
+      ? Number(o.billing_weight)
+      : (o.pricing_unit === '按克' && o.finished_weight != null ? Number(o.finished_weight) : null)
     procFinish.finishedFineness = o.finished_fineness != null ? Number(o.finished_fineness) : null
     procFinish.recoveredWeight = o.recovered_weight != null ? Number(o.recovered_weight) : null
     procFinish.meltWeight = o.melt_weight != null ? Number(o.melt_weight) : null
@@ -415,7 +419,7 @@ async function submitProcFinish() {
     }
     if (Number(procFinish.finishedWeight) > 0) {
       // 来料随称重一起提交：后端先存来料再核算损耗，否则会拿旧的来料算账
-      const weighed = await request(`/api/processing/orders/${oid}/weighing`, { method: 'POST', body: JSON.stringify({ finishedWeight: Number(procFinish.finishedWeight), finishedFineness: procFinish.finishedFineness != null && procFinish.finishedFineness !== '' ? Number(procFinish.finishedFineness) : null, recoveredWeight: procFinish.recoveredWeight != null && procFinish.recoveredWeight !== '' ? Number(procFinish.recoveredWeight) : null, meltedWeight: procFinish.meltWeight != null && procFinish.meltWeight !== '' ? Number(procFinish.meltWeight) : null, oldGoldWeight: Number(procFinish.oldGoldWeight), oldGoldFineness: Number(procFinish.oldGoldFineness), note: procFinish.note || '' }) })
+      const weighed = await request(`/api/processing/orders/${oid}/weighing`, { method: 'POST', body: JSON.stringify({ finishedWeight: Number(procFinish.finishedWeight), finishedFineness: procFinish.finishedFineness != null && procFinish.finishedFineness !== '' ? Number(procFinish.finishedFineness) : null, recoveredWeight: procFinish.recoveredWeight != null && procFinish.recoveredWeight !== '' ? Number(procFinish.recoveredWeight) : null, meltedWeight: procFinish.meltWeight != null && procFinish.meltWeight !== '' ? Number(procFinish.meltWeight) : null, billingWeight: Number(procFinish.billingWeight) > 0 ? Number(procFinish.billingWeight) : null, oldGoldWeight: Number(procFinish.oldGoldWeight), oldGoldFineness: Number(procFinish.oldGoldFineness), note: procFinish.note || '' }) })
       if (weighed?.refillMissing) ElMessage.warning('成品比来料+补金还重，已按实际登记；请确认是否漏登记补金')
     }
     const newIncoming = procFinish.incoming.filter(u => !procFinish.baseIncoming.includes(u))
@@ -798,6 +802,20 @@ watch(procFinishGold, value => {
   if (untouched) procFinish.goldWeight = value.topUp > 0 ? value.topUp : null
 })
 const procGoldDialogBalance = computed(() => goldBalance({ melt: procManage.value?.melt_weight, finished: procManage.value?.finished_weight }))
+// 按克项目：成品实重填完后自动带出「计费总克重」（未手改时），工费 = 项目单价 × 计费总克重
+const procFinishBilling = computed(() => {
+  const detail = procFinish.detail
+  const byGram = detail && detail.pricing_unit === '按克'
+  const unitFee = Number(detail?.unit_labor_fee || 0)
+  const weight = Number(procFinish.billingWeight || 0)
+  return { byGram, unitFee, weight, laborFee: byGram ? Math.round(unitFee * weight * 100) / 100 : Number(detail?.labor_fee || 0) }
+})
+watch(() => procFinish.finishedWeight, value => {
+  if (!procFinishBilling.value.byGram) return
+  const current = procFinish.billingWeight
+  const untouched = current === null || current === '' || Number(current) === 0
+  if (untouched && Number(value) > 0) procFinish.billingWeight = Number(value)
+})
 watch(procGoldDialogBalance, value => {
   const current = procGoldForm.weight
   const untouched = current === null || current === '' || Number(current) === 0
@@ -1684,7 +1702,7 @@ async function submitProcessingOrder() {
   if (!processingForm.customerName.trim() || !processingForm.customerPhone.trim()) return ElMessage.warning('请输入客户姓名和联系电话')
   if (!processingForm.processingItemId) return ElMessage.warning('请选择加工项目')
   if (!(Number(processingForm.quantity) > 0)) return ElMessage.warning('加工数量必须大于0')
-  if (selectedProcessingItem.value?.pricing_unit === '按克' && !(Number(processingForm.billingWeight) > 0)) return ElMessage.warning('请填写大于0的计费总克重')
+  // 按克项目的计费总克重要等完工、知道成品实际克重后才填，开单阶段允许留空（工费先记 0）
   if (Number(processingForm.deposit || 0) < 0 || Number(processingForm.deposit || 0) > processingDue.value) return ElMessage.warning('定金应在 0 到应收金额之间')
   if (Number(processingForm.deposit || 0) > 0 && !processingForm.depositMethod) return ElMessage.warning('当前没有可用的支付方式，请联系管理员启用')
   processingSubmitting.value = true
@@ -1692,7 +1710,7 @@ async function submitProcessingOrder() {
     const payload = {
         memberId: processingForm.memberId || null, customerName: processingForm.customerName.trim(), customerPhone: processingForm.customerPhone.trim(),
         processingItemId: Number(processingForm.processingItemId), quantity: Number(processingForm.quantity), pickupDate: processingForm.pickupDate || null, craftsmanId: processingForm.craftsmanId || null, salesId: validSalesId(processingForm.salesId) || null,
-        billingWeight: selectedProcessingItem.value?.pricing_unit === '按克' ? Number(processingForm.billingWeight) : null,
+        billingWeight: null,
         oldGoldWeight: processingForm.oldGoldWeight || null, oldGoldFineness: processingForm.oldGoldFineness || null,
         remark: processingForm.remark || null
       }
@@ -2068,7 +2086,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <div class="form-grid"><label>补金克重 (g)<input v-model.number="procFinish.goldWeight" type="number" min="0" step="0.001" /></label><label>成色<input v-model.number="procFinish.goldFineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日价）<input v-model.number="procFinish.goldPrice" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procFinish.downMaterialWeight" type="number" min="0" step="0.001" /><small class="muted">选填：为客户好做额外加的金料（不单独计费、不扣库存；已含在成品里，计入损耗率分母）</small></label></div>
         <p v-if="procFinishGold.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procFinishGold.hint }}</p>
         <h2 class="finish-sec">③ 称重与损耗（选填）</h2>
-        <div class="form-grid"><label>成品实重 (g)<input v-model.number="procFinish.finishedWeight" type="number" min="0" step="0.001" /></label><label>成品成色（可选 0~1）<input v-model.number="procFinish.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>损耗 (g)<input v-model.number="procFinish.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label>备注<input v-model.trim="procFinish.note" /></label></div>
+        <div class="form-grid"><label>成品实重 (g)<input v-model.number="procFinish.finishedWeight" type="number" min="0" step="0.001" /></label><label>成品成色（可选 0~1）<input v-model.number="procFinish.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>损耗 (g)<input v-model.number="procFinish.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label v-if="procFinishBilling.byGram">计费总克重 (g)<input v-model.number="procFinish.billingWeight" type="number" min="0" step="0.001" /><small class="muted">按克项目：工费 = ¥{{ money(procFinishBilling.unitFee) }}/g × 计费总克重 = <b>¥{{ money(procFinishBilling.laborFee) }}</b>（默认带出成品实重）</small></label><label>备注<input v-model.trim="procFinish.note" /></label></div>
         <h2 class="finish-sec">④ 回收屑（自动计算）</h2>
         <div class="processing-handling"><label><input v-model="procFinish.residualGoldHandling" type="radio" value="TAKE_AWAY" />客户带走，不计回收屑</label><label><input v-model="procFinish.residualGoldHandling" type="radio" value="STORE_DEDUCT" />留店抵扣工费，入旧料库存</label></div>
         <div v-if="procFinish.residualGoldHandling === 'STORE_DEDUCT'" class="form-grid"><label>回收屑类型<select v-model="procFinish.residualMaterialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>回收价格 (元/g)<input v-model.number="procFinish.residualRecyclePrice" type="number" min="0" step="0.01" /><small class="muted">留 0 取系统回收价 ¥{{ money(recycleSpot) }}/g</small></label><div class="calculation-card compact"><span>回收屑</span><strong>{{ procFinishResidualWeight.toFixed(3) }}g</strong><small>融后金重（未填时按来料克重）− 成品实重，不足按 0；按 ¥{{ money(procFinishRecyclePrice) }}/g 抵扣，抵扣可超过工费，超额转为客户返款</small></div><div class="calculation-card compact"><span>预计回收屑抵扣</span><strong>-{{ money(procFinishResidualDeduction) }}</strong><small>以完成加工时后端结算结果为准</small></div></div>
@@ -2101,7 +2119,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy || !Number(procPayAmount) || (procPayType === 'REFUND' ? procPayAmount > processingRefundOutstanding(procManage) : procPayAmount > processingOutstanding(procManage))" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '处理中...' : procPayType === 'DEPOSIT' ? '确认收定金' : procPayType === 'REFUND' ? '确认返款' : '确认实收' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；可重复登记修正。下料只登记克重，不计费也不扣库存。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procGoldForm.downMaterial" type="number" min="0" step="0.001" /><small class="muted">选填：额外加的金料（不单独计费、不扣库存）</small></label><p v-if="procGoldDialogBalance.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procGoldDialogBalance.hint }}</p><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>
-      <div v-else-if="activeDialog === 'procWeigh'" class="dialog-body"><h3 style="margin:0 0 6px">称重与损耗登记 · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">损耗指打磨/锉修收集的屑重，用于师傅考核（损耗率 = 损耗 ÷（融后金重 + 下料）），超约定值自动预警。</p><label>成品实重 (g)<input v-model.number="procWeighForm.finishedWeight" type="number" min="0.001" step="0.001" /></label><label>成品成色（可选，0~1）<input v-model.number="procWeighForm.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>损耗 (g)<input v-model.number="procWeighForm.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label>融后金重 (g)<input v-model.number="procWeighForm.meltedWeight" type="number" min="0" step="0.001" /><small class="muted">选填：来料熔化后的金重</small></label><label>备注<textarea v-model.trim="procWeighForm.note" rows="2" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcWeigh"><Check :size="16" />确认登记</button></div></div>
+      <div v-else-if="activeDialog === 'procWeigh'" class="dialog-body"><h3 style="margin:0 0 6px">称重与损耗登记 · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">损耗指打磨/锉修收集的屑重，用于师傅考核（损耗率 = 损耗 ÷（融后金重 + 下料）），超约定值自动预警。</p><label>成品实重 (g)<input v-model.number="procWeighForm.finishedWeight" type="number" min="0.001" step="0.001" /></label><label>成品成色（可选，0~1）<input v-model.number="procWeighForm.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label v-if="procManage?.pricing_unit === '按克'">计费总克重 (g)<input v-model.number="procWeighForm.billingWeight" type="number" min="0.001" step="0.001" /><small class="muted">按克项目：工费 = ¥{{ money(Number(procManage?.unit_labor_fee || 0)) }}/g × 计费总克重，默认带出成品实重</small></label><label>损耗 (g)<input v-model.number="procWeighForm.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label>融后金重 (g)<input v-model.number="procWeighForm.meltedWeight" type="number" min="0" step="0.001" /><small class="muted">选填：来料熔化后的金重</small></label><label>备注<textarea v-model.trim="procWeighForm.note" rows="2" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcWeigh"><Check :size="16" />确认登记</button></div></div>
     </el-dialog>
     </div>
   </el-config-provider>

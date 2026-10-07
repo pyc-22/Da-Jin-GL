@@ -251,10 +251,12 @@ public class ProcessingController {
         if (quantity <= 0) throw new BusinessException(400707, "数量必须大于0");
         BigDecimal unitFee = decimal(item.get("labor_fee"));
         String pricingUnit = String.valueOf(item.getOrDefault("pricing_unit", "按件"));
+        // 按克项目：计费总克重等加工完成、知道成品实际克重后柜面再填，开单时允许留空（工费先记 0）
         BigDecimal billingWeight = "按克".equals(pricingUnit) ? optionalDecimal(body.get("billingWeight"), 3) : null;
-        if ("按克".equals(pricingUnit) && (billingWeight == null || billingWeight.signum() <= 0))
-            throw new BusinessException(400724, "按克加工需填写大于0的计费总克重");
-        BigDecimal laborFee = unitFee.multiply(billingWeight == null ? BigDecimal.valueOf(quantity) : billingWeight).setScale(2, RoundingMode.HALF_UP);
+        if (billingWeight != null && billingWeight.signum() <= 0) billingWeight = null;
+        BigDecimal laborFee = unitFee.multiply(billingWeight == null
+                ? ("按克".equals(pricingUnit) ? BigDecimal.ZERO : BigDecimal.valueOf(quantity))
+                : billingWeight).setScale(2, RoundingMode.HALF_UP);
         BigDecimal storeGoldWeight = optionalDecimal(body.get("storeGoldWeight"), 3);
         if (storeGoldWeight != null && storeGoldWeight.signum() <= 0) storeGoldWeight = null;
         BigDecimal storeGoldFineness = optionalDecimal(body.get("storeGoldFineness"), 4);
@@ -449,6 +451,9 @@ public class ProcessingController {
         if (incomingWeight != null && incomingWeight.signum() < 0) throw new BusinessException(400711, "来料克重不能小于0");
         java.math.BigDecimal incomingFineness = optionalDecimal(body.get("oldGoldFineness"), 4);
         if (incomingFineness != null && (incomingFineness.signum() < 0 || incomingFineness.compareTo(BigDecimal.ONE) > 0)) throw new BusinessException(400711, "来料成色范围为0到1");
+        // 完工计费：按克项目在成品称重时填计费总克重（成品实际克重这时才知道）
+        java.math.BigDecimal billingWeight = optionalDecimal(body.get("billingWeight"), 3);
+        if (billingWeight != null && billingWeight.signum() <= 0) throw new BusinessException(400724, "计费总克重必须大于0");
         Map<String, Object> order = lockedOrder(id, storeId);
         String status = String.valueOf(order.get("status"));
         if ("PENDING".equals(status)) throw new BusinessException(409715, "加工开始前不能登记称重，请先确认加工");
@@ -471,10 +476,23 @@ public class ProcessingController {
         java.math.BigDecimal permille = dustPermille(recoveredWeight, base);
         java.math.BigDecimal config = lossConfig(storeId);
         boolean over = permille != null && permille.compareTo(config) > 0;
-        db.jdbc().update("update processing_order set finished_weight=:w,finished_fineness=:f,melt_weight=:m,recovered_weight=:r,loss_permille=:p,loss_over=:o,loss_note=:n,loss_time=now(),version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
+        // 按克项目的计费总克重只在成品称重这一步确定；按件单不接受该字段
+        if (billingWeight != null && !"按克".equals(String.valueOf(order.getOrDefault("pricing_unit", "按件")))) billingWeight = null;
+        java.math.BigDecimal unitLaborFee = decimal(order.get("unit_labor_fee"));
+        java.math.BigDecimal billingLaborFee = billingWeight == null ? decimal(order.get("labor_fee")) : unitLaborFee.multiply(billingWeight).setScale(2, RoundingMode.HALF_UP);
+        java.math.BigDecimal billingGrossDue = billingLaborFee.add(decimal(order.get("store_gold_amount"))).subtract(decimal(order.get("residual_gold_deduction"))).setScale(2, RoundingMode.HALF_UP);
+        java.math.BigDecimal billingPaid = decimal(order.get("paid_amount"));
+        java.math.BigDecimal billingPromotion = decimal(order.get("promotion_discount"));
+        java.math.BigDecimal billingDue = billingGrossDue.subtract(billingPromotion).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        java.math.BigDecimal billingRefund = billingPaid.subtract(billingGrossDue).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        db.jdbc().update("update processing_order set finished_weight=:w,finished_fineness=:f,melt_weight=:m,recovered_weight=:r,loss_permille=:p,loss_over=:o,loss_note=:n,billing_weight=coalesce(:bw,billing_weight),labor_fee=:lf,due_amount=:due,refund_amount=:refund,refund_paid_amount=least(refund_paid_amount,:refund),original_due_amount=case when promotion_discount>0 then coalesce(original_due_amount,:grossDue) else original_due_amount end,loss_time=now(),version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("w", finishedWeight).addValue("f", finishedFineness).addValue("m", melted).addValue("r", recovered)
-                        .addValue("p", permille).addValue("o", over ? 1 : 0).addValue("n", optionalText(body, "note")).addValue("id", id).addValue("s", storeId));
-        log(storeId, userId(request), "ORDER_WEIGHING", "加工单=" + order.get("order_no") + ",来料=" + order.get("old_gold_weight") + "g,成品=" + finishedWeight + "g,损耗=" + recoveredWeight + "g,损耗率=" + permille + "‰" + (over ? ",超标" : "") + (refillMissing ? ",成品重于来料+补金待核对" : ""));
+                        .addValue("p", permille).addValue("o", over ? 1 : 0).addValue("n", optionalText(body, "note"))
+                        .addValue("bw", billingWeight).addValue("lf", billingLaborFee).addValue("due", billingDue).addValue("refund", billingRefund).addValue("grossDue", billingGrossDue)
+                        .addValue("id", id).addValue("s", storeId));
+        if (billingWeight != null) ensureProcessingRefundApproval(storeId, id, String.valueOf(order.get("order_no")), billingRefund, billingGrossDue, billingPaid, request);
+        log(storeId, userId(request), "ORDER_WEIGHING", "加工单=" + order.get("order_no") + ",来料=" + order.get("old_gold_weight") + "g,成品=" + finishedWeight + "g,损耗=" + recoveredWeight + "g,损耗率=" + permille + "‰"
+                + (billingWeight == null ? "" : ",计费总克重=" + billingWeight + "g,工费=" + billingLaborFee + ",应收=" + billingDue) + (over ? ",超标" : "") + (refillMissing ? ",成品重于来料+补金待核对" : ""));
         Map<String, Object> result = orderDetail(id, storeId, request);
         if (refillMissing) result.put("refillMissing", true);
         broadcast("PROCESSING_ORDER_UPDATED", processingOrderEvent(result, "WEIGHING"));
