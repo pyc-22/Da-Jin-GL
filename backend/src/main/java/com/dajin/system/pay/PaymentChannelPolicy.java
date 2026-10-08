@@ -60,7 +60,7 @@ public final class PaymentChannelPolicy {
 
     private static String requireActive(DbSupport db, long storeId, Object rawCode, boolean allowBalance) {
         String code = rawCode == null ? "" : String.valueOf(rawCode).trim().toUpperCase(Locale.ROOT);
-        if (code.isBlank() || "COMBINATION".equals(code) || (!allowBalance && "BALANCE".equals(code))) {
+        if (code.isBlank() || "COMBINATION".equals(code) || (!allowBalance && isBalanceChannel(db, storeId, code))) {
             throw new BusinessException(400310, allowBalance ? "支付方式不合法" : "请选择已启用的外部支付方式");
         }
         Integer count = db.jdbc().queryForObject(

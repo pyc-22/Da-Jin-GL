@@ -147,7 +147,7 @@ onMounted(load)
         <el-descriptions-item label="原应收">{{ formatMoney(detail.payment?.originalDue) }}</el-descriptions-item>
         <el-descriptions-item label="本次/累计实收">{{ formatMoney(detail.payment?.actualPaid) }}</el-descriptions-item>
         <el-descriptions-item label="优惠金额">{{ formatMoney(detail.payment?.discount) }}</el-descriptions-item>
-        <el-descriptions-item label="实际折扣">{{ detail.payment?.discountRate == null ? '-' : `${(Number(detail.payment.discountRate) * 100).toFixed(2)}折` }}</el-descriptions-item>
+        <el-descriptions-item label="实际折扣">{{ detail.payment?.discountRate == null ? '-' : `${(Number(detail.payment.discountRate) * 10).toFixed(2)}折（${(Number(detail.payment.discountRate) * 100).toFixed(0)}%）` }}</el-descriptions-item>
         <el-descriptions-item label="收款原因" :span="2">{{ detail.payment?.reason || '顾客优惠' }}</el-descriptions-item>
       </el-descriptions>
     </template>

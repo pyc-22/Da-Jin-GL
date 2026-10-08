@@ -9,7 +9,7 @@
         <span>{{ quote.label }}</span>
         <strong>¥{{ money(quote.value) }}<small>/g</small></strong>
         <em v-if="!compact && quote.change != null" :class="Number(quote.change) >= 0 ? 'up' : 'down'">
-          {{ Number(quote.change) >= 0 ? '+' : '' }}{{ quote.change }}%
+          {{ Number(quote.change) > 0 ? '+' : '' }}{{ quote.change }}%
         </em>
       </div>
     </div>

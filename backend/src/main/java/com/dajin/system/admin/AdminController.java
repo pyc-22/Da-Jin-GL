@@ -49,7 +49,7 @@ public class AdminController {
         Map<String, Object> kpi = salesVisible ? db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=curdate() and oi.status=1),0) weight from sales_order o where o.store_id=:s and date(o.create_time)=curdate() and o.status=1", p) : Map.of();
         Number dayGross = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and date(o.create_time)=curdate() and o.status=1", p, Number.class) : 0;
         // 营业额口径与交班合计一致：商品销售 + 加工费收入（毛利/毛利率仍按商品销售算）
-        Number processingToday = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(amount),0) from finance_record where store_id=:s and type='INCOME' and category='PROCESSING_FEE' and date(create_time)=curdate()", p, Number.class) : 0;
+        Number processingToday = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(f.amount),0) from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)=curdate() and not exists (select 1 from processing_order w where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status='WITHDRAWN')", p, Number.class) : 0;
         Number revenue = (Number) kpi.getOrDefault("revenue", 0);
         BigDecimal turnover = new BigDecimal(String.valueOf(revenue)).add(new BigDecimal(String.valueOf(processingToday)));
         Number gross = dayGross == null ? 0 : dayGross;
@@ -58,7 +58,7 @@ public class AdminController {
         result.put("pendingApproval", db.jdbc().queryForObject("select count(*) from approval where store_id=:s and status=1", p, Integer.class));
         result.put("stockWarnings", db.jdbc().queryForObject("select count(*) from goods where store_id=:s and stock<=5", p, Integer.class));
         Map<String, BigDecimal> processingByDay = new LinkedHashMap<>();
-        for (Map<String,Object> row : salesVisible ? db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and f.create_time>=date_sub(curdate(),interval 6 day) group by date(f.create_time)", p) : List.<Map<String,Object>>of()) {
+        for (Map<String,Object> row : salesVisible ? db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and f.create_time>=date_sub(curdate(),interval 6 day) and not exists (select 1 from processing_order w where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status='WITHDRAWN') group by date(f.create_time)", p) : List.<Map<String,Object>>of()) {
             processingByDay.put(String.valueOf(row.get("day")), new BigDecimal(String.valueOf(row.get("amount"))));
         }
         List<Map<String,Object>> trend = new ArrayList<>();

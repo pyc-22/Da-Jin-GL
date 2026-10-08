@@ -6,13 +6,15 @@ import RecycleCreate from './RecycleCreate.vue'
 const mocks = vi.hoisted(() => ({
   oldMaterialTypes: vi.fn(),
   recycleCreate: vi.fn(),
+  payMethods: vi.fn(),
   back: vi.fn()
 }))
 
 vi.mock('../api/request.js', () => ({
   api: {
     oldMaterialTypes: mocks.oldMaterialTypes,
-    recycleCreate: mocks.recycleCreate
+    recycleCreate: mocks.recycleCreate,
+    payMethods: mocks.payMethods
   }
 }))
 
@@ -31,6 +33,10 @@ describe('RecycleCreate', () => {
       { type_id: 1, name: '足金999', status: 1 },
       { type_id: 2, name: '18K金', status: 0 },
       { type_id: 3, name: '铂金950', status: 1 }
+    ])
+    mocks.payMethods.mockReset().mockResolvedValue([
+      { channel_id: 1, channel_code: 'XIANJIN', channel_name: '现金', status: 1 },
+      { channel_id: 2, channel_code: 'SQBWX', channel_name: '收钱吧微信', status: 1 }
     ])
     mocks.recycleCreate.mockReset().mockResolvedValue({
       recycleOrderId: 9,

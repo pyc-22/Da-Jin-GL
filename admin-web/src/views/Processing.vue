@@ -114,7 +114,8 @@ const recyclePriceText = row => {
   return weight > 0 && deduction > 0 ? `${(deduction / weight).toFixed(2)} 元/g` : '-'
 }
 const parsePhotos = v => { if (Array.isArray(v)) return v; try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : [] } catch { return [] } }
-const dateRange = dates => ({ from: dates?.[0] || undefined, to: dates?.[1] || undefined })
+// 加工单列表后端只认 start/end（看板 statistics 才认 from/to），这里分开传，否则日期筛选会被静默忽略
+const dateRange = dates => ({ start: dates?.[0] || undefined, end: dates?.[1] || undefined })
 
 async function loadShared() {
   const needsCatalog = tab.value === 'items' || (tab.value === 'orders' && auth.can('processing:manage'))

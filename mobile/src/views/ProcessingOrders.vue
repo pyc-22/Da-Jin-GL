@@ -152,6 +152,7 @@
         </div>
       </section>
     </div>
+    <PayMethodPicker :open="refundPicker.open" :methods="payMethods" :model-value="refundPicker.method" title="选择返款方式" hint="返款会同时记入财务流水，请选择实际给客户的方式" @update:open="value => refundPicker.open = value" @pick="submitRefund" />
   </div>
 </template>
 <script setup>
@@ -174,6 +175,7 @@ import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
 import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, isRetryableSubmitError, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft } from '../utils/pendingProcessing.js'
+import PayMethodPicker from '../components/PayMethodPicker.vue'
 import { syncPendingProcessing } from '../utils/processingSync.js'
 const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
@@ -230,7 +232,8 @@ async function advance(order) {
 }
 const selectedItem = computed(() => items.value.find(item => Number(item.item_id) === Number(form.itemId)) || null)
 const laborFee = computed(() => Math.round(Number(selectedItem.value?.labor_fee || 0) * Number((selectedItem.value?.pricing_unit === '按克' ? form.billingWeight : form.quantity) || 0) * 100) / 100)
-const lateCount = computed(() => orders.value.filter(o => o.status !== 'PICKED_UP' && o.pickup_date && new Date(String(o.pickup_date).slice(0, 10)) < new Date(new Date().toISOString().slice(0, 10))).length)
+const localToday = () => { const now = new Date(); const pad = value => String(value).padStart(2, '0'); return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` }
+const lateCount = computed(() => { const today = localToday(); return orders.value.filter(o => o.status !== 'PICKED_UP' && o.pickup_date && String(o.pickup_date).slice(0, 10) < today).length })
 const list = rows => (Array.isArray(rows) ? rows : rows?.records || [])
 async function load() {
   loading.value = true; error.value = ''
@@ -256,10 +259,27 @@ async function refund(order) {
   if (!canRefund.value || refundOutstanding(order) <= 0) return
   const amount = Number(window.prompt(`请输入返款金额（待返 ${refundOutstanding(order).toFixed(2)} 元）`, refundOutstanding(order).toFixed(2)))
   if (!Number.isFinite(amount) || amount <= 0 || amount > refundOutstanding(order)) return
-  const payMethod = window.prompt('请输入返款方式（如 CASH / WECHAT / ALIPAY）', 'CASH')
-  if (!payMethod) return
+  await ensurePayMethods()
+  refundPicker.value = { open: true, order, amount, method: payMethods.value[0]?.code || '' }
+}
+// 返款方式必须用门店已启用的渠道（生产 code 是 XIANJIN/WEIXIN/…，手输 CASH 会被后端拒绝）
+const payMethods = ref([])
+const refundPicker = ref({ open: false, order: null, amount: 0, method: '' })
+async function ensurePayMethods() {
+  if (payMethods.value.length) return
   try {
-    const result = await api.processingRefund(order.processing_order_id, { amount, payMethod, clientRequestId: `${Date.now()}-${Math.random()}` })
+    const rows = await api.payMethods()
+    payMethods.value = (Array.isArray(rows) ? rows : rows?.records || [])
+      .filter(item => Number(item.status ?? 1) === 1 && String(item.channel_code || '').trim())
+      .map(item => ({ code: item.channel_code, label: item.channel_name || item.channel_code }))
+  } catch (error) { toast(error?.message || '收款方式加载失败') }
+}
+async function submitRefund(method) {
+  const { order, amount } = refundPicker.value
+  refundPicker.value = { ...refundPicker.value, open: false }
+  if (!order || !method) return
+  try {
+    const result = await api.processingRefund(order.processing_order_id, { amount, payMethod: method, clientRequestId: `${Date.now()}-${Math.random()}` })
     toast(result?.approvalRequired ? '返款超过审批上限，已提交审批' : '客户返款已登记')
     await openDetail(order)
     await load()
@@ -325,7 +345,9 @@ function preview(url) { if (url) window.open(url) }
 function handleItemChange() {
   const base = new Date()
   base.setDate(base.getDate() + Number(selectedItem.value?.processing_days || 0))
-  form.pickupDate = base.toISOString().slice(0, 10)
+  // 用本地日期：toISOString 是 UTC，+08 凌晨会算成前一天
+  const pad = value => String(value).padStart(2, '0')
+  form.pickupDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`
 }
 function resetForm() {
   Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })

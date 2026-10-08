@@ -141,7 +141,7 @@ const materialType = ref('')
 const materialTypes = ref([])
 const typesLoading = ref(true)
 const typeError = ref('')
-const payMethod = ref('CASH')
+const payMethod = ref('')
 const recycle = ref(0)
 const busy = ref(false)
 const confirmOpen = ref(false)
@@ -152,11 +152,11 @@ const submittedSnapshot = ref({})
 const pending = ref(pendingSubmitSummary())
 const activeRef = ref('')
 const refreshPending = () => { pending.value = pendingSubmitSummary() }
-// 手动重试：复用全局补传（成功后刷新统计）
+// 手动重试：复用全局补传（成功后刷新统计）。注意不要伪造"回收成功 ¥0.00"，金额以服务端为准
 async function retryPending() {
   await syncPendingProcessing()
   refreshPending()
-  if (!pending.value.recycle) done.value = { amount: 0, approvalRequired: false, synced: true }
+  if (!pending.value.recycle) submitError.value = '待同步的回收单已补传成功，请在「单据」里核对单号与金额'
 }
 
 const purities = [
@@ -165,11 +165,8 @@ const purities = [
   { value: 0.916, label: '22K（91.6%）' },
   { value: 0.75, label: '18K（75.0%）' }
 ]
-const payOptions = [
-  { code: 'CASH', label: '现金' },
-  { code: 'WECHAT', label: '微信' },
-  { code: 'ALIPAY', label: '支付宝' }
-]
+// 收款方式必须来自门店已启用的渠道（生产门店 code 是 XIANJIN/WEIXIN/…，写死 CASH 会被后端判为"支付方式未启用"）
+const payOptions = ref([])
 
 const safeLossRate = computed(() => Math.min(99, Math.max(0, Number(lossRate.value || 0))))
 const recycleAvailable = computed(() => Number(recycle.value) > 0)
@@ -178,10 +175,10 @@ const lossAmount = computed(() => grossAmount.value * safeLossRate.value / 100)
 const estimate = computed(() => grossAmount.value - lossAmount.value)
 const canQuote = computed(() => recycleAvailable.value && Boolean(materialType.value) && Number(weight.value) > 0)
 const estimateText = computed(() => canQuote.value ? money(estimate.value) : '—')
-const canSubmit = computed(() => canQuote.value && estimate.value > 0)
+const canSubmit = computed(() => canQuote.value && estimate.value > 0 && !!payMethod.value)
 const purityText = computed(() => `${(Number(purity.value || 0) * 100).toFixed(1)}%`)
 const lossRateText = computed(() => `${safeLossRate.value.toFixed(1)}%`)
-const payMethodLabel = computed(() => payOptions.find(item => item.code === payMethod.value)?.label || payMethod.value)
+const payMethodLabel = computed(() => payOptions.value.find(item => item.code === payMethod.value)?.label || payMethod.value)
 
 const money = value => `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const weightText = value => `${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}g`
@@ -189,6 +186,7 @@ const weightText = value => `${Number(value || 0).toLocaleString('zh-CN', { mini
 onMounted(() => {
   loadRecyclePrice()
   loadMaterialTypes()
+  loadPayOptions()
 })
 
 async function loadRecyclePrice() {
@@ -197,6 +195,19 @@ async function loadRecyclePrice() {
     recycle.value = Number(app.primaryGold?.recyclePrice || 0)
   } catch {
     recycle.value = 0
+  }
+}
+
+async function loadPayOptions() {
+  try {
+    const rows = await api.payMethods()
+    const list = (Array.isArray(rows) ? rows : rows?.records || [])
+      .filter(item => Number(item.status ?? 1) === 1 && String(item.channel_code || '').trim())
+      .map(item => ({ code: item.channel_code, label: item.channel_name || item.channel_code }))
+    payOptions.value = list
+    if (!payOptions.value.some(option => option.code === payMethod.value)) payMethod.value = payOptions.value[0]?.code || ''
+  } catch (error) {
+    typeError.value = error?.message || '收款方式加载失败，请检查网络后重试'
   }
 }
 
@@ -271,7 +282,7 @@ function startAnother() {
   weight.value = ''
   purity.value = 0.999
   lossRate.value = 0
-  payMethod.value = 'CASH'
+  payMethod.value = payOptions.value[0]?.code || ''
   submitError.value = ''
 }
 </script>

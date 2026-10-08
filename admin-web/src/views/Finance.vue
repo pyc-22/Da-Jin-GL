@@ -94,7 +94,7 @@ async function load() {
   if (!period.value) return
   try {
   if (period.value === 'recycle') {
-    const data = await financeApi.recycle({})
+    const data = await financeApi.recycle({ ...(financeRange.value || {}) })
     if (!current()) return
     recycle.value = data || {}
     recycleRows.value = data?.records || []

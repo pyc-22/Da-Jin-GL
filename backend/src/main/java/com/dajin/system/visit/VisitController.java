@@ -26,7 +26,8 @@ public class VisitController {
         return ApiResponse.ok(db.list(sql,p));
     }
     @GetMapping("/stats") public ApiResponse<?> stats(HttpServletRequest req) {
-        return ApiResponse.ok(db.one("select count(*) total,sum(status=1) pending,sum(status=2) completed,sum(call_result='CONNECTED') connected,sum(call_result in ('NO_ANSWER','REJECTED','INVALID','UNREACHABLE')) unsuccessful from visit_task v where v.store_id=:s"+salesScope(req),params(req)));
+        // 与 /tasks 口径一致：软删除会员的任务不算（否则统计大于明细）
+        return ApiResponse.ok(db.one("select count(*) total,sum(v.status=1) pending,sum(v.status=2) completed,sum(v.call_result='CONNECTED') connected,sum(v.call_result in ('NO_ANSWER','REJECTED','INVALID','UNREACHABLE')) unsuccessful from visit_task v join member m on m.member_id=v.member_id and m.store_id=v.store_id and m.deleted=0 where v.store_id=:s"+salesScope(req),params(req)));
     }
     @GetMapping("/assignees") @RequireRoles({"ADMIN","MANAGER"}) public ApiResponse<?> assignees(HttpServletRequest req) {
         return ApiResponse.ok(db.list("select u.user_id,u.real_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id where u.store_id=:s and u.status=1 and r.status=1 and r.role_code in ('SALES','MANAGER') order by u.real_name,u.user_id",Map.of("s",db.store(req))));
