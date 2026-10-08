@@ -1716,8 +1716,12 @@ async function submitProcessingOrder() {
       try {
         result = await request('/api/processing/orders', { method: 'POST', body: JSON.stringify(payload) })
       } catch (error) {
-        // 网络不通：存离线队列，联网后自动提交（服务端按 clientRequestId 幂等，不会重复建单）
-        if (!online.value || String(error?.message || '').match(/Failed to fetch|NetworkError|timeout|ECONN|socket/i)) {
+        // 网络不通/服务异常：存离线队列，联网后自动提交（服务端按 clientRequestId 幂等，不会重复建单）。
+        // 业务校验类错误（4xxxx / 4xx）重试也不会成功，照常抛出提示柜面。
+        const status = Number(error?.status || 0)
+        const code = Number(error?.body?.code || 0)
+        const businessError = (code > 0 && code < 50000) || (status >= 400 && status < 500)
+        if (!businessError) {
           const clientRequestId = payload.clientRequestId || uuid()
           await enqueueWithId('/api/processing/orders', { ...payload, clientRequestId }, clientRequestId, 'POST')
           ElMessage.warning(`网络不通，加工单已存入离线队列，联网后自动提交${Number(processingForm.deposit || 0) > 0 ? '；定金需联网后再收' : ''}`)

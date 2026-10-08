@@ -51,10 +51,10 @@ describe('mobile pending processing queue', () => {
     })
   })
 
-  it('avoids re-posting a draft when the same order already reached the server', () => {
-    const rows = [{ processing_order_id: 99, customer_phone: '13800000000', processing_item_id: 5, create_time: '2026-10-08 05:49:55' }]
-    expect(findDuplicateOrder(draft('proc-1'), rows, 60 * 24 * 365)).toMatchObject({ processing_order_id: 99 })
-    expect(findDuplicateOrder(draft('proc-1'), rows, 30)).toBeNull()
-    expect(findDuplicateOrder(draft('proc-1', '13900000000'), rows, 60 * 24 * 365)).toBeNull()
+  it('tells whether an identical order already exists (manual diagnostics only)', () => {
+    const rows = [{ processing_order_id: 99, customer_phone: '13800000000', processing_item_id: 5 }]
+    expect(findDuplicateOrder(draft('proc-1'), rows)).toMatchObject({ processing_order_id: 99 })
+    expect(findDuplicateOrder(draft('proc-1', '13900000000'), rows)).toBeNull()
+    expect(findDuplicateOrder(draft('proc-1', '13800000000', 6), rows)).toBeNull()
   })
 })

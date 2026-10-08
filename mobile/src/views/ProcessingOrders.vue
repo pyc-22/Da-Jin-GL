@@ -376,13 +376,13 @@ async function submit() {
  * 补传：把没提交成功的开单、以及已创建但没转交前台的单子补上去。
  * 触发时机：进入页面（等列表加载完再补，重复单判断才准）、断网恢复、用户点横幅按钮。
  */
-async function flushPendingProcessing({ silent = false, knownOrders = null } = {}) {
+async function flushPendingProcessing({ silent = false } = {}) {
   if (syncing.value) return
   if (!pending.value.total) { refreshPending(); return }
   syncing.value = true
   let result = { synced: 0, failed: 0 }
   try {
-    result = await syncPendingProcessing({ knownOrders: knownOrders || orders.value })
+    result = await syncPendingProcessing()
   } finally {
     syncing.value = false
     refreshPending()
@@ -393,9 +393,8 @@ async function flushPendingProcessing({ silent = false, knownOrders = null } = {
 }
 onMounted(async () => {
   refreshPending()
-  // 先等列表加载完，再补传：这样「服务器是否已有该单」的判断才可靠，不会重复建单
   await load()
-  await flushPendingProcessing({ silent: true, knownOrders: orders.value })
+  await flushPendingProcessing({ silent: true })
   if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id })
 })
 // 网络恢复后自动补传（app.offline 由全局连通性检查维护）

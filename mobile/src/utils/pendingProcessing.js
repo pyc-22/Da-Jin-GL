@@ -124,20 +124,17 @@ export function buildProcessingDraftPayload(form, item, clientRequestId = '') {
 }
 
 /**
- * 已经存在同样的单子吗？（同门店 + 同客户手机 + 同项目，且是最近 thisWithinMinutes 分钟内创建的）
- * 用来避免"服务器其实已经创建成功、但响应在路上丢了"时草稿补传造成重复单。
+ * 已经存在同样的单子吗？仅用于诊断/人工排查；补传不再依赖它。
+ * （服务端已按 clientRequestId 幂等，客户端再做时间比较会因时区差异误判，见 processingSync.js）
  */
-export function findDuplicateOrder(draft, orders, withinMinutes = 30) {
+export function findDuplicateOrder(draft, orders) {
   const payload = draft?.payload || {}
   const phone = String(payload.customerPhone || '').trim()
   if (!phone) return null
   const itemId = Number(payload.processingItemId || 0)
-  const cutoff = Date.now() - Math.max(1, Number(withinMinutes) || 30) * 60000
   const rows = Array.isArray(orders) ? orders : []
   return rows.find(row => {
     if (String(row.customer_phone || '').trim() !== phone) return false
-    if (itemId && Number(row.processing_item_id || row.item_id || 0) !== itemId) return false
-    const at = Date.parse(String(row.create_time || '').replace(' ', 'T'))
-    return !Number.isFinite(at) || at >= cutoff
+    return !itemId || Number(row.processing_item_id || row.item_id || 0) === itemId
   }) || null
 }
