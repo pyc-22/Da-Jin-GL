@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProcessingOrders from './ProcessingOrders.vue'
+import { listPendingHandovers, listProcessingDrafts } from '../utils/pendingProcessing.js'
 
 const mocks = vi.hoisted(() => ({
   processingOrders: vi.fn(),
@@ -40,6 +41,8 @@ vi.mock('../composables/useToast.js',()=>({useToast:()=>({toast:mocks.toast})}))
 describe('ProcessingOrders mobile actions', () => {
   beforeEach(() => {
     mocks.query = {}; mocks.toast.mockReset()
+    localStorage.clear()
+    localStorage.setItem('dajin-user', JSON.stringify({ user_id: 9, store_id: 1 }))
     const order = { processing_order_id: 12, order_no: 'JG0012', status: 'PENDING', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 0 }
     mocks.processingOrders.mockReset().mockResolvedValue([order])
     mocks.processingOrder.mockReset().mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], payments: [] })
@@ -138,8 +141,63 @@ describe('ProcessingOrders mobile actions', () => {
     expect(wrapper.find('.sheet-body button.primary.full').exists()).toBe(false)
   })
 
-  it('shows a pickup photo section for completed orders', async () => {
-    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100, pickup_photos: [] }
+  // 断网/服务异常时开单不能丢：存草稿 + 横幅提示 + 一键补传
+  const fillCreateForm = async wrapper => {
+    await wrapper.findAll('button').find(button => button.text().includes('开加工单')).trigger('click')
+    await flushPromises()
+    const field = label => wrapper.findAll('.sheet-body label').find(node => node.text().includes(label)).get('input')
+    await field('客户姓名').setValue('张三')
+    await field('客户电话').setValue('13800000000')
+    await field('来料克重').setValue('20')
+    await field('来料成色').setValue('0.999')
+    await wrapper.find('.sheet-body select').setValue('5')
+    await wrapper.find('.sheet-body button.primary.full').trigger('click')
+    await flushPromises()
+  }
+
+  it('keeps a failed submission as a draft and can sync it later', async () => {
+    mocks.processingCreate.mockRejectedValueOnce(new Error('网络异常'))
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await fillCreateForm(wrapper)
+
+    expect(listProcessingDrafts()).toHaveLength(1)
+    expect(wrapper.text()).toContain('待同步草稿')
+    expect(wrapper.get('.pending-sync').text()).toContain('1 单未提交成功')
+
+    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'PENDING', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 0, handover: 1 }
+    mocks.processingOrders.mockResolvedValue([order])
+    mocks.processingCreate.mockResolvedValue(order)
+    await wrapper.get('.pending-sync').trigger('click')
+    await flushPromises()
+
+    expect(listProcessingDrafts()).toHaveLength(0)
+    expect(mocks.processingCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.processingHandover).toHaveBeenCalledWith(12)
+    expect(wrapper.find('.pending-sync').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('remembers a created order whose handover failed and retries the handover', async () => {
+    mocks.processingHandover.mockRejectedValueOnce(new Error('转交失败'))
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await fillCreateForm(wrapper)
+
+    expect(listProcessingDrafts()).toHaveLength(0)
+    expect(listPendingHandovers().map(row => row.orderId)).toEqual([12])
+    expect(wrapper.get('.pending-sync').text()).toContain('1 单未转交前台')
+
+    mocks.processingHandover.mockResolvedValue({ processing_order_id: 12, order_no: 'JG0012', status: 'PENDING', handover: 1 })
+    await wrapper.get('.pending-sync').trigger('click')
+    await flushPromises()
+
+    expect(listPendingHandovers()).toHaveLength(0)
+    expect(wrapper.find('.pending-sync').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows a pickup photo section for completed orders', async () => {    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100, pickup_photos: [] }
     mocks.processingOrders.mockResolvedValue([order])
     mocks.processingOrder.mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], pickup_photos: [], payments: [] })
     const wrapper = mount(ProcessingOrders)

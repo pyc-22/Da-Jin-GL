@@ -11,6 +11,10 @@
           <Chip v-for="s in statuses" :key="s.key" :selected="status === s.key" @click="status = s.key; load()">{{ s.label }}</Chip>
         </div>
         <button class="primary full" @click="openCreate">＋ 开加工单</button>
+        <button v-if="pending.total" class="pending-sync" type="button" :disabled="syncing" @click="flushPendingProcessing()">
+          <b>{{ pending.drafts }} 单未提交成功{{ pending.handovers ? ` · ${pending.handovers} 单未转交前台` : '' }}</b>
+          <small>{{ syncing ? '正在补传…' : '点这里立即重试（联网后会自动补传）' }}</small>
+        </button>
         <p v-if="lateCount" class="muted small">有 {{ lateCount }} 笔加工单已超过预计取货日期，请及时联系客户。</p>
       </section>
       <EmptyState v-if="loading" title="加载中..." />
@@ -169,6 +173,7 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
+import { addPendingHandover, addProcessingDraft, bumpProcessingDraft, buildProcessingDraftPayload, findDuplicateOrder, listPendingHandovers, listProcessingDrafts, makeProcessingRef, pendingProcessingSummary, removePendingHandover, removeProcessingDraft } from '../utils/pendingProcessing.js'
 const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
@@ -185,6 +190,9 @@ const steps = [
 const keyword = ref(''), status = ref(''), orders = ref([]), loading = ref(false), error = ref('')
 const detail = ref(null), detailLoading = ref(false)
 const creating = ref(false), saving = ref(false), createError = ref('')
+// 断网/服务异常时的兜底：开单没提交成功 → 存草稿；已创建但转交失败 → 待转交队列
+const pending = ref(pendingProcessingSummary()), syncing = ref(false), activeRef = ref('')
+function refreshPending() { pending.value = pendingProcessingSummary() }
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
 const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
@@ -258,6 +266,8 @@ async function refund(order) {
 function call(phone) { if (typeof uni !== 'undefined') uni.makePhoneCall({ phoneNumber: String(phone) }); else window.location.href = `tel:${phone}` }
 async function openCreate() {
   creating.value = true; createError.value = ''
+  // 这次开单的幂等标识：提交失败后按同一 ref 存草稿，重试不会重复建单
+  if (!activeRef.value) activeRef.value = makeProcessingRef()
   if (!items.value.length) {
     try { items.value = list(await api.processingItems({ status: 1 })) } catch (e) { createError.value = e?.message || '加工项目加载失败' }
   }
@@ -271,7 +281,7 @@ async function loadCraftsmen() {
     if (form.craftsmanId && !craftsmen.value.some(worker => Number(worker.user_id) === Number(form.craftsmanId))) form.craftsmanId = ''
   } catch (e) { craftsmen.value = [] }
 }
-function closeCreate() { creating.value = false; saving.value = false }
+function closeCreate() { creating.value = false; saving.value = false; activeRef.value = '' }
 async function searchMember() {
   const kw = memberKeyword.value.trim()
   if (!kw) { memberHits.value = []; return }
@@ -328,31 +338,77 @@ async function submit() {
   // 按克项目的计费总克重要等完工、知道成品实际克重后才填，开单阶段允许留空（工费先记 0）
   if (!(Number(form.oldGoldWeight) > 0)) { createError.value = '请填写来料克重（客户没有旧金请到收银端开单）'; return }
   if (!(Number(form.oldGoldFineness) > 0 && Number(form.oldGoldFineness) <= 1)) { createError.value = '请填写 0~1 之间的来料成色'; return }
-  const payload = {
-    customerName: form.customerName, customerPhone: form.customerPhone, processingItemId: Number(form.itemId), quantity: Number(form.quantity),
-    billingWeight: null,
-    ...(form.memberId ? { memberId: Number(form.memberId) } : {}),
-    ...(form.craftsmanId ? { craftsmanId: Number(form.craftsmanId) } : {}),
-    ...(form.pickupDate ? { pickupDate: form.pickupDate } : {}),
-    oldGoldWeight: Number(form.oldGoldWeight),
-    oldGoldFineness: Number(form.oldGoldFineness),
-    ...(form.remark ? { remark: form.remark } : {})
-  }
+  const payload = buildProcessingDraftPayload(form, selectedItem.value)
   saving.value = true
   try {
     const created = await api.processingCreate(payload)
+    removeProcessingDraft(activeRef.value)
     closeCreate(); resetForm()
     if (created?.processing_order_id) {
       try {
         await api.processingHandover(created.processing_order_id)
+        refreshPending()
       } catch (e) {
-        toast(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '请在加工单详情中重试转交前台'}`)
+        // 单子已经在服务器上了，只是没转过去 → 进"待转交"队列，可一键重试
+        addPendingHandover({ orderId: created.processing_order_id, orderNo: created.order_no || '' })
+        refreshPending()
+        toast(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '已在列表里加入待转交，可一键重试'}`)
       }
     }
     await load()
-  } catch (e) { createError.value = e?.message || '开加工单失败' } finally { saving.value = false }
+  } catch (e) {
+    // 提交没到服务器 → 存成草稿，联网后自动补传（不再丢单）
+    const count = addProcessingDraft({
+      ref: activeRef.value || makeProcessingRef(),
+      payload,
+      display: { customerName: payload.customerName, itemName: selectedItem.value?.name || '', phone: payload.customerPhone }
+    })
+    refreshPending()
+    createError.value = `${e?.message || '开加工单失败'}；已保存为待同步草稿（共 ${count} 单），联网后会自动补传`
+  } finally { saving.value = false }
 }
-onMounted(() => { load(); if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id }) })
+/**
+ * 补传：把没提交成功的开单、以及已创建但没转交前台的单子补上去。
+ * 触发时机：进入页面、断网恢复、用户点横幅按钮。
+ */
+async function flushPendingProcessing({ silent = false } = {}) {
+  if (syncing.value) return
+  const drafts = listProcessingDrafts()
+  const handovers = listPendingHandovers()
+  if (!drafts.length && !handovers.length) { refreshPending(); return }
+  syncing.value = true
+  let synced = 0
+  try {
+    for (const draft of drafts) {
+      // 服务器其实已经建好了（只是响应丢了）→ 直接清草稿，绝不重复建单
+      if (findDuplicateOrder(draft, orders.value)) { removeProcessingDraft(draft.ref); synced += 1; continue }
+      try {
+        const created = await api.processingCreate(draft.payload)
+        removeProcessingDraft(draft.ref); synced += 1
+        if (created?.processing_order_id) {
+          try { await api.processingHandover(created.processing_order_id) }
+          catch { addPendingHandover({ orderId: created.processing_order_id, orderNo: created.order_no || '' }) }
+        }
+      } catch (e) {
+        bumpProcessingDraft(draft.ref)
+        if (!silent) toast(`补传失败：${e?.message || '网络异常'}，稍后会自动重试`)
+      }
+    }
+    for (const row of listPendingHandovers()) {
+      try { await api.processingHandover(row.orderId); removePendingHandover(row.orderId); synced += 1 }
+      catch (e) { if (!silent) toast(`转交失败：${e?.message || '网络异常'}，稍后会自动重试`) }
+    }
+  } finally {
+    syncing.value = false
+    refreshPending()
+    await load()
+    if (synced) toast(`已补传 ${synced} 单到服务器`)
+    else if (!silent && pending.value.total) toast('还没同步成功，请检查网络后重试')
+  }
+}
+onMounted(() => { refreshPending(); load(); flushPendingProcessing({ silent: true }); if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id }) })
+// 网络恢复后自动补传（app.offline 由全局连通性检查维护）
+watch(() => app.offline, value => { if (!value) flushPendingProcessing({ silent: true }) })
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){if(app.lastEventType==='PROCESSING_CATALOG_UPDATED')items.value=[];if(app.lastEventType==='STAFF_UPDATED'){craftsmen.value=[];if(creating.value)loadCraftsmen()}load()}})
 </script>
 <style scoped>
@@ -361,6 +417,9 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .search input{flex:1;min-width:0;min-height:44px;border:1px solid var(--line);border-radius:var(--r-md);padding:0 10px}
 .search button{min-width:72px}
 .filter-tabs{margin:10px 0}
+.pending-sync{display:block;width:100%;margin:10px 0 0;padding:10px 12px;text-align:left;border:1px dashed var(--err);border-radius:var(--r-md);background:var(--card);color:var(--ink)}
+.pending-sync b{display:block;font-size:var(--f-sm);color:var(--err)}
+.pending-sync small{display:block;margin-top:2px;color:var(--ink-3);font-size:var(--f-xs)}
 .filter-tabs button{white-space:nowrap}
 .form-card .full{margin-top:4px}
 .processing-card{display:block;cursor:pointer}
