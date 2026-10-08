@@ -1709,9 +1709,25 @@ async function submitProcessingOrder() {
         oldGoldWeight: processingForm.oldGoldWeight || null, oldGoldFineness: processingForm.oldGoldFineness || null,
         remark: processingForm.remark || null
       }
-    const result = processingDraftId.value
-      ? await request(`/api/processing/orders/${processingDraftId.value}`, { method: 'PUT', body: JSON.stringify({ ...payload, version: processingDraftVersion.value }) })
-      : await request('/api/processing/orders', { method: 'POST', body: JSON.stringify(payload) })
+    let result
+    if (processingDraftId.value) {
+      result = await request(`/api/processing/orders/${processingDraftId.value}`, { method: 'PUT', body: JSON.stringify({ ...payload, version: processingDraftVersion.value }) })
+    } else {
+      try {
+        result = await request('/api/processing/orders', { method: 'POST', body: JSON.stringify(payload) })
+      } catch (error) {
+        // 网络不通：存离线队列，联网后自动提交（服务端按 clientRequestId 幂等，不会重复建单）
+        if (!online.value || String(error?.message || '').match(/Failed to fetch|NetworkError|timeout|ECONN|socket/i)) {
+          const clientRequestId = payload.clientRequestId || uuid()
+          await enqueueWithId('/api/processing/orders', { ...payload, clientRequestId }, clientRequestId, 'POST')
+          ElMessage.warning(`网络不通，加工单已存入离线队列，联网后自动提交${Number(processingForm.deposit || 0) > 0 ? '；定金需联网后再收' : ''}`)
+          resetProcessingForm()
+          await loadProcessingData()
+          return
+        }
+        throw error
+      }
+    }
     const orderId = result?.processing_order_id ?? result?.processingOrderId ?? result?.id
     if (validSalesId(processingForm.salesId)) rememberSales(validSalesId(processingForm.salesId))
     const due = Number(result?.due_amount ?? result?.dueAmount ?? processingDue.value)

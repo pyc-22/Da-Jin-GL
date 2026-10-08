@@ -66,6 +66,8 @@ beforeEach(() => {
   processings = []
   pendingSales = []
   failProcessing = false
+  // 离线队列在测试里透传成普通请求（真实实现也是"在线优先、失败才入队"）
+  requestOrQueue.mockImplementation(async (path, payload = {}, options = {}) => requestHandler(path, { method: options.method || 'POST', body: JSON.stringify(payload) }))
   requestHandler = async (path, options) => {
     if (path.startsWith('/api/goods/list')) return { records: [product] }
     if (path.startsWith('/api/member/list')) return { records: [] }

@@ -10,7 +10,7 @@ describe('mobile processing billing weight', () => {
     expect(view).not.toContain('v-model.number="form.billingWeight"')
     expect(view).not.toContain('v-model="form.billingWeight"')
     // 开单提交走统一构造器（里面显式留空 billingWeight，工费先记 0）
-    expect(view).toContain('buildProcessingDraftPayload(form, selectedItem.value)')
+    expect(view).toContain('buildProcessingDraftPayload(form, selectedItem.value, activeRef.value)')
   })
 
   it('explains the 按克 fee rule on the order form', () => {

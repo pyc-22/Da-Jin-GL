@@ -173,7 +173,7 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
-import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft } from '../utils/pendingProcessing.js'
+import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, isRetryableSubmitError, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft } from '../utils/pendingProcessing.js'
 import { syncPendingProcessing } from '../utils/processingSync.js'
 const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
@@ -339,7 +339,7 @@ async function submit() {
   // 按克项目的计费总克重要等完工、知道成品实际克重后才填，开单阶段允许留空（工费先记 0）
   if (!(Number(form.oldGoldWeight) > 0)) { createError.value = '请填写来料克重（客户没有旧金请到收银端开单）'; return }
   if (!(Number(form.oldGoldFineness) > 0 && Number(form.oldGoldFineness) <= 1)) { createError.value = '请填写 0~1 之间的来料成色'; return }
-  const payload = buildProcessingDraftPayload(form, selectedItem.value)
+  const payload = buildProcessingDraftPayload(form, selectedItem.value, activeRef.value)
   saving.value = true
   try {
     const created = await api.processingCreate(payload)
@@ -358,14 +358,18 @@ async function submit() {
     }
     await load()
   } catch (e) {
-    // 提交没到服务器 → 存成草稿，联网后自动补传（不再丢单）
-    const count = addProcessingDraft({
-      ref: activeRef.value || makeProcessingRef(),
-      payload,
-      display: { customerName: payload.customerName, itemName: selectedItem.value?.name || '', phone: payload.customerPhone }
-    })
-    refreshPending()
-    createError.value = `${e?.message || '开加工单失败'}；已保存为待同步草稿（共 ${count} 单），联网后会自动补传`
+    // 提交没到服务器（断网/服务异常）→ 存成草稿，联网后自动补传；业务校验类错误只提示，不进队列
+    if (isRetryableSubmitError(e)) {
+      const count = addProcessingDraft({
+        ref: activeRef.value || makeProcessingRef(),
+        payload,
+        display: { customerName: payload.customerName, itemName: selectedItem.value?.name || '', phone: payload.customerPhone }
+      })
+      refreshPending()
+      createError.value = `${e?.message || '开加工单失败'}；已保存为待同步草稿（共 ${count} 单），联网后会自动补传`
+    } else {
+      createError.value = e?.message || '开加工单失败'
+    }
   } finally { saving.value = false }
 }
 /**

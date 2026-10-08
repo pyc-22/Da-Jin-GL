@@ -3,6 +3,10 @@
     <DesignHeader title="回收登记" :back="true" @back="router.back()"></DesignHeader>
 
     <main class="content page">
+<button v-if="pending.recycle" class="pending-sync" type="button" @click="retryPending">
+  <b>{{ pending.recycle }} 单回收登记未提交成功</b>
+  <small>点这里立即重试（联网后也会自动补传）</small>
+</button>
       <section v-if="done" class="result-page" data-testid="success-result">
         <div class="result-icon" :class="{ pending: done.approvalRequired }">
           {{ done.approvalRequired ? '!' : '✓' }}
@@ -124,6 +128,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app.js'
 import { oldGoldDeduction } from '../utils/goldPricing.js'
+import { addDraft, isRetryableSubmitError, makeDraftRef, pendingSubmitSummary, removeDraft } from '../utils/pendingProcessing.js'
+import { syncPendingProcessing } from '../utils/processingSync.js'
 import { api } from '../api/request.js'
 
 const router = useRouter()
@@ -142,6 +148,16 @@ const confirmOpen = ref(false)
 const submitError = ref('')
 const done = ref(null)
 const submittedSnapshot = ref({})
+// 待同步草稿：这次提交的幂等键 + 待同步统计（横幅用）
+const pending = ref(pendingSubmitSummary())
+const activeRef = ref('')
+const refreshPending = () => { pending.value = pendingSubmitSummary() }
+// 手动重试：复用全局补传（成功后刷新统计）
+async function retryPending() {
+  await syncPendingProcessing()
+  refreshPending()
+  if (!pending.value.recycle) done.value = { amount: 0, approvalRequired: false, synced: true }
+}
 
 const purities = [
   { value: 0.999, label: '足金999（99.9%）' },
@@ -217,20 +233,33 @@ async function submit() {
     payMethodLabel: payMethodLabel.value,
     amount: estimate.value
   }
+  // 同一次回收登记用同一个幂等键：断网重传不会重复建单
+  if (!activeRef.value) activeRef.value = makeDraftRef('recycle')
+  const payload = {
+    weight: submittedSnapshot.value.weight,
+    purity: submittedSnapshot.value.purity,
+    materialType: submittedSnapshot.value.materialType,
+    recyclePrice: Number(recycle.value),
+    deductLossRate: submittedSnapshot.value.lossRate / 100,
+    payMethod: submittedSnapshot.value.payMethod,
+    clientRequestId: activeRef.value
+  }
   try {
-    const result = await api.recycleCreate({
-      weight: submittedSnapshot.value.weight,
-      purity: submittedSnapshot.value.purity,
-      materialType: submittedSnapshot.value.materialType,
-      recyclePrice: Number(recycle.value),
-      deductLossRate: submittedSnapshot.value.lossRate / 100,
-      payMethod: submittedSnapshot.value.payMethod
-    })
+    const result = await api.recycleCreate(payload)
+    removeDraft('recycle', activeRef.value)
+    activeRef.value = ''
     done.value = result || { amount: submittedSnapshot.value.amount, approvalRequired: false }
     confirmOpen.value = false
   } catch (error) {
     confirmOpen.value = false
-    submitError.value = error?.message || '回收登记失败，请检查后重试'
+    if (isRetryableSubmitError(error)) {
+      // 网络中断/服务异常 → 存草稿，联网后自动补传
+      addDraft('recycle', { ref: activeRef.value, payload, display: { customerName: '旧料回收', itemName: submittedSnapshot.value.materialType } })
+      refreshPending()
+      submitError.value = `${error?.message || '回收登记失败'}；已保存为待同步草稿（共 ${pending.value.recycle} 单），联网后会自动补传`
+    } else {
+      submitError.value = error?.message || '回收登记失败，请检查后重试'
+    }
   } finally {
     busy.value = false
   }
@@ -250,4 +279,7 @@ function startAnother() {
 <style scoped>
 .price-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.price-strip>div{background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md);padding:12px;text-align:center}.price-strip small{display:block;color:var(--ink-3);font-size:11px}.price-strip b{display:block;color:var(--gold-deep);font-size:16px;margin-top:4px}.price-strip b.na{color:var(--ink-3);font-weight:400}.error.tip{margin:0 0 8px;font-size:12px;color:var(--err)}.form-card{margin-top:12px}.form-card h3{font-size:15px;margin:0 0 8px}.form-label{display:block;font-size:12px;color:var(--ink-2);margin:10px 0}.form-label input,.form-label select{display:block;width:100%;margin-top:4px;min-height:44px;border:1px solid var(--line);border-radius:var(--r-md);padding:0 10px;background:var(--card);color:var(--ink);box-sizing:border-box}.form-label select:disabled{background:var(--line-soft);color:var(--ink-3)}.field-tip{margin:-4px 0 8px;font-size:12px}.full{width:100%;min-height:46px;margin-top:12px}.small{display:block;margin-top:8px}.quote-card{margin-top:12px;border:1px solid var(--gold-line);border-radius:var(--r-md);background:var(--gold-soft);overflow:hidden}.quote-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--gold-line)}.quote-heading span{font-size:16px;font-weight:700;color:var(--ink)}.quote-heading small{color:var(--gold-deep)}.quote-card dl,.confirm-dialog dl,.result-detail{margin:0;padding:8px 14px}.quote-card dl div,.confirm-dialog dl div,.result-detail div{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:var(--tap)}.quote-card dt,.confirm-dialog dt,.result-detail dt{font-size:12px;color:var(--ink-3)}.quote-card dd,.confirm-dialog dd,.result-detail dd{margin:0;text-align:right;color:var(--ink);font-size:13px;font-weight:600}.quote-total{display:flex;align-items:flex-end;justify-content:space-between;padding:12px 14px;background:var(--gold-soft)}.quote-total span{font-size:13px;font-weight:600}.quote-total b{color:var(--gold-deep);font-size:25px;line-height:1}.submit-error{margin:12px 0 0;padding:10px 12px;background:var(--err-soft);border:1px solid var(--err-soft);border-radius:var(--r-md);font-size:12px}.dialog-mask{position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center;background:var(--overlay);padding:16px}.confirm-dialog{width:min(100%,480px);background:var(--card);border-radius:var(--r-md);padding:18px;box-sizing:border-box}.confirm-dialog h3{margin:0;font-size:18px}.confirm-dialog>p{margin:8px 0 4px;color:var(--ink-3);font-size:13px;line-height:1.6}.confirm-dialog dl{padding:8px 0}.confirm-amount{padding:12px;text-align:center;background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md)}.confirm-amount small{display:block;color:var(--ink-3)}.confirm-amount b{display:block;margin-top:4px;color:var(--gold-deep);font-size:28px}.dialog-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:14px}.dialog-actions button{min-height:46px}.result-page{padding:28px 4px;text-align:center}.result-icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:var(--ok);color:var(--card);font-size:34px;font-weight:700}.result-icon.pending{background:var(--gold-light)}.result-page h2{margin:0;color:var(--ink);font-size:22px}.result-message{margin:8px auto 18px;color:var(--ink-3);font-size:13px;line-height:1.6}.result-amount{padding:18px 12px;background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:var(--r-md)}.result-amount small{display:block;color:var(--ink-3)}.result-amount b{display:block;margin-top:6px;color:var(--gold-deep);font-size:30px}.result-detail{margin:12px 0;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);text-align:left}.result-detail div+div{border-top:1px solid var(--line-soft)}.success-text{color:var(--ok)!important}.pending-text{color:var(--gold-deep)!important}.secondary-action{margin-top:8px}
 @media (min-width:600px){.dialog-mask{align-items:center}.confirm-dialog{padding:22px}}
+.pending-sync{display:block;width:100%;margin:0 0 12px;padding:10px 12px;text-align:left;border:1px dashed var(--err);border-radius:var(--r-md);background:var(--card)}
+.pending-sync b{display:block;font-size:var(--f-sm);color:var(--err)}
+.pending-sync small{display:block;margin-top:2px;color:var(--ink-3);font-size:var(--f-xs)}
 </style>

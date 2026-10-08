@@ -6,6 +6,11 @@
       <span class="state" :class="{disabled:app.offline}">{{ app.offline ? '离线' : '在线' }}</span>
     </DesignHeader>
     <div v-if="isAdmin && auth.can('gold:manage') && pricingWarnings.length" class="pricing-warning-banner" role="alert"><p v-for="warning in pricingWarnings" :key="warning">{{ warning }}</p><button class="outline" @click="router.push('/gold-settings')">检查金价配置</button></div>
+    <div v-if="pending.total" class="pending-sync-banner" role="status">
+      <b>有 {{ pending.total }} 单没同步到服务器（{{ pendingLabel }}）</b>
+      <small>{{ syncing ? '正在补传…' : '联网后会自动补传，也可以点这里立即重试' }}</small>
+      <button class="outline" :disabled="syncing" @click="retryPendingSubmits">立即重试</button>
+    </div>
     <div class="content"><ManagerHome v-if="isManager && section === 'dashboard'" />
       <ApprovalsSection v-else-if="isManager && section === 'approval'" />
       <ManagerReportSection v-else-if="isManager && section === 'report'" />
@@ -37,6 +42,8 @@ import ManagerHome from './home/ManagerHome.vue'
 import ApprovalsSection from './home/ApprovalsSection.vue'
 import { canHandleApproval } from '../utils/approvalPermissions'
 import { oldGoldDeduction } from '../utils/goldPricing.js'
+import { addDraft, isRetryableSubmitError, makeDraftRef, pendingSubmitSummary } from '../utils/pendingProcessing.js'
+import { syncPendingProcessing } from '../utils/processingSync.js'
 import ManagerReportSection from './home/ManagerReportSection.vue'
 import ManagerMembersSection from './home/ManagerMembersSection.vue'
 import SalesHome from './home/SalesHome.vue'
@@ -129,6 +136,14 @@ const visitStats=computed(()=>{const p=visits.value.filter(t=>Number(t.status??1
 const payMethodRows=computed(()=>(Array.isArray(paySummaryData.value)?paySummaryData.value:[]).map(r=>({category:r.pay_method||'未指定',revenue:Number(r.amount||0)})))
 const isGramItem=(item)=>Number(item?.priceType ?? item?.price_type)===1; const filteredApprovals=computed(()=>approvalFilter.value==='全部'?approvals.value:approvals.value.filter(x=>typeName(x.type).includes(approvalFilter.value))); const oldDeduct=computed(()=>order.value.oldMetals.reduce((s,m)=>s+oldGoldDeduction(m.weight,m.purity,m.price||recyclePrice.value||0),0)); const orderTotal=computed(()=>Math.max(0,order.value.items.reduce((s,i)=>s+(Number(i.subtotal)||0)*(isGramItem(i)?1:(Number(i.qty)||1)),0)*Number(order.value.discount||1)+Number(order.value.laborFee||0)-oldDeduct.value)); const memberStats=computed(()=>{const s=memberReport.value;const fallback={total:members.value.length,new:members.value.filter(m=>String(m.create_time||'').startsWith(today)).length,active:members.value.filter(m=>m.total_consume>0).length,balance:members.value.reduce((sum,m)=>sum+Number(m.balance||0),0)};if(!s)return fallback;return {total:Number(s.total_members??fallback.total),new:Number(s.new_members??fallback.new),active:Number(s.active_members??fallback.active),balance:Number(s.balance_total??fallback.balance)}}); const categoryStockText=row=>categoryInventoryText(row); const goodsStockText=row=>inventoryText(row)
 const money=(v)=>Number(v||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}); const round2=(v)=>Math.round((Number(v)||0)*100)/100
+// 待同步开单（加工/回收/销售断网兜底）：全局横幅 + 一键补传
+const pending=ref(pendingSubmitSummary()), syncing=ref(false)
+const pendingLabel=computed(()=>{const p=pending.value; const parts=[]; if(p.processing)parts.push(`加工 ${p.processing}`); if(p.recycle)parts.push(`回收 ${p.recycle}`); if(p.sale)parts.push(`销售 ${p.sale}`); if(p.handovers)parts.push(`未转交 ${p.handovers}`); return parts.join(' · ')})
+function refreshPending(){pending.value=pendingSubmitSummary()}
+async function retryPendingSubmits(){if(syncing.value)return;syncing.value=true;try{const r=await syncPendingProcessing();refreshPending();alert(r.synced?`已补传 ${r.synced} 单到服务器`:'还没补传成功，请检查网络')}finally{syncing.value=false}}
+watch(()=>app.offline,v=>{if(!v)syncPendingProcessing().then(()=>refreshPending())})
+watch(()=>app.processingSyncVersion,()=>refreshPending())
+onMounted(()=>refreshPending())
 const categoryRows=computed(()=>{const rows=Array.isArray(categoryProfit.value)?categoryProfit.value:[];return rows.filter(r=>Number(r.revenue||0)>0).sort((a,b)=>Number(b.revenue||0)-Number(a.revenue||0)).slice(0,6)})
 const goldTrendRows=computed(()=>{const rows=Array.isArray(goldHistory.value)?goldHistory.value:[];const typeName=String(app.primaryGold?.price_type||app.primaryGold?.name||'');let pick=typeName?rows.filter(r=>String(r.price_type)===typeName):[];if(!pick.length)pick=rows;const byDay=new Map();for(const r of pick){const d=String(r.date||'').slice(0,10);if(d&&r.price!=null)byDay.set(d,Number(r.price))}return [...byDay.entries()].sort((a,b)=>a[0]<b[0]?-1:1).map(([date,price])=>({date,price}))})
 const tiers=computed(()=>{const list=tierMembers.value;const def=[{label:'钻石会员 ≥5万',color:'var(--gold-deep)',min:50000},{label:'高价值 ≥1万',color:'var(--gold-light)',min:10000},{label:'普通会员 ≥1千',color:'var(--gold-line)',min:1000},{label:'待激活 <1千',color:'var(--ink-3)',min:0}];return def.map((d,i)=>{const upper=i===0?Infinity:def[i-1].min;const rows=list.filter(m=>{const c=Number(m.total_consume||0);return c>=d.min&&c<upper});return {label:d.label,color:d.color,count:rows.length,amount:rows.reduce((s,m)=>s+Number(m.total_consume||0),0)}})})
@@ -255,7 +270,7 @@ function clearOrderMember(){order.value.memberId=null;order.value.memberName='';
 async function loadNotifications(){try{await messages.refresh?.()}catch{}}
 async function markNotificationRead(notice){if(notice.read)return;try{await messages.markRead?.(notice)}catch{}}
   function orderPayload(){return {memberId:order.value.memberId||null,discount:order.value.discount||1,oldMaterialDeduct:round2(oldDeduct.value),laborFee:round2(order.value.laborFee||0),payAmount:round2(orderTotal.value),payMethod:'PENDING',salesId:order.value.salesId || null,remark:order.value.memberId?null:(order.value.memberKeyword?`客户:${order.value.memberKeyword}`:null),items:order.value.items.map(i=>{const pieceNos=Array.isArray(i.pieceNos)?i.pieceNos:[];const gram=isGramItem(i);const qty=gram?1:(pieceNos.length||i.qty||1);return {goodsId:i.goodsId,itemName:i.itemName,weight:gram&&Number(i.weight)>0?i.weight:null,unitPrice:round2(i.unitPrice||0),laborFee:0,qty,pieceNos:gram?[]:pieceNos,subtotal:round2(i.subtotal||0),goldType:i.goldType,priceType:Number(i.priceType ?? i.price_type ?? 2)}}),oldMaterials:order.value.oldMetals.map(m=>({materialType:m.materialType||'旧金抵扣',weight:m.weight,purity:m.purity,priceType:'回收金价',price:m.price})),clientRequestId:stableOrderClientRequestId(order.value,orderCache),version:1}} function resetCart(){order.value.items=[];order.value.oldMetals=[];clearOrderMember();removeStorage('dajin-order-draft');orderCache.set('dajin-order-client-id','');orderCache.set('dajin-order-client-fp','')}
-async function startCheckout(){if(!(Number(order.value.discount)>0&&Number(order.value.discount)<=1))return alert('折扣应填 0.01~1 之间的小数，例如 0.85 表示 85折');if(!order.value.items.length)return alert('请先扫码或输入条码添加商品，再转交');const unavailable=order.value.items.find(item=>isGramItem(item)?Number(item.weight||0)>Number(item.availableStock||0):Number(item.qty||0)>Number(item.availableStock||0));if(unavailable)return alert(`${unavailable.itemName} 可售库存不足，请删除后重新扫码`);try{const d=await api.createOrder({ ...orderPayload(), handover:true });lastSubmitted.value={orderNo:d.orderNo,hasGramItems:order.value.items.some(isGramItem)};if(d.approvalRequired){alert('折扣低于阈值，已提交店长审批，审批通过后前台可收款');resetCart();return}resetCart();alert(`订单 ${d.orderNo || ''} 已转交前台，请在收银端「前台待办」完成收款`)}catch(e){const status=e?.response?.status;const detail=e?.response?.data?.message||e?.response?.data?.error;alert(detail||`${e?.message||'提交失败'}${status?`（HTTP ${status}）`:''}`)}}
+async function startCheckout(){if(!(Number(order.value.discount)>0&&Number(order.value.discount)<=1))return alert('折扣应填 0.01~1 之间的小数，例如 0.85 表示 85折');if(!order.value.items.length)return alert('请先扫码或输入条码添加商品，再转交');const unavailable=order.value.items.find(item=>isGramItem(item)?Number(item.weight||0)>Number(item.availableStock||0):Number(item.qty||0)>Number(item.availableStock||0));if(unavailable)return alert(`${unavailable.itemName} 可售库存不足，请删除后重新扫码`);try{const d=await api.createOrder({ ...orderPayload(), handover:true });lastSubmitted.value={orderNo:d.orderNo,hasGramItems:order.value.items.some(isGramItem)};if(d.approvalRequired){alert('折扣低于阈值，已提交店长审批，审批通过后前台可收款');resetCart();return}resetCart();alert(`订单 ${d.orderNo || ''} 已转交前台，请在收银端「前台待办」完成收款`)}catch(e){const status=e?.response?.status;const detail=e?.response?.data?.message||e?.response?.data?.error;const retryable=isRetryableSubmitError(e);if(retryable){const payload={...orderPayload(),handover:true};addDraft('sale',{ref:payload.clientRequestId||makeDraftRef('sale'),payload,display:{customerName:'销售开单',itemName:(order.value.items||[]).map(item=>item.itemName).filter(Boolean).join('、')}});refreshPending()}alert(detail||`${e?.message||'提交失败'}${status?`（HTTP ${status}）`:''}${retryable?'；已保存为待同步草稿，联网后自动补传':''}`)}}
 function touchStart(e){const point=e.changedTouches?.[0];touchStartPoint.value={x:point?.screenX||0,y:point?.screenY||0};touchMoved.value=false}
 function touchMove(e){const point=e.changedTouches?.[0];if(!point)return;touchMoved.value ||= Math.abs(point.screenX-touchStartPoint.value.x)>8 || Math.abs(point.screenY-touchStartPoint.value.y)>8}
 function touchEnd(){if(touchMoved.value)suppressPanelClickUntil=Date.now()+350;touchMoved.value=false}
@@ -304,4 +319,7 @@ provide(roleHomeKey, { lastSubmitted, salespeople, marketCountdown, managerTrend
 <style scoped>
 .pricing-warning-banner{margin:var(--s-3);padding:var(--s-3);border:1px solid var(--err);border-radius:var(--r-md);color:var(--err);background:var(--bg);font-size:12px;overflow-wrap:anywhere}
 .pricing-warning-banner p{margin:0 0 var(--s-2)}
+.pending-sync-banner{margin:var(--s-3);padding:var(--s-3);border:1px dashed var(--err);border-radius:var(--r-md);background:var(--card);display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.pending-sync-banner b{color:var(--err);font-size:var(--f-sm)}
+.pending-sync-banner small{color:var(--ink-3);font-size:var(--f-xs)}
 </style>
