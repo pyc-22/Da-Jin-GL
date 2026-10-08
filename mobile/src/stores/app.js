@@ -5,6 +5,7 @@ import { uploadImage } from '../api/upload.js'
 import { getStorage, setStorage, scopedStorage } from '../utils/storage.js'
 import { useAuthStore } from './auth.js'
 import { createMessageSocket } from '../utils/messageSocket.js'
+import { syncPendingProcessing, isProcessingSyncBusy } from '../utils/processingSync.js'
 
 const messageConnections = new WeakMap()
 
@@ -31,7 +32,7 @@ export function normalizeGoldRows(rows) {
 }
 
 export const useAppStore = defineStore('app', {
-  state: () => ({ tradeInDraft: null, gold: [], dashboard: null, approvals: [], unread: 0, ws: null, wsConnected: false, wsStatus: 'stopped', wsDisconnectReason: '', heartbeatEpoch: 0, heartbeatBusy: false, heartbeatTimer: null, eventVersion: 0, lastEventType: '', offline: typeof navigator !== 'undefined' ? !navigator.onLine : false, pendingInboundCount: 0, wsToken: '', wsRetries: 0, wsRetryTimer: null }),
+  state: () => ({ tradeInDraft: null, gold: [], dashboard: null, approvals: [], unread: 0, ws: null, wsConnected: false, wsStatus: 'stopped', wsDisconnectReason: '', heartbeatEpoch: 0, heartbeatBusy: false, heartbeatTimer: null, eventVersion: 0, lastEventType: '', offline: typeof navigator !== 'undefined' ? !navigator.onLine : false, pendingInboundCount: 0, processingSyncVersion: 0, wsToken: '', wsRetries: 0, wsRetryTimer: null }),
   getters: {
     primaryGold: (s) => Array.isArray(s.gold) ? (s.gold.find(x => String(x.price_type || x.priceType).includes('足金')) || s.gold[0]) : s.gold,
     silverSale: (s) => Array.isArray(s.gold) ? s.gold.find(x => String(x.price_type || x.priceType).trim() === '银' || String(x.type_code || x.code || '').toUpperCase() === 'SILVER') : null,
@@ -53,6 +54,8 @@ export const useAppStore = defineStore('app', {
         if (epoch !== this.heartbeatEpoch) return false
         this.offline = health?.status !== 'UP'
         if (!this.offline) this.refreshLocalPendingInbounds()
+        // 网络恢复：顺手把欠服务器的加工单（开单/转交失败）补传，销售不开「加工单」页也能补上
+        if (!this.offline) this.syncPendingProcessingOrders()
         return !this.offline
       } catch { if (epoch === this.heartbeatEpoch) this.offline = true; return false }
       finally { if (epoch === this.heartbeatEpoch) this.heartbeatBusy = false }
@@ -73,6 +76,16 @@ export const useAppStore = defineStore('app', {
       try { queue = JSON.parse(getStorage('dajin-inbound-queue', '[]')) } catch { queue = [] }
       this.pendingInboundCount = Array.isArray(queue) ? queue.length : 0
       return this.pendingInboundCount
+    },
+    async syncPendingProcessingOrders() {
+      if (isProcessingSyncBusy()) return
+      try {
+        const result = await syncPendingProcessing()
+        if (result?.synced) {
+          this.processingSyncVersion += 1
+          this.lastEventType = 'PROCESSING_SYNCED'
+        }
+      } catch { /* 下次心跳再试 */ }
     },
     async loadPendingInbounds() {
       const cache = scopedStorage()

@@ -1,5 +1,5 @@
 // 发布新版本时把 CACHE_VERSION 序号 +1，旧缓存会在 activate 时自动清掉
-const CACHE_VERSION = 'dajin-h5-v36'
+const CACHE_VERSION = 'dajin-h5-v37'
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png']
 
 self.addEventListener('install', (event) => {

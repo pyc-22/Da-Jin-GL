@@ -22,4 +22,14 @@ describe('cashier processing billing weight', () => {
   it('explains on the order form that 按克 fees are computed at completion', () => {
     expect(app).toContain('按克项目：工费在完工登记成品实重时按')
   })
+
+  // 足金线：0.995 及以上按整克。旧料金额、折抵总额、换新预览都必须走统一函数，
+  // 不能自己写 weight*成色*单价（这个 bug 出现过两次）。
+  it('never multiplies old gold by the raw fineness', () => {
+    expect(app).not.toMatch(/\*\s*metal\.purity\s*\*/)
+    expect(app).not.toMatch(/\*\s*Number\(item\.purity \|\| 0\)\s*\*/)
+    expect(app).not.toMatch(/Number\(metal\.weight\)\s*\*\s*Number\(metal\.purity\)/)
+    expect(app).toContain('oldGoldDeduction(metal.weight, metal.purity')
+    expect(app).toContain('oldGoldDeduction(item.weight, item.purity')
+  })
 })

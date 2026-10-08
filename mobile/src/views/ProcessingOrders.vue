@@ -173,7 +173,8 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
-import { addPendingHandover, addProcessingDraft, bumpProcessingDraft, buildProcessingDraftPayload, findDuplicateOrder, listPendingHandovers, listProcessingDrafts, makeProcessingRef, pendingProcessingSummary, removePendingHandover, removeProcessingDraft } from '../utils/pendingProcessing.js'
+import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft } from '../utils/pendingProcessing.js'
+import { syncPendingProcessing } from '../utils/processingSync.js'
 const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
@@ -369,46 +370,34 @@ async function submit() {
 }
 /**
  * 补传：把没提交成功的开单、以及已创建但没转交前台的单子补上去。
- * 触发时机：进入页面、断网恢复、用户点横幅按钮。
+ * 触发时机：进入页面（等列表加载完再补，重复单判断才准）、断网恢复、用户点横幅按钮。
  */
-async function flushPendingProcessing({ silent = false } = {}) {
+async function flushPendingProcessing({ silent = false, knownOrders = null } = {}) {
   if (syncing.value) return
-  const drafts = listProcessingDrafts()
-  const handovers = listPendingHandovers()
-  if (!drafts.length && !handovers.length) { refreshPending(); return }
+  if (!pending.value.total) { refreshPending(); return }
   syncing.value = true
-  let synced = 0
+  let result = { synced: 0, failed: 0 }
   try {
-    for (const draft of drafts) {
-      // 服务器其实已经建好了（只是响应丢了）→ 直接清草稿，绝不重复建单
-      if (findDuplicateOrder(draft, orders.value)) { removeProcessingDraft(draft.ref); synced += 1; continue }
-      try {
-        const created = await api.processingCreate(draft.payload)
-        removeProcessingDraft(draft.ref); synced += 1
-        if (created?.processing_order_id) {
-          try { await api.processingHandover(created.processing_order_id) }
-          catch { addPendingHandover({ orderId: created.processing_order_id, orderNo: created.order_no || '' }) }
-        }
-      } catch (e) {
-        bumpProcessingDraft(draft.ref)
-        if (!silent) toast(`补传失败：${e?.message || '网络异常'}，稍后会自动重试`)
-      }
-    }
-    for (const row of listPendingHandovers()) {
-      try { await api.processingHandover(row.orderId); removePendingHandover(row.orderId); synced += 1 }
-      catch (e) { if (!silent) toast(`转交失败：${e?.message || '网络异常'}，稍后会自动重试`) }
-    }
+    result = await syncPendingProcessing({ knownOrders: knownOrders || orders.value })
   } finally {
     syncing.value = false
     refreshPending()
     await load()
-    if (synced) toast(`已补传 ${synced} 单到服务器`)
-    else if (!silent && pending.value.total) toast('还没同步成功，请检查网络后重试')
+    if (result.synced) toast(`已补传 ${result.synced} 单到服务器`)
+    else if (!silent && pending.value.total) toast(result.failed ? '还没同步成功，请检查网络后重试' : '已是最新')
   }
 }
-onMounted(() => { refreshPending(); load(); flushPendingProcessing({ silent: true }); if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id }) })
+onMounted(async () => {
+  refreshPending()
+  // 先等列表加载完，再补传：这样「服务器是否已有该单」的判断才可靠，不会重复建单
+  await load()
+  await flushPendingProcessing({ silent: true, knownOrders: orders.value })
+  if (route.query.create === '1') openCreate(); else if (route.query.id) openDetail({ processing_order_id: route.query.id })
+})
 // 网络恢复后自动补传（app.offline 由全局连通性检查维护）
 watch(() => app.offline, value => { if (!value) flushPendingProcessing({ silent: true }) })
+// 全局心跳里补传成功后，回到本页要刷新横幅与列表
+watch(() => app.processingSyncVersion, () => { refreshPending(); load() })
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){if(app.lastEventType==='PROCESSING_CATALOG_UPDATED')items.value=[];if(app.lastEventType==='STAFF_UPDATED'){craftsmen.value=[];if(creating.value)loadCraftsmen()}load()}})
 </script>
 <style scoped>

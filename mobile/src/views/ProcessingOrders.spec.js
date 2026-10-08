@@ -33,7 +33,7 @@ vi.mock('../api/request.js', () => ({
 }))
 vi.mock('../api/upload.js', () => ({ uploadImage: vi.fn() }))
 vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'MANAGER', user: { storeName: '测试店' } }) }))
-vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ eventVersion: 0, lastEventType: '', gold: [], loadGold: vi.fn() }) }))
+vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ eventVersion: 0, lastEventType: '', gold: [], loadGold: vi.fn(), offline: false, processingSyncVersion: 0 }) }))
 vi.mock('vue-router', () => ({ useRoute:()=>({query:mocks.query}), useRouter: () => ({ back: vi.fn() }) }))
 
 vi.mock('../composables/useToast.js',()=>({useToast:()=>({toast:mocks.toast})}))
