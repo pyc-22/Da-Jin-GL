@@ -187,10 +187,14 @@ const procPayMethods = computed(() => {
   return procPayType.value === 'BALANCE' && procManage.value?.status === 'COMPLETED' && !procManage.value?.promotion_channel
     ? usable([...paymentMethods.value, ...groupPaymentMethods.value]) : usable(paymentMethods.value)
 })
+// 储值渠道各门店 code 不同（生产是 CHUZHI），按 code + 渠道名一起认；储值不参与组合支付
+const BALANCE_CODES = ['BALANCE', 'CHUZHI', 'STORED_VALUE', 'PREPAID']
+const isBalanceChannel = method => BALANCE_CODES.includes(String(method?.code || '').toUpperCase()) || /储值|余额|balance/i.test(String(method?.name || ''))
+const isBalanceOrCombination = method => isBalanceChannel(method) || String(method?.code || '').toUpperCase() === 'COMBINATION'
 // 组合支付：尾款一笔里用多种方式收（储值/团购不参与组合，避免撤回冲销算不准）
 const procPayCombination = ref(false)
 const procPayParts = ref([{ method: 'CASH', amount: '', voucherNo: '' }])
-const procPayComboMethods = computed(() => [...paymentMethods.value, ...groupPaymentMethods.value].filter(method => !['BALANCE', 'COMBINATION'].includes(method.code)))
+const procPayComboMethods = computed(() => [...paymentMethods.value, ...groupPaymentMethods.value].filter(method => !isBalanceOrCombination(method)))
 const procPayGroupCodes = computed(() => groupPaymentMethods.value.map(method => method.code))
 const isProcPayGroupPart = part => procPayGroupCodes.value.includes(part.method)
 const procPayGroupParts = computed(() => procPayParts.value.filter(part => isProcPayGroupPart(part)))

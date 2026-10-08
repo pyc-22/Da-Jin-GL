@@ -83,7 +83,7 @@
             <p v-if="detail.remark" class="remark">备注：{{ detail.remark }}</p>
             <div v-if="(detail.payments || []).length" class="pay-list">
               <h4>收款记录</h4>
-              <div v-for="pay in detail.payments" :key="pay.payment_id"><span>{{ dateTime(pay.create_time) }} · {{ pay.remark || paymentLabel(pay.pay_method) }} · {{ pay.operator_name || '' }}</span><b>{{ money(pay.amount) }}</b></div>
+              <div v-for="pay in detail.payments" :key="pay.payment_id"><span>{{ dateTime(pay.create_time) }} · {{ pay.remark || pay.pay_method_name || paymentLabel(pay.pay_method) }} · {{ pay.operator_name || '' }}</span><b>{{ money(pay.amount) }}</b></div>
             </div>
             <div v-if="(detail.incoming_photos?.length || detail.weigh_photos?.length || detail.pickup_photos?.length) || (canManage && detail.status !== 'PICKED_UP')" class="photo-strip">
               <div v-if="(detail.incoming_photos?.length) || (canManage && detail.status !== 'PICKED_UP')"><h4>来料照片</h4>
@@ -219,7 +219,7 @@ const dateTime = v => {
 const statusLabel = v => ({ PENDING: '待加工', PROCESSING: '加工中', COMPLETED: '已完成待取货', PICKED_UP: '已取货' }[String(v || '').toUpperCase()] || '未知')
 const statusClass = v => String(v || '').toLowerCase()
 const handlingLabel = v => ({ TAKE_AWAY: '客户带走', STORE_DEDUCT: '留店抵扣' }[String(v || '').toUpperCase()] || '—')
-const paymentLabel = v => ({ CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BANK: '银行卡', BALANCE: '储值', COMBINATION: '组合支付', DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购' }[String(v || '').toUpperCase()] || v || '—')
+const paymentLabel = v => ({ CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BANK: '银行卡', BALANCE: '储值', COMBINATION: '组合支付', XIANJIN: '现金', WEIXIN: '微信', ZHIFEBAO: '支付宝', CHUZHI: '储值', SQBWX: '收钱吧微信', SQBZFB: '收钱吧支付宝', DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购' }[String(v || '').toUpperCase()] || v || '—')
 async function advance(order) {
   if (!window.confirm(`确认将 ${order.order_no}「转交前台」？`)) return
   try {

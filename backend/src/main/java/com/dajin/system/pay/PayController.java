@@ -56,7 +56,7 @@ import com.dajin.system.common.*; import com.dajin.system.config.RequirePermissi
   String existingDiscountReason=order.get("settlement_discount_reason") == null ? null : String.valueOf(order.get("settlement_discount_reason"));
   BigDecimal totalSettlementDiscount=existingDiscount.add(settlementDiscount).setScale(2,RoundingMode.HALF_UP);
   String totalDiscountReason=discountReason == null ? existingDiscountReason : discountReason;
-  BigDecimal balanceLine=lines.stream().filter(x->"BALANCE".equalsIgnoreCase(x.method())).map(PaymentLine::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
+  BigDecimal balanceLine=lines.stream().filter(x->com.dajin.system.pay.PaymentChannelPolicy.isBalanceChannel(db,storeId,x.method())).map(PaymentLine::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
   if(balanceLine.signum()>0){if(order.get("member_id")==null)throw new BusinessException(400106,"储值支付必须关联会员");int balanceChanged=db.jdbc().update("update member set balance=balance-:b,update_time=now() where member_id=:m and store_id=:s and balance>=:b",new MapSqlParameterSource().addValue("b",balanceLine).addValue("m",order.get("member_id")).addValue("s",storeId));if(balanceChanged==0)throw new BusinessException(409106,"会员储值余额不足");}
   String method=lines.isEmpty()?"NO_PAYMENT":lines.stream().map(x->x.method).collect(java.util.stream.Collectors.joining("+"));
   if(balanceLine.signum()>0)new com.dajin.system.member.MemberBalanceLedger(db).record(storeId,order.get("member_id"),balanceLine.negate(),"SALE",String.valueOf(orderId)+":"+client,userId(r));

@@ -1,5 +1,9 @@
 const PAYMENT_LABELS = Object.freeze({
-  CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BANK: '银行卡', BALANCE: '储值', COMBINATION: '组合支付'
+  // 各门店渠道 code 不同：本地种子用英文 code，生产门店用拼音 code（XIANJIN/SQBWX…），两套都认。
+  CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BANK: '银行卡', BALANCE: '储值', COMBINATION: '组合支付',
+  XIANJIN: '现金', WEIXIN: '微信', ZHIFEBAO: '支付宝', CHUZHI: '储值',
+  SQBWX: '收钱吧微信', SQBZFB: '收钱吧支付宝',
+  DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购'
 })
 
 export const PURITY_OPTIONS = Object.freeze([

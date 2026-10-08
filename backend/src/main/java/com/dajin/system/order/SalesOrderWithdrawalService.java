@@ -87,7 +87,7 @@ public final class SalesOrderWithdrawalService {
             db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,client_request_id,create_time) values(:s,'EXPENSE','SALE_WITHDRAW',:a,:m,:no,:uid,'销售单撤回冲销',:shift,:client,now()) on duplicate key update amount=values(amount)",
                     new MapSqlParameterSource().addValue("s", storeId).addValue("a", amount).addValue("m", method).addValue("no", order.get("order_no"))
                             .addValue("uid", operatorId).addValue("shift", order.get("shift_no")).addValue("client", requestId + "-" + method));
-            if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
+            if (com.dajin.system.pay.PaymentChannelPolicy.isBalanceChannel(db, storeId, method) && order.get("member_id") != null) {
                 db.jdbc().update("update member set balance=balance+:a,update_time=now() where member_id=:m and store_id=:s",
                         new MapSqlParameterSource().addValue("a", amount).addValue("m", order.get("member_id")).addValue("s", storeId));
                 new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "SALE_WITHDRAW", requestId + "-" + method, operatorId);

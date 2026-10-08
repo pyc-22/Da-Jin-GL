@@ -51,6 +51,15 @@ class CombinationPaymentTests {
         assertEquals("支付方式未启用", error.getMessage());
     }
 
+    @Test void recognisesStoredValueChannelsEvenWhenTheStoreUsesItsOwnCode() {
+        // 生产门店的储值 code 是 CHUZHI，本地种子是 BALANCE —— 两套都必须认出来
+        assertTrue(PaymentChannelPolicy.isBalanceChannel(null, 1L, "BALANCE"));
+        assertTrue(PaymentChannelPolicy.isBalanceChannel(null, 1L, "chuzhi"));
+        assertFalse(PaymentChannelPolicy.isBalanceChannel(null, 1L, "SQBWX"));
+        assertFalse(PaymentChannelPolicy.isBalanceChannel(null, 1L, "XIANJIN"));
+        assertFalse(PaymentChannelPolicy.isBalanceChannel(null, 1L, ""));
+    }
+
     @Test void describesTheSplitForTheReceipt() {
         String text = CombinationPayment.describe(
                 List.of(new CombinationPayment.Part("CASH", new BigDecimal("500.00"), null), new CombinationPayment.Part("WECHAT", new BigDecimal("500.00"), null)),

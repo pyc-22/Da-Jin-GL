@@ -948,7 +948,7 @@ public class ProcessingController {
             String client = "WITHDRAW-PROCESSING-" + id + "-PAY-" + payment.get("payment_id");
             db.jdbc().update("insert into processing_payment(store_id,processing_order_id,payment_type,amount,pay_method,client_request_id,operator_id,remark,create_time) values(:s,:id,'WITHDRAW',:amount,:method,:client,:uid,'加工单撤回反向流水',now()) on duplicate key update amount=values(amount)",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("amount",amount).addValue("method",method).addValue("client",client).addValue("uid",operator));
-            if ("BALANCE".equalsIgnoreCase(method) && order.get("member_id") != null) {
+            if (PaymentChannelPolicy.isBalanceChannel(db, storeId, method) && order.get("member_id") != null) {
                 int restored = db.jdbc().update("update member set balance=balance+:amount,update_time=now() where member_id=:m and store_id=:s", new MapSqlParameterSource().addValue("amount",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
                 if (restored != 1) throw new BusinessException(409106, "储值退款会员不存在");
                 new com.dajin.system.member.MemberBalanceLedger(db).record(storeId, order.get("member_id"), amount, "PROCESSING_WITHDRAW", client, operator);
@@ -1183,7 +1183,7 @@ public class ProcessingController {
         if (combination) {
             if (!"BALANCE".equals(paymentType)) throw new BusinessException(400726, "组合支付目前仅用于加工尾款");
             combinationParts = com.dajin.system.pay.CombinationPayment.parse(body.get("components"), positive(body.get("amount"), "收款金额"),
-                    code -> PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, code));
+                    code -> PaymentChannelPolicy.requireCombinationChannel(db, storeId, code));
             combinationGroupPart = com.dajin.system.pay.CombinationPayment.groupPart(combinationParts);
             payMethod = "COMBINATION";
         } else {
@@ -1242,7 +1242,7 @@ public class ProcessingController {
                 return ApiResponse.ok(paymentApprovalResult(id, originalDue, finalPaid, discount, approvalId));
             }
         }
-        if ("BALANCE".equals(payMethod)) {
+        if (PaymentChannelPolicy.isBalanceChannel(db, storeId, payMethod)) {
             if (order.get("member_id") == null) throw new BusinessException(400106, "储值支付必须关联会员");
             int debited = db.jdbc().update("update member set balance=balance-:amount,update_time=now() where member_id=:member and store_id=:s and balance>=:amount",
                     new MapSqlParameterSource().addValue("s", storeId).addValue("member", order.get("member_id")).addValue("amount", amount));
@@ -1347,7 +1347,7 @@ public class ProcessingController {
         if ("WITHDRAWN".equals(String.valueOf(order.get("status"))))
             throw new BusinessException(409704, "加工单已撤回，不能继续查看或操作");
         enrichSettlementFields(order);
-        order.put("payments", db.list("select p.*,u.real_name operator_name from processing_payment p left join sys_user u on u.user_id=p.operator_id and u.store_id=p.store_id where p.store_id=:s and p.processing_order_id=:id order by p.payment_id", Map.of("s", storeId, "id", id)));
+        order.put("payments", db.list("select p.*,pc.channel_name pay_method_name,u.real_name operator_name from processing_payment p left join sys_user u on u.user_id=p.operator_id and u.store_id=p.store_id left join pay_channel pc on pc.store_id=p.store_id and pc.channel_code=p.pay_method where p.store_id=:s and p.processing_order_id=:id order by p.payment_id", Map.of("s", storeId, "id", id)));
         if (hasPermission(request, "processing:commissions")) {
             order.put("commissions", db.list("select c.*,u.real_name employee_name from processing_commission c left join sys_user u on u.user_id=c.employee_id and u.store_id=c.store_id where c.store_id=:s and c.processing_order_id=:id and c.status<>'CANCELLED' order by c.commission_id", Map.of("s", storeId, "id", id)));
         }

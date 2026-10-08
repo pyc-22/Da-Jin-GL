@@ -338,7 +338,7 @@ public class ApprovalController {
             String method = String.valueOf(line.get("pay_method"));
             db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'EXPENSE','SALE_REFUND',:a,:m,:no,:uid,'销售退款冲销',:shift,now())",
                     new MapSqlParameterSource().addValue("s",storeId).addValue("a",amount).addValue("m",method).addValue("no",order.get("order_no")).addValue("uid",userId(r)).addValue("shift",shift));
-            if ("BALANCE".equalsIgnoreCase(method)) {
+            if (com.dajin.system.pay.PaymentChannelPolicy.isBalanceChannel(db, storeId, method)) {
                 if(order.get("member_id")==null) throw new BusinessException(409110,"储值退款缺少会员信息");
                 int restored=db.jdbc().update("update member set balance=balance+:a,update_time=now() where member_id=:m and store_id=:s",
                         new MapSqlParameterSource().addValue("a",amount).addValue("m",order.get("member_id")).addValue("s",storeId));
