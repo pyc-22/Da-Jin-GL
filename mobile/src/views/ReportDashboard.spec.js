@@ -184,6 +184,20 @@ describe('ReportDashboard', () => {
     expect(mocks.reportOverview).toHaveBeenLastCalledWith({ timeType: 'lastMonth' })
   })
 
+  it('opens the employee picker as a bottom sheet instead of a native select overlay', async () => {
+    mocks.route.params.kind = 'overview'
+    grant('report:view', 'report:store-performance')
+    const wrapper = mount(ReportDashboard)
+    await flushPromises()
+    expect(wrapper.find('select').exists()).toBe(false)
+    const field = wrapper.get('.picker-field')
+    await field.trigger('click')
+    const sheet = wrapper.get('.picker-sheet')
+    expect(sheet.text()).toContain('全部员工')
+    await sheet.findAll('button').find(button => button.text().includes('全部员工')).trigger('click')
+    expect(wrapper.find('.picker-sheet').exists()).toBe(false)
+  })
+
   it('sends the selected month to the dedicated monthly report', async () => {
     mocks.route.params.kind = 'monthly'
     grant('report:view', 'report:monthly')
