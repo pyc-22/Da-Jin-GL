@@ -126,7 +126,31 @@ public class AdminFinanceController {
     @GetMapping("/commission/records")
     @RequirePermission("report:commission")
     public ApiResponse<?> commissionRecords(@RequestParam(required = false) String month, HttpServletRequest request) {
-        return ApiResponse.ok(db.list("select cr.*,u.real_name from commission_record cr left join sys_user u on u.user_id=cr.user_id and u.store_id=cr.store_id where cr.store_id=:s and cr.month=coalesce(:m,date_format(curdate(),'%Y-%m')) order by commission_amount desc", params(request).addValue("m", month)));
+        // 提成只在「已取货」后计提到 commission_record；但只回有记录的人会让老板以为漏算（本月有单未取货的导购一条都不显示）。
+        // 所以这里把"本月开过单/有待取货/已有提成"的导购全列出来，并附上待取货的预估提成。
+        MapSqlParameterSource p = params(request).addValue("m",
+                month == null || month.isBlank() ? LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")) : month);
+        java.util.List<java.util.Map<String, Object>> rateRows = db.list("select config_value from sys_config where store_id=:s and config_key='processing_sales_commission_rate' and enabled=1", p);
+        java.math.BigDecimal rate = java.math.BigDecimal.valueOf(0.01);
+        if (!rateRows.isEmpty() && rateRows.get(0).get("config_value") != null) {
+            try { rate = new java.math.BigDecimal(String.valueOf(rateRows.get(0).get("config_value"))); } catch (NumberFormatException ignored) { }
+        }
+        p.addValue("rate", rate);
+        String base = com.dajin.system.processing.ProcessingAmounts.laborBase("pp");
+        return ApiResponse.ok(db.list("select u.user_id,coalesce(u.real_name,u.username) real_name,coalesce(cr.month,:m) month,"
+                + "coalesce(cr.sales_amount,0) sales_amount,coalesce(cr.processing_base,0) processing_base,"
+                + "coalesce(cr.processing_commission,0) processing_commission,coalesce(cr.commission_amount,0) commission_amount,cr.detail,"
+                + "coalesce(pending.cnt,0) pending_pickup_orders,coalesce(pending.base_amount,0) pending_pickup_base,"
+                + "round(coalesce(pending.base_amount,0)*:rate,2) pending_pickup_commission "
+                + "from sys_user u "
+                + "left join commission_record cr on cr.store_id=u.store_id and cr.user_id=u.user_id and cr.month=:m "
+                + "left join (select pp.sales_id,count(*) cnt,sum(" + base + ") base_amount from processing_order pp "
+                + "where pp.store_id=:s and pp.status='COMPLETED' and date_format(coalesce(pp.completed_time,pp.create_time),'%Y-%m')=:m group by pp.sales_id) pending "
+                + "on pending.sales_id=u.user_id "
+                + "where u.store_id=:s and u.status=1 and (cr.user_id is not null or pending.cnt is not null "
+                + "or exists (select 1 from processing_order p2 where p2.store_id=u.store_id and p2.sales_id=u.user_id and p2.status<>'WITHDRAWN' and date_format(p2.create_time,'%Y-%m')=:m) "
+                + "or exists (select 1 from sales_order o where o.store_id=u.store_id and o.sales_id=u.user_id and o.status<>6 and date_format(o.create_time,'%Y-%m')=:m)) "
+                + "order by coalesce(cr.commission_amount,0) desc,coalesce(pending.cnt,0) desc,u.user_id", p));
     }
 
     private void requireFinanceReport(HttpServletRequest request) {

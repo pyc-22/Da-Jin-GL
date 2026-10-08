@@ -223,7 +223,7 @@ const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includ
 const procPayDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0, downMaterial: null })
 const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, meltedWeight: null, billingWeight: null, note: '' })
-const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, downMaterialWeight: null, billingWeight: null, oldGoldWeight: null, oldGoldFineness: 0.999, meltWeight: null, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999', residualRecyclePrice: 0, residualGoldWeight: null, residualGoldFineness: 0.999, incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
+const procFinish = reactive({ row: null, detail: null, goldWeight: null, goldFineness: 0.999, goldPrice: 0, downMaterialWeight: null, billingWeight: null, oldGoldWeight: null, oldGoldFineness: 0.999, meltWeight: null, finishedWeight: null, finishedFineness: null, recoveredWeight: null, note: '', settlementRemark: '', residualGoldHandling: 'TAKE_AWAY', residualMaterialType: '足金999', residualRecyclePrice: 0, residualGoldWeight: null, residualGoldFineness: 0.999, incoming: [], weighPhotos: [], baseIncoming: [], baseWeigh: [], busy: false })
 const procPickup = reactive({ row: null, photos: [], busy: false })
 async function loadFrontTodo() {
   if (!online.value || !getToken()) return
@@ -365,6 +365,7 @@ function openProcFinish(row) {
     procFinish.baseIncoming = parsePhotoList(o.incoming_photos); procFinish.incoming = [...procFinish.baseIncoming]
     procFinish.baseWeigh = parsePhotoList(o.weigh_photos); procFinish.weighPhotos = [...procFinish.baseWeigh]
     procFinish.finishedWeight = o.finished_weight != null ? Number(o.finished_weight) : null
+  procFinish.settlementRemark = o.settlement_remark || ''
     // 按克项目：计费总克重到成品称重这一步才知道，默认带出成品实重（可手改）
     procFinish.billingWeight = Number(o.billing_weight) > 0
       ? Number(o.billing_weight)
@@ -441,7 +442,7 @@ async function submitProcPickup() {
   const row = procPickup.row
   if (!row || procPickup.busy) return
   const photos = procPickup.photos.filter(photo => String(photo || '').trim())
-  if (!photos.length) return ElMessage.warning('请先添加至少1张取货照片')
+  // 取货照片改为选填：可拍可不拍，不再拦截确认取货
   procPickup.busy = true
   try {
     await markProcessingPickedUp(row, request, photos)
@@ -477,7 +478,8 @@ async function submitProcFinish() {
       oldGoldFineness: Number(procFinish.oldGoldFineness),
       residualGoldHandling: procFinish.residualGoldHandling,
       residualRecyclePrice: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? Number(procFinish.residualRecyclePrice || 0) : null,
-      residualMaterialType: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? procFinish.residualMaterialType : null
+      residualMaterialType: procFinish.residualGoldHandling === 'STORE_DEDUCT' ? procFinish.residualMaterialType : null,
+      settlementRemark: String(procFinish.settlementRemark || '').trim()
     }) })
     ElMessage.success(`加工单 ${row.order_no} 已完成，进入待取货`)
     activeDialog.value = ''
@@ -2153,16 +2155,18 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <div class="finish-photos" @dragover.prevent @drop.prevent="dropFinishPhotos('incoming', $event)"><span v-for="(u,i) in procFinish.incoming" :key="'fi'+i" class="finish-photo"><img :src="absFileUrl(u)" /><i @click="removeFinishPhoto('incoming', i)">×</i></span><label class="finish-add">＋<input type="file" accept="image/*" multiple hidden @change="pickFinishPhotos('incoming', $event.target)" /><small>拍照/选图/拖图</small></label></div>
         <h2 class="finish-sec">⑥ 称重照片</h2>
         <div class="finish-photos" @dragover.prevent @drop.prevent="dropFinishPhotos('weighPhotos', $event)"><span v-for="(u,i) in procFinish.weighPhotos" :key="'fw'+i" class="finish-photo"><img :src="absFileUrl(u)" /><i @click="removeFinishPhoto('weighPhotos', i)">×</i></span><label class="finish-add">＋<input type="file" accept="image/*" multiple hidden @change="pickFinishPhotos('weighPhotos', $event.target)" /><small>拍照/选图/拖图</small></label></div>
+        <h2 class="finish-sec">⑦ 结算备注（选填，会打印在单据上并保存到管理端）</h2>
+        <label class="finish-remark">备注<textarea v-model="procFinish.settlementRemark" rows="2" maxlength="200" placeholder="例如：客户要求加刻名字、留店保养、下次到店取等"></textarea></label>
         <div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" :disabled="procFinish.busy" @click="submitProcFinish"><Check :size="16" />{{ procFinish.busy ? '正在提交...' : '确认完成加工' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procPickup'" class="dialog-body">
         <h3 style="margin:0 0 6px">确认取货 · {{ procPickup.row?.order_no || '' }}</h3>
-        <p class="muted" style="margin:0 0 10px">请上传顾客取货现场照片。确认后本单将完成取货，照片最多 6 张。</p>
+        <p class="muted" style="margin:0 0 10px">取货照片为选填（可拍现场留档，也可以直接确认）。确认后本单完成取货，照片最多 6 张。</p>
         <div class="finish-photos" @dragover.prevent @drop.prevent="dropPickupPhotos($event)">
           <span v-for="(u, i) in procPickup.photos" :key="'fp' + i" class="finish-photo"><img :src="absFileUrl(u)" alt="取货照片" /><i @click="removePickupPhoto(i)">×</i></span>
           <label v-if="procPickup.photos.length < 6" class="finish-add">＋<input type="file" accept="image/*" multiple hidden @change="pickPickupPhotos($event.target)" /><small>拍照/选图/拖图</small></label>
         </div>
-        <div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPickup.busy || !procPickup.photos.length" @click="submitProcPickup"><Check :size="16" />{{ procPickup.busy ? '正在提交...' : '确认取货' }}</button></div>
+        <div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPickup.busy" @click="submitProcPickup"><Check :size="16" />{{ procPickup.busy ? '正在提交...' : '确认取货' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procPay'" class="dialog-body">
         <h3 style="margin:0 0 6px">{{ procPayType === 'DEPOSIT' ? '收定金' : procPayType === 'REFUND' ? '向客户返款' : '收尾款' }} · {{ procManage?.order_no || '' }}</h3>

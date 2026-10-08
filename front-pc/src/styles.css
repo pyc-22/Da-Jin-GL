@@ -118,6 +118,8 @@ kbd { border: 1px solid #e2e1dc; border-bottom-width: 2px; border-radius: 4px; c
 .finish-photo i { position: absolute; right: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-style: normal; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; }
 .finish-add { width: 56px; height: 56px; border: 1px dashed #cf9d72; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: #b8812f; font-size: 17px; cursor: pointer; background: #fdfaf5; }
 .finish-add small { font-size: 10px; }
+.finish-remark { display: grid; gap: 4px; font-size: 12px; color: #737a7c; }
+.finish-remark textarea { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; resize: vertical; font-family: inherit; font-size: 12px; box-sizing: border-box; }
 .product-visual { height: 125px; border-radius: 6px; display: grid; place-items: center; color: #be844e; background: #f8efe5; margin-bottom: 11px; overflow: hidden; }
 .product-visual.cat-银饰 { color: #728296; background: #edf1f4; }
 .product-visual.cat-K金 { color: #b87333; background: #faecd5; }

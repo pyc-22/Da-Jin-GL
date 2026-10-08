@@ -21,14 +21,16 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class ProcessingPickupTests {
+    /** 取货照片改为选填：没有照片也能确认取货（门店反馈不必要时也要拍）。 */
     @Test
-    void pickupCannotBeConfirmedBeforeAPhotoIsSaved() {
+    void pickupIsAllowedWithoutAnyPhoto() {
         DbSupport db = mock(DbSupport.class);
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
         Map<String, Object> order = new HashMap<>(Map.of(
                 "processing_order_id", 18L,
                 "store_id", 1L,
+                "order_no", "JG-18",
                 "status", "COMPLETED",
                 "due_amount", 200,
                 "paid_amount", 200,
@@ -38,14 +40,41 @@ class ProcessingPickupTests {
         when(db.jdbc()).thenReturn(jdbc);
         when(db.list(anyString(), anyMap())).thenAnswer(invocation ->
                 invocation.getArgument(0, String.class).contains("for update") ? List.of(order) : List.of());
+        when(db.one(anyString(), anyMap())).thenReturn(order);
         ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
-        BusinessException error = assertThrows(BusinessException.class,
-                () -> controller.changeStatus(18L, Map.of("status", "PICKED_UP"), request));
+        controller.changeStatus(18L, Map.of("status", "PICKED_UP"), request);
 
-        assertEquals(409715, error.getCode());
-        verify(db.jdbc(), never()).update(contains("update processing_order set status"), anyMap());
+        verify(db.jdbc()).update(contains("update processing_order set status"), anyMap());
+    }
+
+    /** 结算备注要落库（打印到单据 + 管理端可见）。 */
+    @Test
+    void settlementRemarkIsSavedWithTheStatusChange() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        Map<String, Object> order = new HashMap<>(Map.of(
+                "processing_order_id", 18L,
+                "store_id", 1L,
+                "order_no", "JG-18",
+                "status", "COMPLETED",
+                "due_amount", 200,
+                "paid_amount", 200,
+                "pickup_photos", "[\"/api/file/pickup-1\"]"
+        ));
+        when(db.store(request)).thenReturn(1L);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.list(anyString(), anyMap())).thenAnswer(invocation ->
+                invocation.getArgument(0, String.class).contains("for update") ? List.of(order) : List.of());
+        when(db.one(anyString(), anyMap())).thenReturn(order);
+        ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
+                mock(ShiftService.class), mock(OldMaterialLedgerService.class));
+
+        controller.changeStatus(18L, Map.of("status", "PICKED_UP", "settlementRemark", "客户要求加刻名字"), request);
+
+        verify(db.jdbc()).update(contains("set settlement_remark"), anyMap());
     }
 
     @Test

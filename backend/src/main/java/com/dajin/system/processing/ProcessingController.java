@@ -652,6 +652,9 @@ public class ProcessingController {
                 .append("<div><span>回收屑</span><b>").append(o.get("residual_gold_weight") == null ? "" : escHtml(decimal(o.get("residual_gold_weight")).toPlainString() + "g")).append("</b></div>")
                 .append("</div>");
         h.append("<div class=\"remark\"><b>备注：</b>").append(escHtml(String.valueOf(o.getOrDefault("remark", "")))).append("</div>");
+        String settlementRemarkText = o.get("settlement_remark") == null ? "" : String.valueOf(o.get("settlement_remark")).trim();
+        if (!settlementRemarkText.isEmpty())
+            h.append("<div class=\"remark\"><b>结算备注：</b>").append(escHtml(settlementRemarkText)).append("</div>");
         h.append("<div class=\"sign\"><div>加工师傅签字：</div><div>客户取货签字：</div></div>");
         h.append("<div class=\"footer\"><span>打印格式：A4 纵向</span><span>打印时间：").append(escHtml(java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))).append("</span></div>");
         h.append("<p class=\"tip noprint\">提示：在浏览器菜单选择「打印」可输出纸质单或保存 PDF。</p>");
@@ -891,7 +894,17 @@ public class ProcessingController {
         if (!canTransition(current, next)) throw new BusinessException(409704, "状态只能按待加工、加工中、已完成、已取货顺序流转");
         if ("PICKED_UP".equals(next) && processingTailDue(order).signum() > 0) throw new BusinessException(409705, "加工单尚有尾款未收，不能取货");
         if ("PICKED_UP".equals(next)) ensureProcessingRefundSettled(order, storeId);
-        if ("PICKED_UP".equals(next) && parsePhotoList(order.get("pickup_photos")).isEmpty()) throw new BusinessException(409715, "请先上传取货照片，上传成功后才能确认取货");
+        // 取货照片改为选填（原来强制要求，门店反馈不必要时也要拍）
+        // 完成加工结算时的备注：打印到单据上 + 保存到管理端（orderDetail 是 select o.* 所以自动带出）
+        String settlementRemark = optionalText(body, "settlementRemark");
+        if (settlementRemark != null) {
+            settlementRemark = settlementRemark.trim();
+            if (settlementRemark.length() > 200) throw new BusinessException(400719, "结算备注不能超过200字");
+            if (!settlementRemark.isEmpty()) {
+                db.jdbc().update("update processing_order set settlement_remark=:r,update_time=now() where processing_order_id=:id and store_id=:s",
+                        Map.of("r", settlementRemark, "id", id, "s", storeId));
+            }
+        }
         if ("COMPLETED".equals(next)) order = applyResidualMaterialOnCompletion(order, body, storeId, request);
         if ("COMPLETED".equals(next)) createCommission(order, storeId);
         if ("PICKED_UP".equals(next) && order.get("sales_id") != null && order.get("sales_commission_rate_snapshot") == null) {

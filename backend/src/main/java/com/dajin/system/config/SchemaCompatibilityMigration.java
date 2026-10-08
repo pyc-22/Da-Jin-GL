@@ -88,6 +88,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "promotion_discount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER original_due_amount");
         addColumn("processing_order", "promotion_channel", "VARCHAR(50) NULL AFTER promotion_discount");
         addColumn("processing_order", "voucher_no", "VARCHAR(100) NULL AFTER promotion_channel");
+        addColumn("processing_order", "settlement_remark", "VARCHAR(255) NULL AFTER voucher_no");
         addColumn("processing_order", "promotion_reason", "VARCHAR(200) NULL AFTER voucher_no");
         addColumn("processing_order", "sales_id", "BIGINT NULL AFTER craftsman_id");
         addColumn("processing_order", "sales_commission_rate_snapshot", "DECIMAL(8,4) NULL AFTER sales_id");

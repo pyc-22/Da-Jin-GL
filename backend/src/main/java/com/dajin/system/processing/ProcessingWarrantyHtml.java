@@ -39,7 +39,10 @@ final class ProcessingWarrantyHtml {
                 + "<div><span>回收屑抵扣</span><span>-" + dec(o.get("residual_gold_deduction")).toPlainString() + (dec(o.get("residual_gold_weight")).signum() > 0 ? "（" + dec(o.get("residual_gold_weight")).toPlainString() + "g）" : "") + "</span></div>"
                 + "<div><span>应收金额</span><span>" + due.toPlainString() + "</span></div>"
                 + "<div><span>已收定金</span><span>" + paid.toPlainString() + "</span></div>"
-                + "<div><span>尾款待收</span><span>" + tail.toPlainString() + "</span></div></div>"
+                + "<div><span>尾款待收</span><span>" + tail.toPlainString() + "</span></div>"
+                + (o.get("settlement_remark") == null || String.valueOf(o.get("settlement_remark")).trim().isEmpty() ? ""
+                    : "<div><span>结算备注</span><span>" + esc(String.valueOf(o.get("settlement_remark"))) + "</span></div>")
+                + "</div>"
                 + "<h2>称重记录</h2><div class=\"weigh\">"
                 + "<div><span>来料</span><b>" + (oldW == null ? "" : esc(laoliao)) + "</b></div>"
                 + "<div><span>店供补金</span><b>" + (storeW.signum() <= 0 ? "" : esc(bujin)) + "</b></div>"
