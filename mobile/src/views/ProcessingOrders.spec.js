@@ -197,6 +197,22 @@ describe('ProcessingOrders mobile actions', () => {
     wrapper.unmount()
   })
 
+  it('renders combined payments in plain language for the operator', async () => {
+    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 200, paid_amount: 200, pickup_photos: [] }
+    mocks.processingOrders.mockResolvedValue([order])
+    mocks.processingOrder.mockResolvedValue({
+      ...order, incoming_photos: [], weigh_photos: [], pickup_photos: [],
+      payments: [{ payment_id: 1, amount: 200, pay_method: 'COMBINATION', remark: '组合支付：抖音团购 100.00 + 现金 100.00', create_time: '2026-10-08 16:00:00' }]
+    })
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await wrapper.get('.processing-card').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('组合支付：抖音团购 100.00 + 现金 100.00')
+    expect(wrapper.text()).not.toContain('COMBINATION')
+    wrapper.unmount()
+  })
+
   it('shows a pickup photo section for completed orders', async () => {    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100, pickup_photos: [] }
     mocks.processingOrders.mockResolvedValue([order])
     mocks.processingOrder.mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], pickup_photos: [], payments: [] })

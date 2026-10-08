@@ -398,8 +398,16 @@ public class ProcessingController {
         return ApiResponse.ok(Map.of("processingOrderId", id, "mobileArchived", true));
     }
 
-    private boolean salesCanView(Map<String, Object> order, long userId) {
-        return matchesUser(order.get("created_by"), userId) || matchesUser(order.get("sales_id"), userId);
+    /** 组合支付明细里的人可读渠道名（现金/微信…），查不到就退回代码。 */
+    private String channelLabel(long storeId, String code) {
+        try {
+            java.util.List<Map<String, Object>> rows = db.list("select channel_name from pay_channel where store_id=:s and channel_code=:code",
+                    Map.of("s", storeId, "code", code));
+            return rows.isEmpty() || rows.get(0).get("channel_name") == null ? code : String.valueOf(rows.get(0).get("channel_name"));
+        } catch (Exception e) { return code; }
+    }
+
+    private boolean salesCanView(Map<String, Object> order, long userId) {        return matchesUser(order.get("created_by"), userId) || matchesUser(order.get("sales_id"), userId);
     }
 
     private boolean matchesUser(Object value, long userId) {
@@ -1167,11 +1175,25 @@ public class ProcessingController {
         if ("PICKED_UP".equals(order.get("status"))) throw new BusinessException(409706, "已取货订单不能继续收款");
         String paymentType = text(body, "paymentType", "收款类型").toUpperCase(Locale.ROOT);
         if (!PAYMENT_TYPES.contains(paymentType)) throw new BusinessException(400716, "收款类型只能是定金或尾款");
-        String payMethod = PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, text(body, "payMethod", "支付方式"));
+        // 组合支付：一笔尾款里团购核销 + 现金/微信…；合计必须等于本次收款金额
+        boolean combination = body.get("components") instanceof java.util.List<?> componentsRaw && !componentsRaw.isEmpty();
+        String payMethod;
+        java.util.List<com.dajin.system.pay.CombinationPayment.Part> combinationParts = java.util.List.of();
+        com.dajin.system.pay.CombinationPayment.Part combinationGroupPart = null;
+        if (combination) {
+            if (!"BALANCE".equals(paymentType)) throw new BusinessException(400726, "组合支付目前仅用于加工尾款");
+            combinationParts = com.dajin.system.pay.CombinationPayment.parse(body.get("components"), positive(body.get("amount"), "收款金额"),
+                    code -> PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, code));
+            combinationGroupPart = com.dajin.system.pay.CombinationPayment.groupPart(combinationParts);
+            payMethod = "COMBINATION";
+        } else {
+            payMethod = PaymentChannelPolicy.requireActiveProcessingCollection(db, storeId, text(body, "payMethod", "支付方式"));
+        }
         BigDecimal amount = positive(body.get("amount"), "收款金额");
         BigDecimal due = decimal(order.get("due_amount")); BigDecimal paid = decimal(order.get("paid_amount"));
         BigDecimal remaining = due.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-        boolean groupPayment = PaymentChannelPolicy.isGroupChannel(payMethod);
+        // 组合里含团购时，沿用"团购核销"的既有校验与优惠口径（团购那一笔填平台实际结算金额）
+        boolean groupPayment = combination ? combinationGroupPart != null : PaymentChannelPolicy.isGroupChannel(payMethod);
         String settlementMode = String.valueOf(body.getOrDefault("settlementMode", "FULL")).trim().toUpperCase(Locale.ROOT);
         boolean depositPayment = "DEPOSIT".equals(paymentType);
         if (!Set.of("FULL", "DISCOUNT").contains(settlementMode) && !(depositPayment && "PARTIAL".equals(settlementMode)))
@@ -1181,7 +1203,10 @@ public class ProcessingController {
         if (groupPayment) {
             if (!"BALANCE".equals(paymentType) || !"COMPLETED".equals(order.get("status")) || order.get("promotion_channel") != null)
                 throw new BusinessException(400724, "团购核销仅用于已完成加工单的首次尾款收取");
-            voucherNo = text(body, "voucherNo", "团购核销单号");
+            voucherNo = combinationGroupPart != null
+                    ? (combinationGroupPart.voucherNo() == null ? "" : combinationGroupPart.voucherNo())
+                    : text(body, "voucherNo", "团购核销单号");
+            if (voucherNo.isBlank()) throw new BusinessException(400724, "团购核销必须填写核销单号");
             if (voucherNo.length() > 100) throw new BusinessException(400725, "团购核销单号不能超过100字");
             Integer used = db.jdbc().queryForObject("select count(*) from processing_order where store_id=:s and promotion_channel=:channel and voucher_no=:voucher",
                     Map.of("s", storeId, "channel", payMethod, "voucher", voucherNo), Integer.class);
@@ -1225,13 +1250,21 @@ public class ProcessingController {
             new com.dajin.system.member.MemberBalanceLedger(db).record(storeId,order.get("member_id"),amount.negate(),"PROCESSING",requestId,userId(request));
         }
         long operator = userId(request); String shiftNo = shifts.current(storeId);
+        String combinationRemark = null;
+        if (combination) {
+            combinationRemark = "组合支付：" + com.dajin.system.pay.CombinationPayment.describe(combinationParts, code -> channelLabel(storeId, code));
+        }
+        String paymentRemark = combination
+                ? (optionalText(body, "remark") == null ? combinationRemark : combinationRemark + "；" + optionalText(body, "remark"))
+                : optionalText(body, "remark");
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("order", id).addValue("type", paymentType)
                 .addValue("amount", amount).addValue("method", payMethod).addValue("requestId", requestId).addValue("operator", operator)
-                .addValue("remark", optionalText(body, "remark"));
+                .addValue("remark", paymentRemark);
         db.jdbc().update("insert into processing_payment(store_id,processing_order_id,payment_type,amount,pay_method,client_request_id,operator_id,remark,create_time) values(:s,:order,:type,:amount,:method,:requestId,:operator,:remark,now())", p);
         db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'INCOME','PROCESSING_FEE',:amount,:method,:orderNo,:operator,:financeRemark,:shift,now())",
                 p.addValue("orderNo", order.get("order_no")).addValue("financeRemark", discount.signum() > 0 ? "加工优惠结清：" + promotionReason : ("DEPOSIT".equals(paymentType) ? "加工定金" : "加工尾款")).addValue("shift", shiftNo));
-        p.addValue("discount", discount).addValue("promotionReason", promotionReason).addValue("methodOrNull", groupPayment ? payMethod : null)
+        p.addValue("discount", discount).addValue("promotionReason", promotionReason)
+                .addValue("methodOrNull", groupPayment ? (combinationGroupPart != null ? combinationGroupPart.method() : payMethod) : null)
                 .addValue("voucher", voucherNo).addValue("originalDue", originalDue);
         try {
             if (groupPayment || discount.signum() > 0) {

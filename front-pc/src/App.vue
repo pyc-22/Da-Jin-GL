@@ -182,10 +182,39 @@ const procPayRequestId = ref('')
 const procSettlementMode = ref('FULL')
 const procSettlementDiscountReason = ref('')
 const procPayMethods = computed(() => {
+  const usable = methods => methods.filter(method => method.code !== 'COMBINATION')
   if (procPayType.value === 'REFUND') return payoutMethods.value
   return procPayType.value === 'BALANCE' && procManage.value?.status === 'COMPLETED' && !procManage.value?.promotion_channel
-    ? [...paymentMethods.value, ...groupPaymentMethods.value] : paymentMethods.value
+    ? usable([...paymentMethods.value, ...groupPaymentMethods.value]) : usable(paymentMethods.value)
 })
+// 组合支付：尾款一笔里用多种方式收（储值/团购不参与组合，避免撤回冲销算不准）
+const procPayCombination = ref(false)
+const procPayParts = ref([{ method: 'CASH', amount: '', voucherNo: '' }])
+const procPayComboMethods = computed(() => [...paymentMethods.value, ...groupPaymentMethods.value].filter(method => !['BALANCE', 'COMBINATION'].includes(method.code)))
+const procPayGroupCodes = computed(() => groupPaymentMethods.value.map(method => method.code))
+const isProcPayGroupPart = part => procPayGroupCodes.value.includes(part.method)
+const procPayGroupParts = computed(() => procPayParts.value.filter(part => isProcPayGroupPart(part)))
+const procPayPartsTotal = computed(() => Math.round(procPayParts.value.reduce((sum, part) => sum + Number(part.amount || 0) * 100, 0)) / 100)
+const procPayCombinationReady = computed(() => {
+  if (!procPayCombination.value) return true
+  if (!procPayParts.value.length) return false
+  const methods = procPayParts.value.map(part => part.method)
+  if (new Set(methods).size !== methods.length) return false
+  if (!procPayParts.value.every(part => Number(part.amount) > 0 && Number(part.method))) return false
+  if (procPayGroupParts.value.length > 1) return false
+  if (procPayGroupParts.value.some(part => !String(part.voucherNo || '').trim())) return false
+  return Math.abs(procPayPartsTotal.value - Math.round(Number(procPayAmount.value || 0) * 100) / 100) < 0.005
+})
+function addProcPayPart() { procPayParts.value.push({ method: procPayComboMethods.value[0]?.code || 'CASH', amount: '', voucherNo: '' }) }
+function removeProcPayPart(index) { procPayParts.value.splice(index, 1); if (!procPayParts.value.length) addProcPayPart() }
+function splitProcPayEvenly() {
+  const total = Math.round(Number(procPayAmount.value || processingOutstanding(procManage.value) || 0) * 100)
+  if (!procPayParts.value.length) return
+  const each = Math.floor(total / procPayParts.value.length)
+  procPayParts.value.forEach((part, index) => {
+    part.amount = (index === procPayParts.value.length - 1 ? total - each * (procPayParts.value.length - 1) : each) / 100
+  })
+}
 const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includes(procPayMethod.value))
 const procPayDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0, downMaterial: null })
@@ -240,6 +269,8 @@ function openProcPay(row, type = 'BALANCE') {
   procSettlementMode.value = type === 'BALANCE' ? 'FULL' : 'PARTIAL'
   procSettlementDiscountReason.value = ''
   procPayMethod.value = paymentMethods.value[0]?.code || ''
+  procPayCombination.value = false
+  procPayParts.value = [{ method: paymentMethods.value.filter(method => !['BALANCE', 'COMBINATION'].includes(method.code))[0]?.code || 'CASH', amount: '', voucherNo: '' }]
   procVoucherNo.value = ''
   procPayRequestId.value = uuid()
   activeDialog.value = 'procPay'
@@ -269,10 +300,19 @@ async function confirmProcPay() {
   const amount = Number(procPayAmount.value)
   if (!Number.isFinite(amount) || amount <= 0 || Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001 || amount > remaining) return ElMessage.warning('收款金额须大于0、最多两位小数且不超过未收金额')
   if (procGroupPayment.value && !procVoucherNo.value.trim()) return ElMessage.warning('请输入团购核销单号')
+  if (procPayCombination.value) {
+    if (procPayType.value !== 'BALANCE') return ElMessage.warning('组合支付仅用于收尾款')
+    const methods = procPayParts.value.map(part => part.method)
+    if (new Set(methods).size !== methods.length) return ElMessage.warning('组合支付里同一收款方式只能出现一次')
+    if (procPayParts.value.some(part => !(Number(part.amount) > 0))) return ElMessage.warning('每一行组合支付金额都要大于0')
+    if (procPayGroupParts.value.length > 1) return ElMessage.warning('组合支付里团购核销只能有一笔')
+    if (procPayGroupParts.value.some(part => !String(part.voucherNo || '').trim())) return ElMessage.warning('团购那一行要填核销单号')
+    if (!procPayCombinationReady.value) return ElMessage.warning(`组合支付合计 ${money(procPayPartsTotal.value)} 必须等于本次实收 ${money(amount)}`)
+  }
   if (procPayType.value === 'BALANCE' && amount < remaining && !online.value) return ElMessage.warning('优惠收款需要联网提交审批或记账，请连接后重试')
   procPayBusy.value = true
   try {
-    const body = { paymentType: procPayType.value, payMethod: procPayMethod.value, amount, settlementMode: procPayType.value === 'DEPOSIT' ? 'PARTIAL' : 'FULL', ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), clientRequestId: procPayRequestId.value }
+    const body = { paymentType: procPayType.value, payMethod: procPayCombination.value ? 'COMBINATION' : procPayMethod.value, amount, settlementMode: procPayType.value === 'DEPOSIT' ? 'PARTIAL' : 'FULL', ...(procGroupPayment.value ? { voucherNo: procVoucherNo.value.trim() } : {}), ...(procPayCombination.value ? { components: procPayParts.value.map(part => ({ payMethod: part.method, amount: Number(part.amount), ...(isProcPayGroupPart(part) ? { voucherNo: String(part.voucherNo || '').trim() } : {}) })), remark: '组合支付' } : {}), clientRequestId: procPayRequestId.value }
     const result = await request(`/api/processing/orders/${row.processing_order_id}/payments`, { method: 'POST', body: JSON.stringify(body) })
     if (result?.approvalRequired) {
       ElMessage.warning(`优惠低于${Math.round(config.discountThreshold * 100)}折，已提交店长/管理员审批；审批通过后请再次确认收款`)
@@ -2131,6 +2171,23 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
          <p v-if="procPayType === 'BALANCE' && !procGroupPayment && Number(procPayAmount) > 0 && Number(procPayAmount) < processingOutstanding(procManage)" class="muted" style="margin:0">优惠 {{ money(procPayDiscount) }}</p>
         <label>支付方式<select v-model="procPayMethod" @change="changeProcPayMethod"><option v-if="!procPayMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in procPayMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label>
         <template v-if="procGroupPayment"><label>本次实收<input v-model.number="procPayAmount" type="number" min="0.01" :max="processingOutstanding(procManage)" step="0.01" /></label><label>团购核销单号<input v-model.trim="procVoucherNo" maxlength="100" placeholder="输入平台核销单号" /></label><p class="muted" style="margin:0">团购优惠 {{ money(procPayDiscount) }} · 本次收款后结清</p></template>
+        <template v-if="procPayType === 'BALANCE' && !procGroupPayment">
+          <label class="switch-line"><input type="checkbox" v-model="procPayCombination" /><span>组合支付（一笔尾款用多种方式收）</span></label>
+          <template v-if="procPayCombination">
+            <div class="combination-row" v-for="(part, index) in procPayParts" :key="index">
+              <select v-model="part.method"><option v-for="method in procPayComboMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select>
+              <input v-model.number="part.amount" type="number" min="0.01" step="0.01" placeholder="金额" />
+              <input v-if="isProcPayGroupPart(part)" v-model.trim="part.voucherNo" maxlength="100" placeholder="团购核销单号" />
+              <button class="text-button" type="button" @click="removeProcPayPart(index)">删除</button>
+            </div>
+            <div class="combination-tools">
+              <button class="text-button" type="button" @click="addProcPayPart">+ 添加方式</button>
+              <button class="text-button" type="button" @click="splitProcPayEvenly">均分应收</button>
+              <span :class="{ err: !procPayCombinationReady }">合计 {{ money(procPayPartsTotal) }} / 本次实收 {{ money(Number(procPayAmount || 0)) }}</span>
+            </div>
+            <p class="settings-note"><Receipt :size="16" />团购可与现金/微信组合：团购那行填「平台实际结算金额 + 核销单号」；储值不参与组合，请单独收。</p>
+          </template>
+        </template>
         <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy || !Number(procPayAmount) || (procPayType === 'REFUND' ? procPayAmount > processingRefundOutstanding(procManage) : procPayAmount > processingOutstanding(procManage))" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '处理中...' : procPayType === 'DEPOSIT' ? '确认收定金' : procPayType === 'REFUND' ? '确认返款' : '确认实收' }}</button></div>
       </div>
       <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；可重复登记修正。下料只登记克重，不计费也不扣库存。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procGoldForm.downMaterial" type="number" min="0" step="0.001" /><small class="muted">选填：额外加的金料（不单独计费、不扣库存）</small></label><p v-if="procGoldDialogBalance.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procGoldDialogBalance.hint }}</p><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>

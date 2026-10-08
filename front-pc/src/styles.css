@@ -268,6 +268,13 @@ td b { font-weight: 650; }
 .payment-method b { font-size: 10px; color: var(--accent-strong); }
 .combination-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; color: #92989b; font-size: 10px; }
 .combination-tools .text-button { font-size: 10px; }
+.combination-tools .err { color: var(--err, #c0392b); font-weight: 600; }
+.combination-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.combination-row select { flex: 1 1 120px; height: 35px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; }
+.combination-row input { flex: 1 1 110px; height: 35px; border: 1px solid var(--line); border-radius: 5px; text-align: right; padding: 0 9px; }
+.combination-row .text-button { font-size: 10px; }
+.switch-line { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.switch-line input { width: auto; }
 .payment-input { display: flex; align-items: center; gap: 8px; }
 .payment-input span { min-width: 42px; font-size: 11px; color: #737a7c; }
 .payment-input input { height: 35px; flex: 1; border: 1px solid var(--line); border-radius: 5px; text-align: right; padding: 0 9px; outline: 0; }
