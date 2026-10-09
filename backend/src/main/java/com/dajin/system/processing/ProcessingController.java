@@ -153,11 +153,12 @@ public class ProcessingController {
         if (days < 0) throw new BusinessException(400704, "加工周期不能小于0");
         BigDecimal rate = percent(body.get("commissionRate"), "提成比例");
         String pricingUnit = pricingUnit(body.get("pricingUnit"));
+        String priceCalcMode = pricingMode(body.get("priceCalcMode"), pricingUnit);
         String durationText = trimToEmpty(body.get("durationText"));
         String processSteps = trimToEmpty(body.get("processSteps"));
-        db.jdbc().update("insert into processing_item(store_id,category_id,name,item_code,labor_fee,pricing_unit,processing_days,duration_text,process_steps,commission_rate,status,remark,created_by,updated_by,create_time,update_time) values(:s,:category,:n,:code,:fee,:unit,:days,:dur,:steps,:rate,:status,:remark,:uid,:uid,now(),now())",
+        db.jdbc().update("insert into processing_item(store_id,category_id,name,item_code,labor_fee,pricing_unit,price_calc_mode,processing_days,duration_text,process_steps,commission_rate,status,remark,created_by,updated_by,create_time,update_time) values(:s,:category,:n,:code,:fee,:unit,:mode,:days,:dur,:steps,:rate,:status,:remark,:uid,:uid,now(),now())",
                 new MapSqlParameterSource().addValue("s", storeId).addValue("category", categoryId).addValue("n", name).addValue("code", code)
-                        .addValue("fee", fee).addValue("unit", pricingUnit).addValue("days", days).addValue("dur", durationText).addValue("steps", processSteps)
+                        .addValue("fee", fee).addValue("unit", pricingUnit).addValue("mode", priceCalcMode).addValue("days", days).addValue("dur", durationText).addValue("steps", processSteps)
                         .addValue("rate", rate).addValue("status", status(body.get("status")))
                         .addValue("remark", optionalText(body, "remark")).addValue("uid", userId(request)));
         log(storeId, userId(request), "ITEM_CREATE", "加工项目=" + name);
@@ -185,11 +186,12 @@ public class ProcessingController {
         if (days != null && days < 0) throw new BusinessException(400704, "加工周期不能小于0");
         BigDecimal rate = body.containsKey("commissionRate") ? percent(body.get("commissionRate"), "提成比例") : null;
         String pricingUnit = body.containsKey("pricingUnit") ? pricingUnit(body.get("pricingUnit")) : null;
+        String priceCalcMode = body.containsKey("priceCalcMode") ? pricingMode(body.get("priceCalcMode"), pricingUnit == null ? "按件" : pricingUnit) : null;
         String durationText = body.containsKey("durationText") ? trimToEmpty(body.get("durationText")) : null;
         String processSteps = body.containsKey("processSteps") ? trimToEmpty(body.get("processSteps")) : null;
-        db.jdbc().update("update processing_item set category_id=coalesce(:category,category_id),name=coalesce(:n,name),item_code=coalesce(:code,item_code),labor_fee=coalesce(:fee,labor_fee),pricing_unit=coalesce(:unit,pricing_unit),processing_days=coalesce(:days,processing_days),duration_text=coalesce(:dur,duration_text),process_steps=coalesce(:steps,process_steps),commission_rate=coalesce(:rate,commission_rate),status=coalesce(:status,status),remark=coalesce(:remark,remark),updated_by=:uid,update_time=now() where item_id=:id and store_id=:s",
+        db.jdbc().update("update processing_item set category_id=coalesce(:category,category_id),name=coalesce(:n,name),item_code=coalesce(:code,item_code),labor_fee=coalesce(:fee,labor_fee),pricing_unit=coalesce(:unit,pricing_unit),price_calc_mode=coalesce(:mode,price_calc_mode),processing_days=coalesce(:days,processing_days),duration_text=coalesce(:dur,duration_text),process_steps=coalesce(:steps,process_steps),commission_rate=coalesce(:rate,commission_rate),status=coalesce(:status,status),remark=coalesce(:remark,remark),updated_by=:uid,update_time=now() where item_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("s", storeId).addValue("id", id).addValue("category", categoryValue)
-                        .addValue("n", name).addValue("code", code).addValue("fee", fee).addValue("unit", pricingUnit).addValue("days", days)
+                        .addValue("n", name).addValue("code", code).addValue("fee", fee).addValue("unit", pricingUnit).addValue("mode", priceCalcMode).addValue("days", days)
                         .addValue("dur", durationText).addValue("steps", processSteps).addValue("rate", rate)
                         .addValue("status", body.get("status")).addValue("remark", optionalText(body, "remark")).addValue("uid", userId(request)));
         log(storeId, userId(request), "ITEM_UPDATE", "加工项目ID=" + id);
@@ -223,6 +225,36 @@ public class ProcessingController {
         return ApiResponse.ok();
     }
 
+    @GetMapping("/items/{id}/tiers")
+    @RequireRoles({"ADMIN", "MANAGER"})
+    public ApiResponse<?> priceTiers(@PathVariable long id, HttpServletRequest request) {
+        long storeId = store(request); requireItem(id, storeId);
+        return ApiResponse.ok(db.list("select * from processing_price_tier where store_id=:s and processing_item_id=:i order by sort,tier_id", Map.of("s", storeId, "i", id)));
+    }
+
+    @PutMapping("/items/{id}/tiers")
+    @RequireRoles({"ADMIN", "MANAGER"})
+    @Transactional
+    public ApiResponse<?> savePriceTiers(@PathVariable long id, @RequestBody Map<String,Object> body, HttpServletRequest request) {
+        long storeId = store(request); requireItem(id, storeId);
+        String mode = pricingMode(body.get("priceCalcMode"), "按克");
+        Object raw = body.get("tiers");
+        if (!(raw instanceof List<?> list)) throw new BusinessException(400741, "阶梯规则不能为空");
+        List<ProcessingPricing.Tier> tiers = new ArrayList<>();
+        for (int i=0;i<list.size();i++) {
+            if (!(list.get(i) instanceof Map<?,?> m)) throw new BusinessException(400741, "阶梯规则格式不正确");
+            BigDecimal min = optionalDecimal(m.get("minWeight"),3); BigDecimal max = optionalDecimal(m.get("maxWeight"),3); BigDecimal price = nonNegative(m.get("price"), "阶梯价格");
+            String tierMode = m.get("mode") == null ? ProcessingPricing.PER_GRAM : String.valueOf(m.get("mode"));
+            tiers.add(new ProcessingPricing.Tier(min, max, tierMode, price, i, true));
+        }
+        ProcessingPricing.validate(mode, tiers);
+        db.jdbc().update("delete from processing_price_tier where store_id=:s and processing_item_id=:i", Map.of("s", storeId, "i", id));
+        for (int i=0;i<tiers.size();i++) { ProcessingPricing.Tier t=tiers.get(i); db.jdbc().update("insert into processing_price_tier(store_id,processing_item_id,min_weight,max_weight,mode,price,sort,enabled) values(:s,:i,:min,:max,:m,:p,:sort,1)", new MapSqlParameterSource().addValue("s",storeId).addValue("i",id).addValue("min",t.minWeight()).addValue("max",t.maxWeight()).addValue("m",t.mode()).addValue("p",t.price()).addValue("sort",i)); }
+        db.jdbc().update("update processing_item set price_calc_mode=:m,pricing_unit='按克',update_time=now() where item_id=:i and store_id=:s", Map.of("m",mode,"i",id,"s",storeId));
+        processingCatalogUpdated(storeId, "PRICE_TIERS_UPDATE", id);
+        return ApiResponse.ok(db.list("select * from processing_price_tier where store_id=:s and processing_item_id=:i order by sort,tier_id", Map.of("s",storeId,"i",id)));
+    }
+
     @GetMapping("/craftsmen")
     public ApiResponse<?> craftsmen(HttpServletRequest request) {
         return ApiResponse.ok(db.list("select u.user_id,u.username,u.real_name,u.phone,r.role_code,r.role_name from sys_user u "
@@ -250,18 +282,48 @@ public class ProcessingController {
                     Map.of("s", storeId, "client", clientRequestId));
             if (!replay.isEmpty()) return ApiResponse.ok(orderDetail(((Number) replay.get(0).get("processing_order_id")).longValue(), storeId, request));
         }
-        long itemId = requiredId(body.get("processingItemId"), "加工项目");
+        List<Map<String,Object>> requestedItems = new ArrayList<>();
+        Object rawItems = body.get("items");
+        if (rawItems instanceof List<?> list && !list.isEmpty()) {
+            for (Object raw : list) {
+                if (!(raw instanceof Map<?,?> m)) throw new BusinessException(400707, "加工子项格式不正确");
+                Map<String,Object> normalized = new LinkedHashMap<>();
+                normalized.put("processingItemId", m.get("processingItemId"));
+                normalized.put("quantity", m.containsKey("quantity") ? m.get("quantity") : 1);
+                normalized.put("billingWeight", m.get("billingWeight"));
+                requestedItems.add(normalized);
+            }
+        }
+        if (requestedItems.isEmpty()) {
+            Map<String,Object> singleton = new LinkedHashMap<>();
+            singleton.put("processingItemId", body.get("processingItemId"));
+            singleton.put("quantity", body.getOrDefault("quantity", 1));
+            singleton.put("billingWeight", body.get("billingWeight"));
+            requestedItems.add(singleton);
+        }
+        long itemId = requiredId(requestedItems.get(0).get("processingItemId"), "加工项目");
         Map<String, Object> item = activeItem(itemId, storeId);
         String customerName = text(body, "customerName", "客户姓名");
         String customerPhone = text(body, "customerPhone", "客户电话");
-        int quantity = integer(body.get("quantity"), 1, "数量");
+        int quantity = integer(requestedItems.get(0).get("quantity"), 1, "数量");
         if (quantity <= 0) throw new BusinessException(400707, "数量必须大于0");
+        int itemCount = 0;
+        BigDecimal aggregateLaborFee = BigDecimal.ZERO;
+        for (Map<String,Object> requested : requestedItems) {
+            long requestedId = requiredId(requested.get("processingItemId"), "加工项目");
+            Map<String,Object> requestedItem = activeItem(requestedId, storeId);
+            int requestedQuantity = integer(requested.get("quantity"), 1, "数量");
+            if (requestedQuantity <= 0) throw new BusinessException(400707, "数量必须大于0");
+            itemCount += requestedQuantity;
+            if ("按件".equals(String.valueOf(requestedItem.getOrDefault("pricing_unit", "按件"))))
+                aggregateLaborFee = aggregateLaborFee.add(decimal(requestedItem.get("labor_fee")).multiply(BigDecimal.valueOf(requestedQuantity)));
+        }
         BigDecimal unitFee = decimal(item.get("labor_fee"));
         String pricingUnit = String.valueOf(item.getOrDefault("pricing_unit", "按件"));
         // 按克项目：计费总克重等加工完成、知道成品实际克重后柜面再填，开单时允许留空（工费先记 0）
         BigDecimal billingWeight = "按克".equals(pricingUnit) ? optionalDecimal(body.get("billingWeight"), 3) : null;
         if (billingWeight != null && billingWeight.signum() <= 0) billingWeight = null;
-        BigDecimal laborFee = unitFee.multiply(billingWeight == null
+        BigDecimal laborFee = requestedItems.size() > 1 ? aggregateLaborFee : unitFee.multiply(billingWeight == null
                 ? ("按克".equals(pricingUnit) ? BigDecimal.ZERO : BigDecimal.valueOf(quantity))
                 : billingWeight).setScale(2, RoundingMode.HALF_UP);
         BigDecimal storeGoldWeight = optionalDecimal(body.get("storeGoldWeight"), 3);
@@ -299,7 +361,7 @@ public class ProcessingController {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("no", orderNo)
                 .addValue("member", memberId).addValue("name", customerName).addValue("phone", customerPhone)
                 .addValue("itemId", itemId).addValue("itemName", item.get("name")).addValue("unitFee", unitFee)
-                .addValue("commissionRate", decimal(item.get("commission_rate"))).addValue("qty", quantity)
+                .addValue("commissionRate", decimal(item.get("commission_rate"))).addValue("qty", quantity).addValue("itemCount", itemCount)
                 .addValue("pricingUnit", pricingUnit).addValue("billingWeight", billingWeight)
                 .addValue("laborFee", laborFee).addValue("oldWeight", optionalDecimal(body.get("oldGoldWeight"), 3)).addValue("oldFineness", optionalDecimal(body.get("oldGoldFineness"), 4))
                 .addValue("materialType", materialType).addValue("residualWeight", residualWeight).addValue("residualFineness", residualFineness)
@@ -308,8 +370,19 @@ public class ProcessingController {
                 .addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", configuredRetailPrice).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus"))
                 .addValue("craftsman", craftsman).addValue("sales", sales).addValue("sourceSalesOrder", sourceSalesOrder).addValue("remark", optionalText(body, "remark")).addValue("uid", userId(request))
                 .addValue("clientRef", clientRequestId.isBlank() ? null : clientRequestId);
-        db.jdbc().update("insert into processing_order(store_id,order_no,member_id,customer_name,customer_phone,processing_item_id,item_name_snapshot,unit_labor_fee,commission_rate_snapshot,pricing_unit,billing_weight,quantity,labor_fee,old_gold_weight,old_gold_fineness,store_gold_weight,store_gold_fineness,store_gold_price,store_gold_amount,gold_base_instrument,gold_base_price,gold_purity_coefficient,gold_markup,gold_recycle_deduction,gold_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,residual_material_type,residual_gold_weight,residual_gold_fineness,residual_gold_handling,residual_gold_deduction,due_amount,paid_amount,pickup_date,craftsman_id,sales_id,status,remark,source_sales_order_id,created_by,client_request_id,create_time,update_time) values(:s,:no,:member,:name,:phone,:itemId,:itemName,:unitFee,:commissionRate,:pricingUnit,:billingWeight,:qty,:laborFee,:oldWeight,:oldFineness,:sgWeight,:sgFineness,:sgPrice,:sgAmount,:goldInstrument,:goldBase,:goldPurity,:goldMarkup,:goldDeduction,:goldSnapshot,:goldQuoteTime,:goldSource,:goldMarketStatus,:materialType,:residualWeight,:residualFineness,:handling,:deduction,:due,0,:pickup,:craftsman,:sales,'PENDING',:remark,:sourceSalesOrder,:uid,:clientRef,now(),now())", p);
+        db.jdbc().update("insert into processing_order(store_id,order_no,member_id,customer_name,customer_phone,processing_item_id,item_name_snapshot,unit_labor_fee,commission_rate_snapshot,pricing_unit,billing_weight,quantity,item_count,labor_fee,old_gold_weight,old_gold_fineness,store_gold_weight,store_gold_fineness,store_gold_price,store_gold_amount,gold_base_instrument,gold_base_price,gold_purity_coefficient,gold_markup,gold_recycle_deduction,gold_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,residual_material_type,residual_gold_weight,residual_gold_fineness,residual_gold_handling,residual_gold_deduction,due_amount,paid_amount,pickup_date,craftsman_id,sales_id,status,remark,source_sales_order_id,created_by,client_request_id,create_time,update_time) values(:s,:no,:member,:name,:phone,:itemId,:itemName,:unitFee,:commissionRate,:pricingUnit,:billingWeight,:qty,:itemCount,:laborFee,:oldWeight,:oldFineness,:sgWeight,:sgFineness,:sgPrice,:sgAmount,:goldInstrument,:goldBase,:goldPurity,:goldMarkup,:goldDeduction,:goldSnapshot,:goldQuoteTime,:goldSource,:goldMarketStatus,:materialType,:residualWeight,:residualFineness,:handling,:deduction,:due,0,:pickup,:craftsman,:sales,'PENDING',:remark,:sourceSalesOrder,:uid,:clientRef,now(),now())", p);
         long orderId = db.jdbc().queryForObject("select processing_order_id from processing_order where store_id=:s and order_no=:no", p, Long.class);
+        int sort = 0;
+        for (Map<String,Object> requested : requestedItems) {
+            long requestedId = requiredId(requested.get("processingItemId"), "加工项目");
+            Map<String,Object> requestedItem = activeItem(requestedId, storeId);
+            int requestedQuantity = integer(requested.get("quantity"), 1, "数量");
+            String requestedUnit = String.valueOf(requestedItem.getOrDefault("pricing_unit", "按件"));
+            BigDecimal requestedWeight = "按克".equals(requestedUnit) && requestedItems.size() == 1 ? billingWeight : null;
+            BigDecimal requestedFee = "按件".equals(requestedUnit) ? decimal(requestedItem.get("labor_fee")).multiply(BigDecimal.valueOf(requestedQuantity)).setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
+            db.jdbc().update("insert /* processing line */ into processing_order_item(store_id,processing_order_id,processing_item_id,item_name_snapshot,pricing_unit,unit_labor_fee,price_calc_mode,quantity,billing_weight,labor_fee,price_snapshot,sort) values(:s,:o,:i,:n,:u,:f,:m,:q,:w,:lf,:snap,:sort)",
+                    new MapSqlParameterSource().addValue("s", storeId).addValue("o", orderId).addValue("i", requestedId).addValue("n", requestedItem.get("name")).addValue("u", requestedUnit).addValue("f", decimal(requestedItem.get("labor_fee"))).addValue("m", requestedItem.get("price_calc_mode")).addValue("q", requestedQuantity).addValue("w", requestedWeight).addValue("lf", requestedFee).addValue("snap", tierSnapshot(storeId, requestedId)).addValue("sort", sort++));
+        }
         if (storeGoldWeight != null) deductGoldMaterial(storeId, orderId, orderNo, storeGoldWeight, userId(request));
         log(storeId, userId(request), "ORDER_CREATE", "加工单=" + orderNo + ",应收=" + due);
         Map<String, Object> result = orderDetail(orderId, storeId, request);
@@ -489,10 +562,33 @@ public class ProcessingController {
         // 完工计费：按克项目在成品称重时填计费总克重（成品实际克重这时才知道）
         java.math.BigDecimal billingWeight = optionalDecimal(body.get("billingWeight"), 3);
         if (billingWeight != null && billingWeight.signum() <= 0) throw new BusinessException(400724, "计费总克重必须大于0");
+        BigDecimal itemBillingTotal = BigDecimal.ZERO;
+        BigDecimal itemLaborTotal = BigDecimal.ZERO;
+        Object rawItemWeights = body.get("items");
+        List<Map<String,Object>> itemWeights = new ArrayList<>();
+        if (rawItemWeights instanceof List<?> list) {
+            for (Object raw : list) {
+                if (!(raw instanceof Map<?,?> m)) throw new BusinessException(400724, "子项称重格式不正确");
+                Map<String,Object> row = new LinkedHashMap<>(); row.put("orderItemId", m.get("orderItemId")); row.put("billingWeight", m.get("billingWeight")); itemWeights.add(row);
+                BigDecimal w = optionalDecimal(m.get("billingWeight"), 3); if (w == null || w.signum() <= 0) throw new BusinessException(400724, "子项计费克重必须大于0"); itemBillingTotal = itemBillingTotal.add(w);
+            }
+        }
+        if (!itemWeights.isEmpty() && itemBillingTotal.compareTo(finishedWeight) > 0) throw new BusinessException(400724, "子项计费总克重不能超过成品实重");
         Map<String, Object> order = lockedOrder(id, storeId);
         String status = String.valueOf(order.get("status"));
         if ("PENDING".equals(status)) throw new BusinessException(409715, "加工开始前不能登记称重，请先确认加工");
         if ("PICKED_UP".equals(status)) throw new BusinessException(409711, "已取货订单不能再登记称重");
+        if (!itemWeights.isEmpty()) {
+            for (Map<String,Object> row : itemWeights) {
+                long orderItemId = requiredId(row.get("orderItemId"), "加工子项");
+                BigDecimal w = optionalDecimal(row.get("billingWeight"), 3);
+                Map<String,Object> itemRow = db.one("select * from processing_order_item where store_id=:s and processing_order_id=:o and order_item_id=:i", Map.of("s",storeId,"o",id,"i",orderItemId));
+                BigDecimal fee = itemRow == null ? BigDecimal.ZERO : calculateSnapshotFee(itemRow, w);
+                itemLaborTotal = itemLaborTotal.add(fee);
+                db.jdbc().update("update processing_order_item set billing_weight=:w,labor_fee=:fee,update_time=now() where store_id=:s and processing_order_id=:o and order_item_id=:i", new MapSqlParameterSource().addValue("w",w).addValue("fee",fee).addValue("s",storeId).addValue("o",id).addValue("i",orderItemId));
+            }
+            billingWeight = itemBillingTotal;
+        }
         // 现场补录来料：必须先写库，再据此核算损耗（否则会拿旧的来料算账）
         if (incomingWeight != null || incomingFineness != null) {
             db.jdbc().update("update processing_order set old_gold_weight=coalesce(:w,old_gold_weight),old_gold_fineness=coalesce(:f,old_gold_fineness),version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
@@ -514,7 +610,7 @@ public class ProcessingController {
         // 按克项目的计费总克重只在成品称重这一步确定；按件单不接受该字段
         if (billingWeight != null && !"按克".equals(String.valueOf(order.getOrDefault("pricing_unit", "按件")))) billingWeight = null;
         java.math.BigDecimal unitLaborFee = decimal(order.get("unit_labor_fee"));
-        java.math.BigDecimal billingLaborFee = billingWeight == null ? decimal(order.get("labor_fee")) : unitLaborFee.multiply(billingWeight).setScale(2, RoundingMode.HALF_UP);
+        java.math.BigDecimal billingLaborFee = !itemWeights.isEmpty() ? itemLaborTotal.setScale(2, RoundingMode.HALF_UP) : (billingWeight == null ? decimal(order.get("labor_fee")) : unitLaborFee.multiply(billingWeight).setScale(2, RoundingMode.HALF_UP));
         java.math.BigDecimal billingGrossDue = billingLaborFee.add(decimal(order.get("store_gold_amount"))).subtract(decimal(order.get("residual_gold_deduction"))).setScale(2, RoundingMode.HALF_UP);
         java.math.BigDecimal billingPaid = decimal(order.get("paid_amount"));
         java.math.BigDecimal billingPromotion = decimal(order.get("promotion_discount"));
@@ -1360,6 +1456,20 @@ public class ProcessingController {
         if ("WITHDRAWN".equals(String.valueOf(order.get("status"))))
             throw new BusinessException(409704, "加工单已撤回，不能继续查看或操作");
         enrichSettlementFields(order);
+        List<Map<String,Object>> lineItems = db.list("select * from processing_order_item where store_id=:s and processing_order_id=:id order by sort,order_item_id", Map.of("s", storeId, "id", id));
+        if (lineItems.isEmpty()) {
+            Map<String,Object> legacy = new LinkedHashMap<>();
+            legacy.put("order_item_id", null); legacy.put("processing_order_id", id);
+            legacy.put("processing_item_id", order.get("processing_item_id")); legacy.put("item_name_snapshot", order.get("item_name_snapshot"));
+            legacy.put("pricing_unit", order.getOrDefault("pricing_unit", "按件")); legacy.put("unit_labor_fee", order.get("unit_labor_fee"));
+            legacy.put("billing_weight", order.get("billing_weight")); legacy.put("labor_fee", order.get("labor_fee")); legacy.put("quantity", order.getOrDefault("quantity", 1));
+            lineItems = List.of(legacy);
+        } else {
+            int count = lineItems.stream().mapToInt(row -> number(row.get("quantity"))).sum();
+            if (count <= 0) count = lineItems.size();
+            order.put("item_count", count);
+        }
+        order.put("items", lineItems);
         order.put("payments", db.list("select p.*,pc.channel_name pay_method_name,u.real_name operator_name from processing_payment p left join sys_user u on u.user_id=p.operator_id and u.store_id=p.store_id left join pay_channel pc on pc.store_id=p.store_id and pc.channel_code=p.pay_method where p.store_id=:s and p.processing_order_id=:id order by p.payment_id", Map.of("s", storeId, "id", id)));
         if (hasPermission(request, "processing:commissions")) {
             order.put("commissions", db.list("select c.*,u.real_name employee_name from processing_commission c left join sys_user u on u.user_id=c.employee_id and u.store_id=c.store_id where c.store_id=:s and c.processing_order_id=:id and c.status<>'CANCELLED' order by c.commission_id", Map.of("s", storeId, "id", id)));
@@ -1582,6 +1692,13 @@ public class ProcessingController {
         if (!"按件".equals(unit) && !"按克".equals(unit)) throw new BusinessException(400720, "计价方式只能是按件或按克");
         return unit;
     }
+    private String pricingMode(Object value, String unit) {
+        if (!"按克".equals(unit)) return null;
+        String mode = value == null ? null : String.valueOf(value).trim().toUpperCase(Locale.ROOT);
+        if (mode == null || mode.isBlank()) throw new BusinessException(400741, "按克项目必须明确选择计费算法");
+        if (!ProcessingPricing.WHOLE_TIER.equals(mode) && !ProcessingPricing.PROGRESSIVE.equals(mode)) throw new BusinessException(400741, "计费算法只能是全额按档或累进分段");
+        return mode;
+    }
     private String trimToEmpty(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     private BigDecimal paymentApprovalThreshold(long storeId) {
         try {
@@ -1769,4 +1886,18 @@ public class ProcessingController {
     private BigDecimal optionalDecimal(Object value, int scale) { if (value == null || String.valueOf(value).isBlank()) return null; try { return new BigDecimal(String.valueOf(value)).setScale(scale, RoundingMode.HALF_UP); } catch (NumberFormatException e) { throw new BusinessException(400720, "数值格式不正确"); } }
     private BigDecimal decimal(Object value) { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); }
     private BigDecimal decimalValue(Object value) { if (value == null || "null".equalsIgnoreCase(String.valueOf(value))) return null; try { return new BigDecimal(String.valueOf(value)); } catch (Exception ignored) { return null; } }
+    private String tierSnapshot(long storeId, long itemId) {
+        try { return JSON.writeValueAsString(db.list("select tier_id,min_weight,max_weight,mode,price,sort,enabled from processing_price_tier where store_id=:s and processing_item_id=:i order by sort,tier_id", Map.of("s", storeId, "i", itemId))); }
+        catch (Exception ignored) { return "[]"; }
+    }
+    private BigDecimal calculateSnapshotFee(Map<String,Object> item, BigDecimal weight) {
+        String unit = String.valueOf(item.getOrDefault("pricing_unit", "按件"));
+        if (!"按克".equals(unit)) return decimal(item.get("unit_labor_fee"));
+        try {
+            List<Map<String,Object>> rows = JSON.readValue(String.valueOf(item.getOrDefault("price_snapshot", "[]")), List.class);
+            List<ProcessingPricing.Tier> tiers = new ArrayList<>();
+            for (Map<String,Object> row : rows) tiers.add(new ProcessingPricing.Tier(decimalValue(row.get("min_weight")), decimalValue(row.get("max_weight")), String.valueOf(row.getOrDefault("mode", ProcessingPricing.PER_GRAM)), decimalValue(row.get("price")), number(row.get("sort")), true));
+            return ProcessingPricing.calculate(String.valueOf(item.get("price_calc_mode")), tiers, weight, decimal(item.get("unit_labor_fee"))).fee();
+        } catch (Exception ignored) { return decimal(item.get("unit_labor_fee")).multiply(weight).setScale(2, RoundingMode.HALF_UP); }
+    }
 }

@@ -51,6 +51,9 @@
               <div v-for="step in steps" :key="step.key" :class="['timeline-step', { done: step.done(detail.status), current: step.current(detail.status) }]"><i></i><span>{{ step.label }}</span></div>
             </div>
             <div class="detail-grid">
+              <template v-if="Array.isArray(detail.items) && detail.items.length">
+                <div v-for="line in detail.items" :key="line.order_item_id || line.processing_item_id" class="detail-line"><span>{{ line.item_name_snapshot }} × {{ line.quantity || 1 }}</span><b>{{ line.pricing_unit }} · 工费 {{ money(line.labor_fee) }}{{ line.billing_weight ? ` · ${Number(line.billing_weight).toFixed(3)}g` : '' }}</b></div>
+              </template>
               <div><span>加工单号</span><b>{{ detail.order_no }}</b></div>
               <div><span>客户</span><b>{{ detail.customer_name || detail.member_name || '散客' }}</b></div>
               <div><span>联系电话</span><b>{{ detail.customer_phone || '—' }}</b></div>
