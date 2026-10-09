@@ -25,7 +25,10 @@
 - **线上 edge 的 nginx 配置在服务器的 `/opt/dajin-system/nginx-live/conf.d/`**（挂载生效），镜像里的 `admin-web/nginx.conf`、`mobile/nginx.conf` **不生效**——改缓存/代理规则要改服务器上那份。
 - **足金线规则（全系统统一）**：成色 ≥0.995 按整克计（不折成色），低于才按含金量折算。三端都必须调用已有的 `Fineness` / `finenessFactor` / `oldGoldDeduction`，**禁止自己写 `weight * purity * price`**。
 - **支付渠道 code 各门店不同**：生产是 `XIANJIN / WEIXIN / ZHIFEBAO / SQBWX / SQBZFB / CHUZHI`，本地种子是 `CASH / WECHAT / ALIPAY / BANK / BALANCE`。**禁止写死 code**，用 `PaymentChannelPolicy.isBalanceChannel(...)` 这类语义判断（储值尤其：它决定扣不扣会员余额）。
-- **幂等**：所有写接口都要带 `clientRequestId`，服务端用唯一键 + `insert ignore` / `select ... for update` 预占；重传**不能**重复建单或重复扣款。
+- **幂等（本次只要求落实到加工相关写接口，不要全系统重构）**：
+  - **本次范围**：新增/改动的加工写接口 —— 加工单创建与编辑（多子项）、称重/完工结算与重算、收款/返款 —— 必须带 `clientRequestId`，服务端用唯一键 + `insert ignore` / `select ... for update` 预占；**重传不得重复建单、重复计费、重复扣减**；
+  - **配置类接口**（阶梯规则的新增/修改/删除/启停）**不需要**幂等键，用**唯一约束**防止重复提交产生重复档位即可（重复提交结果一致）；
+  - **不扩到**销售、库存、会员等既有模块（它们已有各自的 `clientRequestId`/唯一键机制，本次不重构、不回归它们）。
 - **撤回单与软删除**：统计/列表必须排除 `processing_order.status='WITHDRAWN'`、`member.deleted=1`、销售单 `status=6`（撤回）。
 - **数据库迁移**：新增字段/表必须**同时**改 `backend/src/main/java/com/dajin/system/config/SchemaCompatibilityMigration.java` 与 `db/schema.sql`（生产靠迁移自动加列；只改 schema.sql 不会生效）。
 - **测试**：`mvn -B -pl backend test`、`pnpm --dir admin-web test`、`pnpm --dir mobile test`、`pnpm --dir front-pc test` 必须全绿；关键规则加单测或守卫测试；完成后在**本地跑真实接口端到端**（造单 → 操作 → 查库核对 → 清理干净）。
@@ -182,6 +185,10 @@
       - 全额按档：`12.345g 落在 25 元/克档 → 整笔 308.63 元`
       - 累进分段：`前 10g×30 + 超出 2.345g×25 = 358.63 元`
     - 两种算法**保存后可随时切换**；已完工/已收款的单有**工费快照**，切换**不影响历史单据金额**，只影响之后新算的工费。
+15. **幂等范围：仅本次加工的写接口**（对应 Codex 追问选 **「1 仅加工相关（推荐）」**）：
+    - 必带 `clientRequestId` 的：加工单创建与编辑（多子项）、称重/完工结算重算、收款/返款 —— 同一 key 重传只生效一次（不重复建单、不重复计费）；
+    - **配置类**（阶梯规则增删改启停）**不加幂等键**，用**唯一约束**（同项目同区间不允许两条）防重复；
+    - **不扩到**销售/库存/会员等既有模块，本次不重构、不做全系统回归。
 
 ---
 
