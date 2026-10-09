@@ -1,0 +1,121 @@
+# 加工业务需求 —— 交给 Codex 的实现提示词
+
+> 用法：整段复制给 Codex。文中的「必须先问老板确认」几条，请 Codex 先提问、不要擅自决定。
+
+## 0. 一句话背景
+
+金店经营系统（Spring Boot + Vue3 三端）。本次要在**加工业务**上做两件事：
+
+- **A. 一张加工单支持多个加工件 / 多个项目**：客户带 40g 金来，一次加工好几件首饰，要**一单直接开出来**。
+- **B. 按克项目支持阶梯计价**：如「10 克以下每克 X 元（或 N 克以下直接一口价 X 元），10 克以上每克 Y 元」。
+
+另外第 4 节两条**已经实现并上线**，只需回归核对，**不要重复实现**。
+
+---
+
+## 1. 仓库与硬性约束（违反会直接造成线上事故）
+
+- 仓库：`D:\xiangmu-wenjian\dajin-system`
+- 技术栈：后端 Spring Boot 2.7.18 / Java 17 / MySQL 8 / Redis / MinIO；三端 Vue3 + Vite：
+  - `admin-web` 管理端（老板/店长，Element Plus）
+  - `mobile` 手机端（店员，Capacitor 打包安卓 APK，窄屏 360~420px）
+  - `front-pc` 收银端（Electron 触屏一体机 + 小票打印）
+- 生产服务器：`admin@8.218.141.16:/opt/dajin-system`，部署命令：
+  `docker compose -f docker-compose.release.yml -f docker-compose.override.yml build <svc> && ... up -d <svc>`
+- **线上 edge 的 nginx 配置在服务器的 `/opt/dajin-system/nginx-live/conf.d/`**（挂载生效），镜像里的 `admin-web/nginx.conf`、`mobile/nginx.conf` **不生效**——改缓存/代理规则要改服务器上那份。
+- **足金线规则（全系统统一）**：成色 ≥0.995 按整克计（不折成色），低于才按含金量折算。三端都必须调用已有的 `Fineness` / `finenessFactor` / `oldGoldDeduction`，**禁止自己写 `weight * purity * price`**。
+- **支付渠道 code 各门店不同**：生产是 `XIANJIN / WEIXIN / ZHIFEBAO / SQBWX / SQBZFB / CHUZHI`，本地种子是 `CASH / WECHAT / ALIPAY / BANK / BALANCE`。**禁止写死 code**，用 `PaymentChannelPolicy.isBalanceChannel(...)` 这类语义判断（储值尤其：它决定扣不扣会员余额）。
+- **幂等**：所有写接口都要带 `clientRequestId`，服务端用唯一键 + `insert ignore` / `select ... for update` 预占；重传**不能**重复建单或重复扣款。
+- **撤回单与软删除**：统计/列表必须排除 `processing_order.status='WITHDRAWN'`、`member.deleted=1`、销售单 `status=6`（撤回）。
+- **数据库迁移**：新增字段/表必须**同时**改 `backend/src/main/java/com/dajin/system/config/SchemaCompatibilityMigration.java` 与 `db/schema.sql`（生产靠迁移自动加列；只改 schema.sql 不会生效）。
+- **测试**：`mvn -B -pl backend test`、`pnpm --dir admin-web test`、`pnpm --dir mobile test`、`pnpm --dir front-pc test` 必须全绿；关键规则加单测或守卫测试；完成后在**本地跑真实接口端到端**（造单 → 操作 → 查库核对 → 清理干净）。
+- **交付标准**：后端为准 + 三端 UI 一致 + 打印模板 + 迁移 + 测试 + 本地实测证据 + 部署验证。
+
+---
+
+## 2. 需求 A：一张加工单支持多件 / 多项目
+
+### 现状
+
+`processing_order` 是「1 单 1 项目」：`processing_item_id / item_name_snapshot / quantity / pricing_unit(按件|按克) / unit_labor_fee / labor_fee / billing_weight`，加上来料 `old_gold_weight/old_gold_fineness`、补金 `store_gold_*`、称重 `finished_weight/finished_fineness/recovered_weight/melt_weight`、应收/优惠/收款/取货/提成。
+
+### 目标
+
+客户带来 **40g 来料**，要加工**好几件不同首饰**（不同项目、不同数量、可能不同计价方式）：**一张单开出来、一起称重、一起结算、一起打印**。
+
+### 必须覆盖
+
+1. **数据模型**：新增子项表 `processing_order_item`
+   `order_item_id, store_id, processing_order_id, processing_item_id, item_name_snapshot, quantity, pricing_unit, unit_labor_fee(单价快照), billing_weight(计费克重), labor_fee(工费), remark, sort`
+   `processing_order` 保留汇总：`labor_fee` = 子项工费合计，并新增 `item_count`（件数合计，列表/打印用）。
+2. **老数据兼容**：已存在的单视为「1 个子项」；读取时若无子项则回退读主表字段；所有旧接口/报表不能因改表而失效。
+3. **来料与补金**（**必须先问老板**）：整单共用一份 40g 来料与补金，还是每件单独登记？成品是否**每件单独称重**？确认后再定：整单共用就沿用现有字段，每件单独就下放到子项。
+4. **计价**：每个子项按自己的 `pricing_unit` 算工费（按件 = 单价 × 数量；按克 = 单价 × 计费总克重，见需求 B）；应收 = 工费合计 + 补金金额 − 回收屑抵扣 − 优惠（下限 0）。
+5. **收银端**（`front-pc/src/App.vue` 加工开单 / 称重 / 结算 / 收款 / 取货）：
+   开单支持「+ 添加项目」多行（项目、数量、按件/按克、单价、备注）；称重与完工按确认的方案；收款、打印、取货流程保持现在的体验。
+6. **手机端**（`mobile/src/views/ProcessingOrders.vue`）与**管理端**（`admin-web/src/views/Processing.vue`）：开单、详情、称重都能看到并编辑多个子项；列表显示「N 件」。
+7. **打印**：工单 `GET /api/processing/orders/{id}/print` 与质保单 `/warranty` 都要**逐项打印**（项目 / 数量 / 计价方式 / 单价 / 工费）并给合计。
+8. **报表与提成**：加工单数按「单」统计、件数按「件」统计；提成基数仍按整单工费（复用 `ProcessingAmounts.laborBase`，不要改口径）。
+9. **幂等与撤回**：整单一个 `client_request_id`；撤回时子项、库存、流水、提成一起冲销，不留半截数据。
+10. **边界**：子项为空 / 数量 ≤ 0 / 单价为 0 / 合计为 0 的校验；老单再编辑；并发提交。
+
+---
+
+## 3. 需求 B：按克项目阶梯计价
+
+### 现状
+
+按克项目：工费 = `unit_labor_fee(元/克)` × `billing_weight(计费总克重)`；计费总克重在**完工称重**时填写（默认带出成品实重）。
+
+### 目标（老板原话）
+
+「10 克以下每克多少元（或者 N 克以下直接 X 元），10 克以上多少元一克」。例如：
+
+- ≤10g → **30 元/克**；>10g → **25 元/克**
+- 或 **≤5g 直接一口价 150 元**
+
+### 必须覆盖
+
+1. **配置入口**：管理端「加工项目」里为每个按克项目配置阶梯规则。推荐新表
+   `processing_price_tier(tier_id, store_id, item_id, min_weight, max_weight(NULL=不限), mode(PER_GRAM 每克价 | FLAT 一口价), price, sort, status)`
+   要能增删改、排序、启停；与项目一起导出/迁移。也可用等价 JSON，但要能校验。
+2. **计算唯一入口**：后端提供唯一工费函数（如 `ProcessingPricing.laborFee(item, billingWeight)`），三端共用同一规则与提示文案；命中档 = `PER_GRAM` 时 工费 = 档位单价 × 计费克重，`FLAT` 时 工费 = 一口价；**无匹配档位时回退** 项目单价 `unit_labor_fee`。
+3. **必须先问老板确认（不要擅自决定）**：
+   - 「**全额按档**」（整单克重落在哪档，整单就用那档单价——门店常见）还是「**累进分段**」（前 10g 按 30 元/g，超出部分按 25 元/g）？
+   - 档位边界归属（恰好 10.000g 算哪一档）；克重精度（3 位小数）与金额四舍五入（2 位、HALF_UP）。
+   - 一口价档与每克档**同时命中**时的优先级。
+4. **影响面（都要同步）**：开单时的工费参考/预估 → 完工称重的工费重算 → 应收重算 → 优惠（低于折扣阈值要进审批）→ 打印（单据上显示命中档位，如「按克 25.00 元/克 × 12.345g = 308.63」）→ 报表（工费口径不变）→ 撤回/退款冲销 → 提成基数（沿用整单工费）。
+5. **一致性**：计费总克重变化后，工费与应收必须同步重算（复用现有 `weighing` 重算逻辑），**不允许小票金额与库中金额不一致**。
+6. **测试**：档位命中 / 边界 / 无匹配回退 / 一口价 / 精度 / 撤回后不重复计提成；本地端到端造单验证。
+
+---
+
+## 4. 已完成、只需回归核对（不要重复实现）
+
+1. **收银端「确认取货」的照片已改为选填**：可拍可不拍，没有照片也能直接确认取货 / 完成收款；后端不再返回「请先上传取货照片」。
+2. **「完成加工」新增结算备注**（≤200 字）：保存到 `processing_order.settlement_remark`；工单 `/print` 与质保单 `/warranty` 都会打印「结算备注」；管理端加工单详情显示该备注。
+
+> 改动 A / B 时如果碰到这两处，**保持行为不变**并补回归测试。
+
+---
+
+## 5. 交付与验收清单
+
+- [ ] 迁移脚本 + `schema.sql` 同步；**老数据**（单项目单）能正常打开、编辑、打印
+- [ ] 三端 UI 一致（管理端 / 手机端 / 收银端），含空态与错误提示
+- [ ] 两种打印模板都正确：多子项逐项 + 合计；按克显示命中档位与单价
+- [ ] 幂等 / 撤回 / 退款 / 优惠 / 提成口径未被破坏
+- [ ] 四套测试全绿：backend / admin-web / mobile / front-pc
+- [ ] 本地端到端证据：造单 → 操作 → 验库（应收、工费、子项、收款、打印）→ 清理零残留
+- [ ] 部署到生产并验证（后端 + 相关前端；注意第 1 节的镜像与 edge 配置说明）
+- [ ] 附带一份「改动说明 + 回滚方式」（备份镜像标签、DB 备份）
+
+---
+
+## 6. 需要老板先拍板的问题（Codex 请先问，不要猜）
+
+1. 一单多件时：**来料 40g 与补金是整单共用**，还是每件单独登记？成品**每件单独称重**，还是整单称一次？
+2. 一单多件时：不同子项能否**混搭**按件 / 按克？折扣阈值审批按整单还是按子项？
+3. 阶梯计价：**全额按档**还是**累进分段**？边界（10.000g）算哪档？一口价与每克价同时命中谁优先？
+4. 阶梯规则要不要**按门店**配置（连锁时不同店不同价）？
+5. 这几项改动是否要**同步打印模板价格说明**（例如小票上印「10g 以上 25 元/克」）？
