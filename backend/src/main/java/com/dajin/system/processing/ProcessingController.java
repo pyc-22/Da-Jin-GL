@@ -475,7 +475,7 @@ public class ProcessingController {
      * 只置 mobile_archived 标记：不删数据、不影响管理端列表与账务/库存/提成记录。
      */
     @PostMapping("/orders/{id}/archive")
-    @RequireRoles({"ADMIN", "MANAGER"})
+    @RequireRoles({"ADMIN", "MANAGER", "SALES"})
     @Transactional
     public ApiResponse<?> archiveOnMobile(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest request) {
         long storeId = store(request);
@@ -484,6 +484,9 @@ public class ProcessingController {
         Map<String, Object> order = lockedOrder(id, storeId);
         if (!"PICKED_UP".equals(String.valueOf(order.get("status")))) {
             throw new BusinessException(409716, "只有已取货的加工单可以从手机端删除");
+        }
+        if (isSales(request) && !matchesUser(order.get("created_by"), userId(request))) {
+            throw new BusinessException(403403, "销售只能归档自己创建的加工订单");
         }
         db.jdbc().update("update processing_order set mobile_archived=1,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='PICKED_UP'",
                 Map.of("id", id, "s", storeId));

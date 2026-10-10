@@ -30,6 +30,7 @@
           <div class="rank-row"><span>金种</span><b>{{ goods.gold_type || '—' }}</b></div>
           <div class="rank-row"><span>状态</span><b :class="goods.status === 1 ? 'ok' : 'error'">{{ goods.status === 1 ? '在售' : '下架' }}</b></div>
         </div>
+        <button class="primary full direct-order-btn" :disabled="!canOrder" @click="directOrder">直接开单</button>
         <button class="primary full poster-btn" @click="makePoster">生成营销海报</button>
       </template>
       <EmptyState v-if="error" :title="error" />
@@ -77,6 +78,12 @@ const photoError = ref('')
 const posterUrl = ref('')
 const fileInput = ref(null)
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const canOrder = computed(() => auth.can?.('order:create') !== false && Number(goods.value?.status ?? 1) === 1)
+function directOrder() {
+  if (!canOrder.value) return
+  if (Number(goods.value.price_type) === 1 && !(Number(goods.value.weight) > 0)) return alert('按克商品请先输入有效克重后再开单')
+  router.push({ path: `/${String(auth.role || 'sales').toLowerCase()}/order`, query: { goods: JSON.stringify({ ...goods.value, availableStock: goods.value.available_stock ?? goods.value.stock }) } })
+}
 
 function priceOf(g) {
   if (Number(g.price_type) === 1) {

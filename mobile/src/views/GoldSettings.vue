@@ -77,7 +77,7 @@ async function load() {
   loading.value = true
   try {
     const [rows, history] = await Promise.all([api.goldTypesAll(), api.goldLogs({ limit: 100 })])
-    types.value = (rows || []).map(row => ({ ...row })); logs.value = history || []
+    types.value = (rows || []).filter(row => Number(row.status ?? row.enabled ?? 1) === 1 && row.enabled !== false).map(row => ({ ...row })); logs.value = history || []
     quotes.value = Object.fromEntries(types.value.map(row => [row.baseInstrument, Object.fromEntries(['basePrice', 'marketStatus', 'marketMessage', 'source', 'quoteTime'].map(key => [key, row[key]]))]))
     errors.value = {}; remoteChanged.value = false; baseline.value = configuration()
   } catch (e) { notify(e?.message || '金价配置加载失败') }
@@ -86,6 +86,7 @@ async function load() {
 async function save(row, resumeAuto = false) {
   if (!isAdmin.value || !auth.can('gold:manage')) return notify('仅管理员可修改金价配置')
   const id = row.type_id || row.type_code
+  if (Number(row.status ?? row.enabled ?? 1) !== 1 || row.enabled === false) return notify('该金类已停用，请刷新后再保存')
   const draft = resumeAuto ? { ...row, pricingMode: 'AUTO' } : row
   const warning = remoteChanged.value ? '配置已在其他终端更新，请先刷新后再保存' : issue(draft)
   errors.value[id] = warning

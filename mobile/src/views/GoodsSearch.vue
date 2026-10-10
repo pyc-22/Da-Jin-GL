@@ -8,9 +8,9 @@
       <p v-if="error" class="error" style="text-align:center;padding:20px">{{ error }} <button class="outline" style="min-height:var(--tap);margin-left:8px" @click="doSearch">重试</button></p>
       <template v-if="!searched && recent.length">
         <p class="muted small" style="margin:8px 0">最近搜索</p>
-        <div class="filter-tabs"><Chip v-for="t in recent" :key="t" @click="useRecent(t)">{{ t }}</Chip></div>
+        <div class="goods-grid recent-grid"><button v-for="t in recent" :key="t" class="list-card recent-card" @click="useRecent(t)"><span class="search-thumb">⌕</span><span class="goods-search-info"><b>{{ t }}</b><small>再次搜索</small></span></button></div>
       </template>
-      <div v-for="g in goods" :key="g.goods_id" class="list-card goods-search-card" @click="openGoods(g)"><div class="search-thumb"><img v-if="imageFor(g) && !failedImages.has(imageFor(g))" :src="imageFor(g)" :alt="`${g.name}照片`" @error="markImageFailed(imageFor(g))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ g.name }}</b><p>{{ g.category }} · {{ g.barcode }}</p><small>库存 {{ inventoryText(g) }} · {{ g.weight }}g</small></div><strong>¥{{ money(g.sale_price) }}</strong></div>
+      <div class="goods-grid"><div v-for="g in goods" :key="g.goods_id" class="list-card goods-search-card" @click="openGoods(g)"><div class="search-thumb"><img v-if="imageFor(g) && !failedImages.has(imageFor(g))" :src="imageFor(g)" :alt="`${g.name}照片`" @error="markImageFailed(imageFor(g))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ g.name }}</b><p>{{ g.category }} · {{ g.barcode }}</p><small>库存 {{ inventoryText(g) }} · {{ g.weight }}g</small></div><strong>¥{{ money(g.sale_price) }}</strong></div></div>
       <EmptyState v-if="!loading && !scanned && !goods.length && searched" title="">未找到匹配商品<button class="outline" @click="clearSearch">清空重新搜索</button></EmptyState>
       <button v-if="hasMore" class="outline full" style="margin-top:12px" @click="loadMore">加载更多</button>
     </div>
@@ -131,3 +131,6 @@ async function scanBarcode(barcode) {
   } finally { loading.value = false }
 }
 </script>
+<style scoped>
+.goods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:10px}.goods-search-card{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:center;min-width:0}.goods-search-card>strong{grid-column:2;color:var(--gold-deep)}.recent-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}.recent-card{display:flex;align-items:center;gap:10px;text-align:left}.recent-card .search-thumb{display:grid;place-items:center;font-size:24px}.recent-card .goods-search-info{display:grid;gap:4px}@media(max-width:520px){.goods-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.goods-search-card{display:block}.goods-search-card .goods-search-info{margin-top:6px}.goods-search-card>strong{display:block;margin-top:6px}.search-thumb{width:100%;aspect-ratio:1}}
+</style>
