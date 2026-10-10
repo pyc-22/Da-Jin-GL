@@ -111,10 +111,14 @@
 - 会员列表/详情对销售已有 `sales_id=:uid` 限制 ✓（`MemberController` 的 scope 与 `assertVisible`）。
 
 ### 期望（最小修改）
-1. `GET /api/order/list`：补权限注解，并对 SALES 追加 `and (o.sales_id=:uid or o.cashier_id=:uid)`；MANAGER / ADMIN / 收银端行为不变；
-2. `GET /api/order/{id}`：加与加工单 `salesCanView` 同款的归属校验（SALES 只能看自己导购或经手的单）；
-3. 所有"凭单据号取数据"的接口（打印 / 质保单 / 小票 / 补打）统一复用同一归属校验；
-4. **不要放宽其他角色**；补测试：SALES 看不到别人的 / 能看到自己的；ADMIN、MANAGER、CASHIER 功能不变。
+1. **归属口径统一为「自己开的 或 分配给自己名下的」**（加工单：`created_by=:uid or sales_id=:uid`；销售单：`sales_id=:uid or cashier_id=:uid`）——
+   **不要收紧成只看 `created_by`（开单人）** ✗：真实场景是**前台/店长帮忙开单、导购挂在某销售名下**，收紧后该销售会看不到**自己名下有提成**的单，容易被误认为"提成漏算"。
+   现状核对：加工单**列表**（L432）与**详情/打印**（`salesCanView`，L503）**已经是这个双口径、且一致** ✓ → 修的是**缺过滤/缺校验的接口**，不是收紧口径。
+2. `GET /api/order/list`：补权限注解，并对 SALES 追加上述归属过滤；MANAGER / ADMIN / 收银端行为不变；
+3. `GET /api/order/{id}`：加与加工单 `salesCanView` 同款的归属校验（SALES 只能看自己开或挂在自己名下的单）；
+4. 所有"凭单据号取数据"的接口（打印 / 质保单 / 小票 / 补打）统一复用同一归属校验；
+5. **归档（从手机列表隐藏）仍只允许 ADMIN / MANAGER**（老板已确认，见下方"已确认口径"第 3 条）——不要下放给销售，也不要改成"只能删自己开的单"；
+6. **不要放宽其他角色**；补测试：SALES 看不到别人的 / 能看到自己开或挂在名下的；ADMIN、MANAGER、CASHIER 功能不变。
 
 ### 验收
 - 用本地 `sales` 账号：列表 0 条非自己的；读别人的详情被拒（403/404）；打印别人的单被拒；
