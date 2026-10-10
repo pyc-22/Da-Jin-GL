@@ -34,6 +34,26 @@ describe('Notifications navigation', () => {
     expect(wrapper.find('.notice-swipe').exists()).toBe(false)
   })
 
+  it('resets the previously swiped row when another row is moved', async () => {
+    mocks.notifications.mockResolvedValue([
+      { notification_id: 1, action: 'READ', content: '第一条', create_time: '2026-09-17 03:23:12' },
+      { notification_id: 2, action: 'READ', content: '第二条', create_time: '2026-09-17 03:24:12' }
+    ])
+    const wrapper = mount(Notifications)
+    await flushPromises()
+    const rows = wrapper.findAll('.notice-swipe')
+    await rows[0].trigger('touchstart', { changedTouches: [{ clientX: 220, clientY: 20 }] })
+    await rows[0].trigger('touchmove', { changedTouches: [{ clientX: 110, clientY: 22 }] })
+    await rows[0].trigger('touchend')
+    expect(rows[0].get('.list-card').attributes('style')).toContain('translateX(-82px)')
+
+    await rows[1].trigger('touchstart', { changedTouches: [{ clientX: 220, clientY: 20 }] })
+    expect(rows[0].get('.list-card').attributes('style')).toContain('translateX(0px)')
+    await rows[1].trigger('touchmove', { changedTouches: [{ clientX: 110, clientY: 22 }] })
+    await rows[1].trigger('touchend')
+    expect(rows[1].get('.list-card').attributes('style')).toContain('translateX(-82px)')
+  })
+
   it('clears every message from the header action', async () => {
     const wrapper = mount(Notifications)
     await flushPromises()

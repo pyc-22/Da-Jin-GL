@@ -30,6 +30,7 @@
           <div class="rank-row"><span>金种</span><b>{{ goods.gold_type || '—' }}</b></div>
           <div class="rank-row"><span>状态</span><b :class="goods.status === 1 ? 'ok' : 'error'">{{ goods.status === 1 ? '在售' : '下架' }}</b></div>
         </div>
+        <label v-if="Number(goods.price_type) === 1" class="order-weight">开单计费克重（g）<input v-model.number="orderWeight" type="number" min="0.001" step="0.001" :max="Number(goods.available_stock ?? goods.stock ?? 0)" placeholder="请输入到店称重克重"/><small>可售库存 {{ Number(goods.available_stock ?? goods.stock ?? 0).toFixed(3) }}g</small></label>
         <button class="primary full direct-order-btn" :disabled="!canOrder" @click="directOrder">直接开单</button>
         <button class="primary full poster-btn" @click="makePoster">生成营销海报</button>
       </template>
@@ -54,7 +55,7 @@ import EmptyState from '../components/EmptyState.vue'
 import DesignHeader from '../components/DesignHeader.vue'
 
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, http } from '../api/request.js'
 import { normalizeGoodsImageUrl } from '../utils/goodsImages.js'
@@ -62,15 +63,16 @@ import { useAppStore } from '../stores/app.js'
 import { useAuthStore } from '../stores/auth.js'
 import { uploadImage } from '../api/upload.js'
 import { inventoryText } from '../utils/inventoryUnit.js'
+import { useToast } from '../composables/useToast.js'
 const route = useRoute()
 const router = useRouter()
 const app = useAppStore()
 const auth = useAuthStore()
+const { toast } = useToast()
 const imageUrl = value => normalizeGoodsImageUrl(value, http.defaults.baseURL)
-let initialGoods = null
-try { initialGoods = route.query.goods ? JSON.parse(route.query.goods) : null } catch {}
-const goods = ref(initialGoods)
-const loading = ref(!goods.value)
+const goods = ref(null)
+const orderWeight = ref(null)
+const loading = ref(true)
 const error = ref('')
 const photos = ref([])
 const uploading = ref(false)
@@ -78,11 +80,13 @@ const photoError = ref('')
 const posterUrl = ref('')
 const fileInput = ref(null)
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const canOrder = computed(() => auth.can?.('order:create') !== false && Number(goods.value?.status ?? 1) === 1)
+const canOrder = computed(() => auth.can?.('order:create') !== false && Number(goods.value?.status ?? 1) === 1 && Number(goods.value?.available_stock ?? goods.value?.stock ?? 0) > 0)
 function directOrder() {
   if (!canOrder.value) return
-  if (Number(goods.value.price_type) === 1 && !(Number(goods.value.weight) > 0)) return alert('按克商品请先输入有效克重后再开单')
-  router.push({ path: `/${String(auth.role || 'sales').toLowerCase()}/order`, query: { goods: JSON.stringify({ ...goods.value, availableStock: goods.value.available_stock ?? goods.value.stock }) } })
+  const gramWeight = Number(orderWeight.value)
+  if (Number(goods.value.price_type) === 1 && !(gramWeight > 0)) return toast('按克商品请先输入有效克重后再开单')
+  if (Number(goods.value.price_type) === 1 && gramWeight > Number(goods.value.available_stock ?? goods.value.stock ?? 0)) return toast('输入克重超过当前可售库存')
+  router.push({ path: `/${String(auth.role || 'sales').toLowerCase()}/order`, query: { goodsId: String(goods.value.goods_id), ...(Number(goods.value.price_type) === 1 ? { gramWeight: gramWeight.toFixed(3) } : {}) } })
 }
 
 function priceOf(g) {
@@ -224,14 +228,14 @@ onMounted(async () => {
   app.loadGold()
   if (goods.value) { photos.value = parseImages(goods.value.images); loading.value = false; return }
   try {
-    const d = await api.goods({ keyword: String(route.params.id), page: 1, size: 1 })
-    const rows = d.records || d || []
-    if (rows.length) { goods.value = rows[0]; photos.value = parseImages(rows[0].images) } else { error.value = '商品不存在' }
+    const row = await api.goodsById(route.params.id)
+    if (row) { goods.value = row; orderWeight.value = Number(row.weight) > 0 ? Number(row.weight) : null; photos.value = parseImages(row.images) } else { error.value = '商品不存在' }
   } catch (e) { error.value = e.message || '加载失败' }
   finally { loading.value = false }
 })
 </script>
 <style scoped>
+.order-weight{display:grid;gap:5px;margin:14px 0;color:var(--ink-2);font-size:13px}.order-weight input{min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r-md);padding:0 12px;background:var(--card);color:var(--ink)}.order-weight small{color:var(--ink-3)}
 .photo-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:14px}
 .photo-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .photo-head span{font-weight:600}

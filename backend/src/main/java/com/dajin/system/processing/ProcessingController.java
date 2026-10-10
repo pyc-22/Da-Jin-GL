@@ -483,7 +483,7 @@ public class ProcessingController {
         if (requestId != null && !requestId.isBlank() && !claimProcessingWrite(storeId, id, "ARCHIVE", requestId, request)) return ApiResponse.ok(Map.of("processingOrderId", id, "mobileArchived", true, "idempotentReplay", true));
         Map<String, Object> order = lockedOrder(id, storeId);
         if (!"PICKED_UP".equals(String.valueOf(order.get("status")))) {
-            throw new BusinessException(409716, "只有已取货的加工单可以从手机端删除");
+            throw new BusinessException(409716, "只有已取货的加工单可以从手机端归档");
         }
         if (isSales(request) && !matchesUser(order.get("created_by"), userId(request))) {
             throw new BusinessException(403403, "销售只能归档自己创建的加工订单");

@@ -131,24 +131,18 @@ function pad(value) {
   return String(value).padStart(2, '0')
 }
 
-/** Render backend UTC timestamps consistently for every management screen. */
+/** Render backend timestamps without applying a second timezone conversion. */
 export function formatTime(value) {
   if (value === null || value === undefined || value === '') return '-'
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
-
-  let source = value
-  if (typeof value === 'string' && !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) {
-    source = `${value.replace(' ', 'T')}Z`
+  if (typeof value === 'string') {
+    const text = value.trim().replace('T', ' ')
+    return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(text) ? text.slice(0, 16) : text
   }
-
-  const date = value instanceof Date ? value : new Date(source)
-  if (Number.isNaN(date.getTime())) return '-'
-
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {})
-  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}`
+  }
+  return '-'
 }
 
 export function formatMoney(value) {

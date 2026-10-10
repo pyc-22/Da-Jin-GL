@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   processingCreate: vi.fn(),
   processingPay: vi.fn(),
   processingHandover: vi.fn(),
+  archiveProcessingOrder: vi.fn(),
   httpGet: vi.fn(), toast: vi.fn(), query: {}
 }))
 
@@ -27,7 +28,8 @@ vi.mock('../api/request.js', () => ({
     ,processingPhotos: mocks.processingPhotos,
     processingCreate: mocks.processingCreate,
     processingPay: mocks.processingPay,
-    processingHandover: mocks.processingHandover
+    processingHandover: mocks.processingHandover,
+    archiveProcessingOrder: mocks.archiveProcessingOrder
   },
   http: { get: mocks.httpGet, defaults: { baseURL: 'http://localhost:8080' } }
 }))
@@ -53,6 +55,7 @@ describe('ProcessingOrders mobile actions', () => {
     mocks.processingCreate.mockReset().mockResolvedValue(order)
     mocks.processingPay.mockReset().mockResolvedValue(order)
     mocks.processingHandover.mockReset().mockResolvedValue({ ...order, handover: 1 })
+    mocks.archiveProcessingOrder.mockReset().mockResolvedValue({ processing_order_id: 12, mobileArchived: true })
     mocks.httpGet.mockReset()
     vi.spyOn(window, 'alert').mockImplementation(() => {})
   })
@@ -223,5 +226,20 @@ describe('ProcessingOrders mobile actions', () => {
 
     expect(wrapper.text()).toContain('取货照片')
     expect(wrapper.find('.pickup-photo-input').exists()).toBe(true)
+  })
+
+  it('offers archive only for picked-up orders and removes it after confirmation', async () => {
+    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'PICKED_UP', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100 }
+    mocks.processingOrders.mockResolvedValue([order])
+    mocks.processingOrder.mockResolvedValue({ ...order, incoming_photos: [], weigh_photos: [], pickup_photos: [], payments: [] })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    expect(wrapper.find('.processing-archive').exists()).toBe(true)
+    await wrapper.get('.processing-archive').trigger('click')
+    await flushPromises()
+    expect(mocks.archiveProcessingOrder).toHaveBeenCalledWith(12)
+    expect(wrapper.find('.processing-card').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

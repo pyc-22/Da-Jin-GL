@@ -1,7 +1,7 @@
 <template>
 <section  class="page">
 <PageTitle title="7日营业额趋势">
-<button class="outline" @click="section='dashboard'">返回看板</button>
+<button class="outline" @click="navigateSection('dashboard')">返回看板</button>
 </PageTitle>
 <Panel title="每日营业额">
 <TrendBars :values="managerTrendValues" :labels="managerTrendLabels"/>
@@ -25,5 +25,5 @@ import { roleHomeKey } from './context.js'
 import Panel from '../../components/Panel.vue'
 import PageTitle from '../../components/PageTitle.vue'
 import TrendBars from '../../components/TrendBars.vue'
-const { api, section, dashboard, money, managerTrendRows, managerTrendValues, managerTrendLabels, formatDay } = inject(roleHomeKey)
+const { api, navigateSection, money, managerTrendRows, managerTrendValues, managerTrendLabels, formatDay } = inject(roleHomeKey)
 </script>

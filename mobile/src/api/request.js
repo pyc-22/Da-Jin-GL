@@ -65,6 +65,7 @@ export const api = {
   stock: () => http.get('/api/admin/stock/overview'),
   warnings: () => http.get('/api/admin/stock/warnings'),
   goods: (params = {}) => http.get('/api/goods/list', { params }),
+  goodsById: (id) => http.get(`/api/goods/${id}`),
   updateGoodsImages: (id, images) => http.patch(`/api/goods/${id}/images`, { images }),
   createOrder: (payload) => http.post('/api/order/create', payload),
   payMethods: () => http.get('/api/pay/methods'),
@@ -112,7 +113,7 @@ export const api = {
   ,stockCheckHistory: () => http.get('/api/stock/check/history')
   ,stockCheckDetail: (id) => http.get(`/api/stock/check/${id}`)
   ,processingOrders: (params = {}) => http.get('/api/processing/orders', { params })
-  ,archiveProcessingOrder: (id) => http.post(`/api/processing/orders/${id}/archive`)
+  ,archiveProcessingOrder: (id) => http.post(`/api/processing/orders/${id}/archive`, { clientRequestId: `processing-archive-${id}` })
   ,processingOrder: (id) => http.get(`/api/processing/orders/${id}`)
   ,processingStatistics: (params = {}) => http.get('/api/processing/statistics', { params })
   ,processingStatus: (id, status, payload = {}) => http.patch(`/api/processing/orders/${id}/status`, { status, ...payload, clientRequestId: payload.clientRequestId || `${Date.now()}-${Math.random()}` })

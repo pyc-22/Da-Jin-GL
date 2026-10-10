@@ -15,11 +15,11 @@ export async function markProcessingPickedUp(order, request, pickupPhotos) {
   if (photos.length) {
     await request(`/api/processing/orders/${order.processing_order_id}/photos`, {
       method: 'POST',
-      body: JSON.stringify({ type: 'pickup', urls: photos, clientRequestId: `pickup-photo-${order.processing_order_id}-${Date.now()}` })
+      body: JSON.stringify({ type: 'pickup', urls: photos, clientRequestId: `pickup-photo-${order.processing_order_id}` })
     })
   }
   return request(`/api/processing/orders/${order.processing_order_id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'PICKED_UP', clientRequestId: `pickup-status-${order.processing_order_id}-${Date.now()}` })
+    body: JSON.stringify({ status: 'PICKED_UP', clientRequestId: `pickup-status-${order.processing_order_id}` })
   })
 }

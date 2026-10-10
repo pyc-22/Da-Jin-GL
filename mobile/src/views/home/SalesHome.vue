@@ -9,7 +9,7 @@
     </Panel>
     <MarketQuoteBar :gold="app.primaryGold" :recycle="app.primaryGold" :show-silver="false" :show-meta="false" source-label="今日金价" />
     <div class="home-order-actions">
-      <button v-if="auth.can('order:create')" class="primary full" @click="section='order'">销售开单</button>
+      <button v-if="auth.can('order:create')" class="primary full" @click="navigateSection('order')">销售开单</button>
       <div><button v-if="auth.can('processing:view')" class="outline" @click="router.push('/processing?create=1')">✎ 加工开单</button><button v-if="auth.can('recycle:view')" class="outline" @click="router.push('/sales/recycle')">↻ 回收开单</button></div>
     </div>
     <Panel title="今日待办">
@@ -27,5 +27,5 @@ import { roleHomeKey } from './context.js'
 import Panel from '../../components/Panel.vue'
 import MarketQuoteBar from '../../components/MarketQuoteBar.vue'
 import TrendBars from '../../components/TrendBars.vue'
-const { app, auth, router, section, performance, money, monthLabel, targetValue, visitStats, salesFunctions, SALES_FUNCTION_ICONS, openFunction, trendValues, salesTrendLabels } = inject(roleHomeKey)
+const { app, auth, router, navigateSection, performance, money, monthLabel, targetValue, visitStats, salesFunctions, SALES_FUNCTION_ICONS, openFunction, trendValues, salesTrendLabels } = inject(roleHomeKey)
 </script>

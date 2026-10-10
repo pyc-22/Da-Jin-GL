@@ -20,7 +20,9 @@
       <EmptyState v-if="loading" title="加载中..." />
       <EmptyState v-else-if="error" title=""><span>{{ error }}</span><button class="outline" @click="load">重试</button></EmptyState>
       <EmptyState v-else-if="!orders.length" :title="keyword || status ? '没有符合条件的加工单' : '暂无加工订单'" />
-      <article v-for="order in orders" :key="order.processing_order_id" class="list-card processing-card" @click="openDetail(order)">
+      <div v-for="order in orders" :key="order.processing_order_id" class="processing-swipe" :class="{ archived: archiveOffset(order) > 0 }" @touchstart="archiveTouchStart(order, $event)" @touchmove="archiveTouchMove(order, $event)" @touchend="archiveTouchEnd(order)">
+        <button v-if="canArchive(order)" type="button" class="processing-archive" @click.stop="archiveOrder(order)">归档</button>
+        <article class="list-card processing-card" :style="{ transform: `translateX(${archiveOffset(order)}px)` }" @click="openDetailFromSwipe(order)">
         <div class="processing-main">
           <div class="processing-title">
             <b>{{ order.item_name_snapshot || '加工项目' }}</b>
@@ -35,7 +37,8 @@
           <div v-for="step in steps" :key="step.key" :class="['timeline-step', { done: step.done(order.status), current: step.current(order.status) }]"><i></i><span>{{ step.label }}</span></div>
         </div>
         <div class="processing-card-actions"><button v-if="order.customer_phone" class="outline" @click.stop="call(order.customer_phone)">联系客户</button><button class="outline" @click.stop="openDetail(order)">查看进度</button></div>
-      </article>
+        </article>
+      </div>
     </main>
     <div v-if="detail" class="sheet-mask" @click.self="closeDetail">
       <section class="sheet">
@@ -197,6 +200,9 @@ const steps = [
   { key: 'PICKED_UP', label: '已取货', done: s => s === 'PICKED_UP', current: s => s === 'PICKED_UP' }
 ]
 const keyword = ref(''), status = ref(''), orders = ref([]), loading = ref(false), error = ref('')
+const archiveOffsets = ref({})
+const archiveActiveId = ref(null)
+let archiveStartX = 0, archiveStartY = 0, archiveHorizontal = false, suppressArchiveClickUntil = 0
 const detail = ref(null), detailLoading = ref(false)
 const creating = ref(false), saving = ref(false), createError = ref('')
 // 断网/服务异常时的兜底：开单没提交成功 → 存草稿；已创建但转交失败 → 待转交队列
@@ -218,16 +224,51 @@ const fineness = v => (v === null || v === undefined || v === '' ? '—' : `${(N
 const date = v => (v ? String(v).slice(0, 10) : '—')
 const dateTime = v => {
   if (!v) return '—'
-  const text = String(v).trim().replace(' ', 'T')
-  const source = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}Z`
-  const time = new Date(source)
-  if (Number.isNaN(time.getTime())) return '—'
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(time).replace(/\//g, '-')
+  const text = String(v).trim().replace('T', ' ')
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(text) ? text.slice(0, 16) : text
 }
 const statusLabel = v => ({ PENDING: '待加工', PROCESSING: '加工中', COMPLETED: '已完成待取货', PICKED_UP: '已取货' }[String(v || '').toUpperCase()] || '未知')
 const statusClass = v => String(v || '').toLowerCase()
 const handlingLabel = v => ({ TAKE_AWAY: '客户带走', STORE_DEDUCT: '留店抵扣' }[String(v || '').toUpperCase()] || '—')
 const paymentLabel = v => ({ CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BANK: '银行卡', BALANCE: '储值', COMBINATION: '组合支付', XIANJIN: '现金', WEIXIN: '微信', ZHIFEBAO: '支付宝', CHUZHI: '储值', SQBWX: '收钱吧微信', SQBZFB: '收钱吧支付宝', DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购' }[String(v || '').toUpperCase()] || v || '—')
+const archiveOffset = order => Number(archiveOffsets.value[String(order.processing_order_id)] || 0)
+function openDetailFromSwipe(order) { if (Date.now() < suppressArchiveClickUntil) return; openDetail(order) }
+function archiveTouchStart(order, event) {
+  archiveActiveId.value = String(order.processing_order_id); archiveOffsets.value = {}; archiveStartX = event.changedTouches?.[0]?.clientX || 0; archiveStartY = event.changedTouches?.[0]?.clientY || 0; archiveHorizontal = false
+}
+function archiveTouchMove(order, event) {
+  if (archiveActiveId.value !== String(order.processing_order_id) || !canArchive(order)) return
+  const touch = event.changedTouches?.[0]; if (!touch) return
+  const dx = touch.clientX - archiveStartX, dy = touch.clientY - archiveStartY
+  if (!archiveHorizontal && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) archiveHorizontal = true
+  if (!archiveHorizontal || dx <= 0) return
+  if (event.cancelable) event.preventDefault()
+  archiveOffsets.value = { [archiveActiveId.value]: Math.min(82, dx) }
+}
+function archiveTouchEnd(order) {
+  if (archiveActiveId.value !== String(order.processing_order_id)) return
+  const open = canArchive(order) && archiveHorizontal && archiveOffset(order) >= 42
+  archiveOffsets.value = { [archiveActiveId.value]: open ? 82 : 0 }
+  if (archiveHorizontal) suppressArchiveClickUntil = Date.now() + 350
+  archiveHorizontal = false
+}
+async function archiveOrder(order) {
+  if (!canArchive(order)) return
+  if (!window.confirm(`确认归档 ${order.order_no}？归档后仅从手机列表隐藏，管理端记录仍保留。`)) return
+  try {
+    await api.archiveProcessingOrder(order.processing_order_id)
+    orders.value = orders.value.filter(row => String(row.processing_order_id) !== String(order.processing_order_id))
+    archiveOffsets.value = {}
+    toast('已归档，管理端记录仍保留')
+  } catch (e) { toast(e?.message || '归档失败，请重试') }
+}
+function canArchive(order) {
+  if (String(order.status).toUpperCase() !== 'PICKED_UP') return false
+  if (['ADMIN', 'MANAGER'].includes(String(auth.role || '').toUpperCase())) return true
+  const currentUserId = auth.user?.user_id ?? auth.user?.userId
+  const creatorId = order.created_by ?? order.createdBy
+  return String(auth.role || '').toUpperCase() === 'SALES' && currentUserId != null && creatorId != null && String(currentUserId) === String(creatorId)
+}
 async function advance(order) {
   if (!window.confirm(`确认将 ${order.order_no}「转交前台」？`)) return
   try {
@@ -447,7 +488,9 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .pending-sync small{display:block;margin-top:2px;color:var(--ink-3);font-size:var(--f-xs)}
 .filter-tabs button{white-space:nowrap}
 .form-card .full{margin-top:4px}
-.processing-card{display:block;cursor:pointer}
+.processing-swipe{position:relative;overflow:hidden;border-radius:var(--r-md);margin-bottom:10px;background:var(--gold-soft)}
+.processing-card{display:block;cursor:pointer;position:relative;z-index:1;transition:transform .18s ease}
+.processing-archive{position:absolute;inset:0 auto 0 0;width:82px;border:0;background:var(--ok);color:#fff;font-weight:700;font-size:13px}
 .processing-main{min-width:0}
 .processing-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .processing-title b{font-size:var(--f-sm);min-width:0;overflow-wrap:anywhere;line-height:1.4}

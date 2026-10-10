@@ -49,13 +49,13 @@ public class AdminController {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
         p.addValue("today", today).addValue("from", today.minusDays(6));
         boolean salesVisible = dashboardSalesVisible(r);
-        Map<String, Object> kpi = salesVisible ? db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) sales_order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id where oi.store_id=:s and date(oi.create_time)=:today and oi.status=1),0) sales_weight from sales_order o where o.store_id=:s and date(o.create_time)=:today and o.status=1", p) : Map.of();
-        Number dayGross = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id where i.store_id=:s and date(o.create_time)=:today and o.status=1", p, Number.class) : 0;
+        Map<String, Object> kpi = salesVisible ? db.one("select coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) revenue, count(*) sales_order_count, coalesce((select sum(i.weight*i.qty) from sales_order_item i join sales_order oi on oi.order_id=i.order_id and oi.store_id=i.store_id left join member om on om.member_id=oi.member_id and om.store_id=oi.store_id where oi.store_id=:s and date(oi.create_time)=:today and oi.status=1 and (oi.member_id is null or om.deleted=0)),0) sales_weight from sales_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id where o.store_id=:s and date(o.create_time)=:today and o.status=1 and (o.member_id is null or m.deleted=0)", p) : Map.of();
+        Number dayGross = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(i.subtotal-coalesce(i.cost_snapshot,0)),0) from sales_order_item i join sales_order o on o.order_id=i.order_id and o.store_id=i.store_id left join member m on m.member_id=o.member_id and m.store_id=o.store_id where i.store_id=:s and date(o.create_time)=:today and o.status=1 and (o.member_id is null or m.deleted=0)", p, Number.class) : 0;
         // 营业额口径与交班合计一致：商品销售 + 加工费收入（毛利/毛利率仍按商品销售算）
-        Number processingToday = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(f.amount),0) from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)=:today and not exists (select 1 from processing_order w where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status='WITHDRAWN')", p, Number.class) : 0;
-        Number processingOrders = salesVisible ? db.jdbc().queryForObject("select count(*) from processing_order w where w.store_id=:s and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
-        Number processingTopUp = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(w.store_gold_weight),0) from processing_order w where w.store_id=:s and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
-        Number processingRecycle = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(w.residual_gold_weight),0) from processing_order w where w.store_id=:s and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
+        Number processingToday = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(f.amount),0) from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)=:today and exists (select 1 from processing_order w left join member wm on wm.member_id=w.member_id and wm.store_id=w.store_id where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status<>'WITHDRAWN' and (w.member_id is null or wm.deleted=0))", p, Number.class) : 0;
+        Number processingOrders = salesVisible ? db.jdbc().queryForObject("select count(*) from processing_order w left join member wm on wm.member_id=w.member_id and wm.store_id=w.store_id where w.store_id=:s and (w.member_id is null or wm.deleted=0) and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
+        Number processingTopUp = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(w.store_gold_weight),0) from processing_order w left join member wm on wm.member_id=w.member_id and wm.store_id=w.store_id where w.store_id=:s and (w.member_id is null or wm.deleted=0) and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
+        Number processingRecycle = salesVisible ? db.jdbc().queryForObject("select coalesce(sum(w.residual_gold_weight),0) from processing_order w left join member wm on wm.member_id=w.member_id and wm.store_id=w.store_id where w.store_id=:s and (w.member_id is null or wm.deleted=0) and date(w.create_time)=:today and w.status<>'WITHDRAWN'", p, Number.class) : 0;
         Number revenue = (Number) kpi.getOrDefault("revenue", 0);
         BigDecimal turnover = new BigDecimal(String.valueOf(revenue)).add(new BigDecimal(String.valueOf(processingToday)));
         Number gross = dayGross == null ? 0 : dayGross;
@@ -71,11 +71,11 @@ public class AdminController {
         result.put("pendingApproval", db.jdbc().queryForObject("select count(*) from approval where store_id=:s and status=1", p, Integer.class));
         result.put("stockWarnings", db.jdbc().queryForObject("select count(*) from goods where store_id=:s and stock<=5", p, Integer.class));
         Map<String, BigDecimal> processingByDay = new LinkedHashMap<>();
-        for (Map<String,Object> row : salesVisible ? db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)>=:from and not exists (select 1 from processing_order w where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status='WITHDRAWN') group by date(f.create_time)", p) : List.<Map<String,Object>>of()) {
+        for (Map<String,Object> row : salesVisible ? db.list("select date(f.create_time) day,sum(f.amount) amount from finance_record f where f.store_id=:s and f.type='INCOME' and f.category='PROCESSING_FEE' and date(f.create_time)>=:from and exists (select 1 from processing_order w left join member wm on wm.member_id=w.member_id and wm.store_id=w.store_id where w.store_id=f.store_id and w.order_no=f.related_bill_no and w.status<>'WITHDRAWN' and (w.member_id is null or wm.deleted=0)) group by date(f.create_time)", p) : List.<Map<String,Object>>of()) {
             processingByDay.put(String.valueOf(row.get("day")), new BigDecimal(String.valueOf(row.get("amount"))));
         }
         List<Map<String,Object>> trend = new ArrayList<>();
-        for (Map<String,Object> row : salesVisible ? db.list("select date(o.create_time) day,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o where o.store_id=:s and o.status=1 and date(o.create_time)>=:from group by date(o.create_time)", p) : List.<Map<String,Object>>of()) {
+        for (Map<String,Object> row : salesVisible ? db.list("select date(o.create_time) day,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id where o.store_id=:s and o.status=1 and (o.member_id is null or m.deleted=0) and date(o.create_time)>=:from group by date(o.create_time)", p) : List.<Map<String,Object>>of()) {
             String day = String.valueOf(row.get("day"));
             BigDecimal merged = new BigDecimal(String.valueOf(row.get("amount"))).add(processingByDay.getOrDefault(day, BigDecimal.ZERO));
             row.put("sales_amount", row.get("amount"));
@@ -87,7 +87,11 @@ public class AdminController {
             trend.add(new LinkedHashMap<>(Map.of("day", extra.getKey(), "amount", extra.getValue(), "sales_amount", BigDecimal.ZERO, "processing_amount", extra.getValue(), "order_count", 0)));
         }
         trend.sort(Comparator.comparing(a -> String.valueOf(((Map<?,?>) a).get("day"))));
-        if (salesVisible) { result.put("trend", trend); result.put("ranking", db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id where o.store_id=:s and o.status=1 and date(o.create_time)>=:from group by o.sales_id,u.real_name order by amount desc limit 10", p)); }
+        if (salesVisible) {
+            result.put("trend", trend);
+            List<Map<String,Object>> ranking = db.list("select o.sales_id user_id,coalesce(u.real_name,'未分配') name,coalesce(sum("+SalesAmounts.actualPaid("o")+"),0) amount,count(o.order_id) order_count from sales_order o left join sys_user u on u.user_id=o.sales_id and u.store_id=o.store_id left join member m on m.member_id=o.member_id and m.store_id=o.store_id where o.store_id=:s and o.status=1 and (o.member_id is null or m.deleted=0) and date(o.create_time)>=:from group by o.sales_id,u.real_name order by amount desc limit 10", p);
+            result.put("ranking", ranking);
+        }
         return ApiResponse.ok(com.dajin.system.config.ReportAccess.filter(r, result));
     }
 

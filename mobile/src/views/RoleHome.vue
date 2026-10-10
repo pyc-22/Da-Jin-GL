@@ -1,8 +1,8 @@
 <template>
   <div class="shell" @touchstart="touchStart" @touchmove="touchMove" @touchend="touchEnd" @click="handlePanelDrilldown">
 
-<HomeWelcome v-if="section === 'dashboard' || section === 'home'" :unread="app.unread" @messages="section='notifications'" />
-    <DesignHeader v-else :title="pageTitle" :back="true" @back="section=isManager?'dashboard':'home'">
+<HomeWelcome v-if="section === 'dashboard' || section === 'home'" :unread="app.unread" @messages="navigateSection('notifications')" />
+    <DesignHeader v-else :title="pageTitle" :back="true" @back="backSection">
       <span class="state" :class="{disabled:app.offline}">{{ app.offline ? '离线' : '在线' }}</span>
     </DesignHeader>
     <div v-if="isAdmin && auth.can('gold:manage') && pricingWarnings.length" class="pricing-warning-banner" role="alert"><p v-for="warning in pricingWarnings" :key="warning">{{ warning }}</p><button class="outline" @click="router.push('/gold-settings')">检查金价配置</button></div>
@@ -27,7 +27,7 @@
       <KpiDetailSection v-else-if="isManager && canKpiDetail && section === 'kpidetail'" />
       <TrendSection v-else-if="isManager && auth.can('report:store-performance') && section === 'trend'" />
       <button v-if="(section==='member' || section==='members') && members.length" class="outline full load-more" @click="loadMore">加载更多</button></div>
-    <BottomNav :active="section" local @select="key=>section=key" /><div v-if="approvalDetail" class="mobile-modal"><div class="mobile-modal-card"><div class="modal-head"><h3>审批详情</h3><button class="modal-close" @click="closeApprovalDetail">✕</button></div><div class="rank-row"><span>类型</span><b>{{ typeName(approvalDetail.approval?.type) }}</b></div><div class="rank-row"><span>金额</span><b>¥{{ money(approvalDetail.approval?.amount) }}</b></div><div class="rank-row"><span>申请原因</span><small>{{ formatApprovalReason(approvalDetail.approval) }}</small></div><template v-if="approvalItems.length"><p class="muted small" style="margin-top:8px">关联订单商品明细</p><div v-for="(it,i) in approvalItems" :key="'ai'+i" class="rank-row"><span>{{ it.item_name }}</span><small>×{{ it.qty }}</small><strong>¥{{ money(it.subtotal) }}</strong></div></template><template v-if="canHandleApproval(auth,approvalDetail.approval)"><label class="form-label">审批意见（驳回必填）<textarea v-model="approvalRemark" rows="2" placeholder="填写审批意见"/></label><div class="action-row"><button class="danger" :disabled="approvalSubmitting" @click="decideApproval(4)">驳回</button><button class="primary" :class="{warning:approvalConfirming}" :disabled="approvalSubmitting" @click="decideApproval(3)">{{ approvalConfirming ? '再点一次确认通过' : '通过' }}</button></div></template><template v-else><p class="muted small" style="margin-top:8px">状态：{{ Number(approvalDetail.approval?.status)===3?'已通过':(Number(approvalDetail.approval?.status)===4?'已驳回':'待审批') }} · 审批意见：{{ approvalDetail.approval?.approve_remark||'—' }}</p></template></div></div><div v-if="memberCreateOpen" class="mobile-modal"><div class="mobile-modal-card"><h3>新增会员</h3><label class="form-label">姓名<input v-model="memberForm.name" placeholder="会员姓名"/></label><label class="form-label">手机号<input v-model="memberForm.phone" inputmode="numeric" maxlength="11" placeholder="11位手机号"/></label><label class="form-label">性别<select v-model="memberForm.gender"><option value="">未填写</option><option value="女">女</option><option value="男">男</option></select></label><label class="form-label">生日<input v-model="memberForm.birthday" type="date"/></label><div class="action-row"><button class="outline" @click="memberCreateOpen=false">取消</button><button class="primary" :disabled="memberCreating" @click="submitMemberCreate">{{ memberCreating?'保存中...':'保存' }}</button></div></div></div>
+    <BottomNav :active="section" @select="navigateSection" /><div v-if="approvalDetail" class="mobile-modal"><div class="mobile-modal-card"><div class="modal-head"><h3>审批详情</h3><button class="modal-close" @click="closeApprovalDetail">✕</button></div><div class="rank-row"><span>类型</span><b>{{ typeName(approvalDetail.approval?.type) }}</b></div><div class="rank-row"><span>金额</span><b>¥{{ money(approvalDetail.approval?.amount) }}</b></div><div class="rank-row"><span>申请原因</span><small>{{ formatApprovalReason(approvalDetail.approval) }}</small></div><template v-if="approvalItems.length"><p class="muted small" style="margin-top:8px">关联订单商品明细</p><div v-for="(it,i) in approvalItems" :key="'ai'+i" class="rank-row"><span>{{ it.item_name }}</span><small>×{{ it.qty }}</small><strong>¥{{ money(it.subtotal) }}</strong></div></template><template v-if="canHandleApproval(auth,approvalDetail.approval)"><label class="form-label">审批意见（驳回必填）<textarea v-model="approvalRemark" rows="2" placeholder="填写审批意见"/></label><div class="action-row"><button class="danger" :disabled="approvalSubmitting" @click="decideApproval(4)">驳回</button><button class="primary" :class="{warning:approvalConfirming}" :disabled="approvalSubmitting" @click="decideApproval(3)">{{ approvalConfirming ? '再点一次确认通过' : '通过' }}</button></div></template><template v-else><p class="muted small" style="margin-top:8px">状态：{{ Number(approvalDetail.approval?.status)===3?'已通过':(Number(approvalDetail.approval?.status)===4?'已驳回':'待审批') }} · 审批意见：{{ approvalDetail.approval?.approve_remark||'—' }}</p></template></div></div><div v-if="memberCreateOpen" class="mobile-modal"><div class="mobile-modal-card"><h3>新增会员</h3><label class="form-label">姓名<input v-model="memberForm.name" placeholder="会员姓名"/></label><label class="form-label">手机号<input v-model="memberForm.phone" inputmode="numeric" maxlength="11" placeholder="11位手机号"/></label><label class="form-label">性别<select v-model="memberForm.gender"><option value="">未填写</option><option value="女">女</option><option value="男">男</option></select></label><label class="form-label">生日<input v-model="memberForm.birthday" type="date"/></label><div class="action-row"><button class="outline" @click="memberCreateOpen=false">取消</button><button class="primary" :disabled="memberCreating" @click="submitMemberCreate">{{ memberCreating?'保存中...':'保存' }}</button></div></div></div>
   </div>
 </template>
 <script setup>
@@ -70,9 +70,12 @@ import { formatApprovalReason, maskPhone } from '../utils/format.js'
 import { parseInboundScanPayload } from '../utils/inboundIdentity.js'
 import { scanBarcodeFromCamera } from '../utils/browserBarcode.js'
 import { categoryInventoryText, inventoryText } from '../utils/inventoryUnit.js'
+import { createDirectOrderLine, hasDirectOrderLine } from '../utils/directOrder.js'
 const salespeople = ref([])
 const lastSubmitted = ref(null)
-const route=useRoute(); const router=useRouter(); const auth=useAuthStore(); const app=useAppStore(); const role=computed(()=>auth.role); const isAdmin=computed(()=>role.value==='ADMIN'); const salePrice=row=>row?.salePrice??0; const recyclePriceFor=row=>row?.recyclePrice??0; const isManager=computed(()=>role.value==='MANAGER'||role.value==='ADMIN'); const canInbound=computed(()=>auth.can('stock:inbound:create')); const section=ref(sectionForRole(route.params.section || (isManager.value?'dashboard':'home'), role.value)); const today=new Date().toLocaleDateString('zh-CN'); const dashboard=ref({}); const warnings=ref([]); const ranking=ref([]); const approvals=ref([]); const approvalFilter=ref('全部'); const approvalTabs=['全部','价格审批','成品优惠审批','加工优惠审批','退货审批','回收审批','盘点审批','加工返款审批','会员认领','以旧换新审批','出库审批']; const report=ref({}); const period=ref('daily'); const commission=ref([]); const members=ref([]); const keyword=ref(''); const memberTab=ref('mine'); const visits=ref([]); const threshold=ref(0.85); const performance=ref({}); const trendValues=ref([]); const oldMaterialTypes=ref([]); const oldMaterialTypeError=ref(''); const oldMetal=reactive({weight:0,purity:.999,materialType:''}); const order=ref({memberId:null,memberName:'',memberPhone:'',memberKeyword:'',barcode:'',items:[],laborFee:0,discount:1,oldMetals:[]}); const orderMemberHits=ref([]); let orderMemberTimer=null; const touchStartPoint=ref({x:0,y:0}); const touchMoved=ref(false); let suppressPanelClickUntil=0; const memberPage=ref(1); const goldHistory=ref([]); const tierMembers=ref([]); const reportError=ref(''); const categoryProfit=ref([]); const spotPrice=ref(0)
+const route=useRoute(); const router=useRouter(); const auth=useAuthStore(); const app=useAppStore(); const role=computed(()=>auth.role); const isAdmin=computed(()=>role.value==='ADMIN'); const salePrice=row=>row?.salePrice??0; const recyclePriceFor=row=>row?.recyclePrice??0; const isManager=computed(()=>role.value==='MANAGER'||role.value==='ADMIN'); const canInbound=computed(()=>auth.can('stock:inbound:create')); const section=ref(sectionForRole(route.params.section || (isManager.value?'dashboard':'home'), role.value)); const today=new Date().toLocaleDateString('zh-CN'); const dashboard=ref({}); const dashboardError=ref(''); const warnings=ref([]); const ranking=ref([]); const rankingLoading=ref(false); const rankingError=ref(''); const approvals=ref([]); const approvalFilter=ref('全部'); const approvalTabs=['全部','价格审批','成品优惠审批','加工优惠审批','退货审批','回收审批','盘点审批','加工返款审批','会员认领','以旧换新审批','出库审批']; const report=ref({}); const period=ref('daily'); const commission=ref([]); const members=ref([]); const keyword=ref(''); const memberTab=ref('mine'); const visits=ref([]); const threshold=ref(0.85); const performance=ref({}); const trendValues=ref([]); const oldMaterialTypes=ref([]); const oldMaterialTypeError=ref(''); const oldMetal=reactive({weight:0,purity:.999,materialType:''}); const order=ref({memberId:null,memberName:'',memberPhone:'',memberKeyword:'',barcode:'',items:[],laborFee:0,discount:1,oldMetals:[]}); const orderMemberHits=ref([]); let orderMemberTimer=null; const touchStartPoint=ref({x:0,y:0}); const touchMoved=ref(false); let suppressPanelClickUntil=0; const memberPage=ref(1); const goldHistory=ref([]); const tierMembers=ref([]); const reportError=ref(''); const categoryProfit=ref([]); const spotPrice=ref(0)
+const employeeRangeType = () => period.value === 'daily' ? 'today' : period.value === 'weekly' ? 'week' : 'month'
+const rankingRangeLabel = computed(() => ({ daily: '今日', weekly: '本周', monthly: '本月' }[period.value] || '本期'))
 const managerFunctions = computed(() => managerFunctionCatalog.filter(item => (isAdmin.value || item.key !== 'gold-settings') && (item.key !== 'report' || canViewReports(auth))))
 const salesFunctions = computed(() => salesFunctionCatalog.filter(item => item.key !== 'gold-settings'))
 const spotMeta=ref(null)
@@ -95,6 +98,20 @@ async function openMemberFromQuery(){
   const memberId = route.query?.memberId
   if(section.value!=='order' || !memberId)return
   try { const data=await api.member(memberId); pickOrderMember(data?.member||data||{}) } catch {}
+}
+function sectionPath(value) {
+  const base = role.value === 'ADMIN' ? 'manager' : String(role.value || 'sales').toLowerCase()
+  return `/${base}/${sectionForRole(value, role.value)}`
+}
+function navigateSection(value) {
+  const normalized = sectionForRole(value, role.value)
+  const target = sectionPath(normalized)
+  if (target !== route.path) router.push(target)
+  else section.value = normalized
+}
+function backSection() {
+  if (window.history.state?.back) router.back()
+  else navigateSection(isManager.value ? 'dashboard' : 'home')
 }
 onMounted(() => {
   restoreOrderDraft()
@@ -149,11 +166,26 @@ const goldTrendRows=computed(()=>{const rows=Array.isArray(goldHistory.value)?go
 const tiers=computed(()=>{const list=tierMembers.value;const def=[{label:'钻石会员 ≥5万',color:'var(--gold-deep)',min:50000},{label:'高价值 ≥1万',color:'var(--gold-light)',min:10000},{label:'普通会员 ≥1千',color:'var(--gold-line)',min:1000},{label:'待激活 <1千',color:'var(--ink-3)',min:0}];return def.map((d,i)=>{const upper=i===0?Infinity:def[i-1].min;const rows=list.filter(m=>{const c=Number(m.total_consume||0);return c>=d.min&&c<upper});return {label:d.label,color:d.color,count:rows.length,amount:rows.reduce((s,m)=>s+Number(m.total_consume||0),0)}})})
 async function loadMembers(reset=true){if(reset)memberPage.value=1;try{const fetcher=memberTab.value==='pool'?api.memberPool:api.members;const d=await fetcher({keyword:keyword.value,page:memberPage.value});const rows=d.records||d||[];members.value=reset?rows:[...members.value,...rows];setStorage('dajin-members',JSON.stringify(members.value))}catch{try{members.value=JSON.parse(getStorage('dajin-members','[]'))}catch{members.value=[]}}} async function loadMore(){memberPage.value++;await loadMembers(false)} async function permitted(fetcher, permission, fallback){if(!auth.can(permission))return fallback;const scope=JSON.stringify(auth.user);try{const result=await fetcher();return scope===JSON.stringify(auth.user)&&auth.can(permission)?result||fallback:fallback}catch{return fallback}}
 async function loadManager(){
-  const d=await permitted(api.dashboard,'dashboard:view',{});
+  rankingLoading.value=true; rankingError.value=''; dashboardError.value=''
+  let d={}
+  try {
+    if (auth.can('dashboard:view')) {
+      const scope=JSON.stringify(auth.user)
+      const result=await api.dashboard()
+      if (scope===JSON.stringify(auth.user)&&auth.can('dashboard:view')) d=result||{}
+    }
+  } catch(error) { dashboardError.value=error?.message||'首页数据加载失败，请重试'; d={} }
+  try {
+    if(auth.can('report:store-performance')) {
+      const result=await api.reportEmployee({timeType:employeeRangeType()})
+      ranking.value=(Array.isArray(result?.employees)?result.employees:[]).map(row=>({...row,employee_name:row.employee_name||row.name,amount:row.actual_paid??row.sales_amount??0,commission:row.commission??row.commission_amount??0})).sort((a,b)=>Number(b.amount||0)-Number(a.amount||0))
+    } else ranking.value=[]
+  } catch(error) { ranking.value=[]; rankingError.value=error?.message||'员工排行榜加载失败' }
+  finally { rankingLoading.value=false }
   dashboard.value={...d,amount:d.amount??d.revenue,order_count:d.order_count??d.orderCount,avg_order:d.avg_order??(Number(d.revenue||0)/Math.max(1,Number(d.orderCount||d.order_count||0)))};
   warnings.value=await permitted(api.warnings,'stock:view',[]);
   approvals.value=await permitted(api.approvals,'approval:view',[]); app.approvals=approvals.value;
-  ranking.value=auth.can('report:store-performance')?(dashboard.value.ranking||dashboard.value.staffRanking||[]):[];
+  // Ranking rows above use the report employee endpoint and its same week range.
   void openApprovalFromQuery();
   categoryProfit.value=await permitted(api.categoryProfit,'report:store-performance',[]);
   goldHistory.value=isAdmin.value?await permitted(()=>api.goldHistory(30),'gold:manage',[]):[];
@@ -162,9 +194,10 @@ async function loadManager(){
   stockChecks.value=await permitted(api.stockChecks,'stock:check:view',[]);
   paySummaryData.value=await permitted(api.paySummary,'report:daily',[]);
   recycleData.value=await permitted(()=>api.reportRecycle({timeType:'today'}),'report:recycle',{});
+  if(auth.can('report:processing')&&auth.can('report:recycle')) recycleData.value={...recycleData.value,weight:Number(recycleData.value?.weight||0)+Number(d?.processingRecycleWeight||0)}
   if(auth.can('goods:search'))loadWall();
 }
-async function loadReport(){reportError.value='';if(!auth.can('report:view'))return;if(role.value==='SALES'){const scope=JSON.stringify(auth.user);try{const [d,t]=await Promise.all([api.performance(),api.systemTarget().catch(()=>null)]);if(scope!==JSON.stringify(auth.user)||!auth.can('report:view'))return;targetValue.value=Number(t?.monthlySalesTarget||0);report.value=d||{};commission.value=d?.employees||[];trendValues.value=alignTrend(d?.trend||[]);performance.value={amount:d?.amount||0,orders:d?.order_count||0,avg:d?.avg_order||0,commission:d?.commission||0,progress:targetValue.value>0?Math.round(Number(d?.amount||0)/targetValue.value*100):0};return}catch(error){reportError.value=error?.message||'个人业绩加载失败';report.value={};commission.value=[];performance.value={};return}}if(!auth.can(period.value==='monthly'?'report:monthly':'report:daily')){report.value={};commission.value=[];return}try{const d=await api.reports(period.value);if(period.value!=='daily'&&Array.isArray(d)){const rows=d;report.value={amount:rows.reduce((s,r)=>s+Number(r.amount||0),0),order_count:rows.reduce((s,r)=>s+Number(r.order_count||0),0)};trendValues.value=rows.map(r=>Number(r.amount||0))}else{report.value=d||{};if(Array.isArray(report.value.trend))trendValues.value=report.value.trend.map(x=>Number(x.amount||x.value||0))}}catch(error){report.value={};reportError.value=error?.message||'报表加载失败，请重试'}try{const d=auth.can('report:store-performance')?await api.performance():null;commission.value=d?.employees||[]}catch{commission.value=[]}try{const t=await api.systemTarget();targetValue.value=Number(t?.monthlySalesTarget||0)}catch{}}
+async function loadReport(){reportError.value='';if(!auth.can('report:view'))return;if(role.value==='SALES'){const scope=JSON.stringify(auth.user);try{const [d,t]=await Promise.all([api.performance(),api.systemTarget().catch(()=>null)]);if(scope!==JSON.stringify(auth.user)||!auth.can('report:view'))return;targetValue.value=Number(t?.monthlySalesTarget||0);report.value=d||{};commission.value=d?.employees||[];trendValues.value=alignTrend(d?.trend||[]);performance.value={amount:d?.amount||0,orders:d?.order_count||0,avg:d?.avg_order||0,commission:d?.commission||0,progress:targetValue.value>0?Math.round(Number(d?.amount||0)/targetValue.value*100):0};return}catch(error){reportError.value=error?.message||'个人业绩加载失败';report.value={};commission.value=[];performance.value={};return}}if(!auth.can(period.value==='monthly'?'report:monthly':'report:daily')){report.value={};commission.value=[];return}try{const d=await api.reports(period.value);if(period.value!=='daily'&&Array.isArray(d)){const rows=d;report.value={amount:rows.reduce((s,r)=>s+Number(r.amount||0),0),order_count:rows.reduce((s,r)=>s+Number(r.order_count||0),0)};trendValues.value=rows.map(r=>Number(r.amount||0))}else{report.value=d||{};if(Array.isArray(report.value.trend))trendValues.value=report.value.trend.map(x=>Number(x.amount||x.value||0))}}catch(error){report.value={};reportError.value=error?.message||'报表加载失败，请重试'}try{const d=auth.can('report:store-performance')?await api.reportEmployee({timeType:employeeRangeType()}):null;commission.value=(d?.employees||[]).map(row=>({...row,employee_name:row.employee_name||row.name,commission_amount:row.commission_amount??row.commission??0}))}catch{commission.value=[]}try{const t=await api.systemTarget();targetValue.value=Number(t?.monthlySalesTarget||0)}catch{}}
 async function loadMemberReport(){try{const d=await api.reportMember({timeType:'month'});memberReport.value=d?.summary||d||null}catch{memberReport.value=null}}
 async function submitMemberCreate(){if(!memberForm.name.trim())return alert('请填写会员姓名');if(!/^1[3-9]\d{9}$/.test(memberForm.phone))return alert('请填写正确的11位手机号');memberCreating.value=true;try{await api.memberCreate({name:memberForm.name.trim(),phone:memberForm.phone,gender:memberForm.gender||null,birthday:memberForm.birthday||null});memberCreateOpen.value=false;memberForm.name='';memberForm.phone='';memberForm.gender='';memberForm.birthday='';alert('会员已创建');loadMembers();loadMemberReport()}catch(e){alert(e?.message||'会员创建失败')}finally{memberCreating.value=false}}
 async function loadTiers(){if(tierMembers.value.length)return;try{const all=[];for(let p=1;p<=5;p++){const d=await api.members({page:p,size:100});const rows=d.records||d||[];all.push(...rows);if(rows.length<100)break}tierMembers.value=all}catch{tierMembers.value=[]}}
@@ -232,6 +265,22 @@ async function scanOrSearch(){
     order.value.barcode=''
   }catch(error){alert(error?.message||'商品查询失败')}
 }
+let loadedDetailGoodsId=''
+async function addDetailGoodsToOrder() {
+  const id=String(route.query?.goodsId||'')
+  if(!id||section.value!=='order'||loadedDetailGoodsId===id)return
+  loadedDetailGoodsId=id
+  try {
+    const g=await api.goodsById(id)
+    if(!hasDirectOrderLine(order.value.items,g.goods_id)) {
+      const gramPriced=Number(g.price_type)===1
+      const line=createDirectOrderLine(g,{gramWeight:Number(route.query.gramWeight||0),unitPrice:gramPriced?goldPriceFor(g):Number(g.sale_price||0)})
+      line.image=goodsImage(g.piece_image||g.images)
+      order.value.items.push(line)
+    }
+    await router.replace({path:route.path})
+  } catch(error) { loadedDetailGoodsId=''; alert(error?.message||'商品读取失败') }
+}
 function goldPriceFor(goods){
   const type=String(goods?.gold_type||goods?.goldType||'足金').trim()
   const rows=Array.isArray(app.gold)?app.gold:[]
@@ -294,26 +343,28 @@ watch(()=>app.eventVersion,()=>{
 watch(()=>order.value.items,items=>{for(const item of items){if(Array.isArray(item.pieceNos)&&item.pieceNos.length)item.qty=item.pieceNos.length}},{deep:true})
 watch(()=>order.value,()=>persistOrderDraft(),{deep:true})
 watch(memberTab,()=>loadMembers())
-watch(()=>JSON.stringify(auth.user?.permissions),()=>{dashboard.value={};ranking.value=[];recycleData.value={};performance.value={};report.value={};commission.value=[];trendValues.value=[];kpiDetailRows.value=[];kpiDetailSummary.value='';if(isManager.value)loadManager();else if(auth.can('report:view'))loadReport()})
-watch(section,(v)=>{const normalized=sectionForRole(v,role.value);if(normalized!==v){section.value=normalized;return}if(v==='visits'){router.push('/visits');return}if(canInbound.value&&v==='inbound'){router.push('/inbound/create');return}if((v==='report'||v==='performance')&&auth.can('report:view')){router.replace('/report');return}if(isManager.value&&v==='member'){loadTiers();loadBirthdayMembers();loadMemberReport()}if(v==='notifications')loadNotifications();if(v==='members')loadMembers()},{immediate:true})
+watch(()=>JSON.stringify(auth.user?.permissions),()=>{dashboard.value={};dashboardError.value='';ranking.value=[];recycleData.value={};performance.value={};report.value={};commission.value=[];trendValues.value=[];kpiDetailRows.value=[];kpiDetailSummary.value='';if(isManager.value)loadManager();else if(auth.can('report:view'))loadReport()})
+watch(section,(v,old)=>{const normalized=sectionForRole(v,role.value);if(normalized!==v){section.value=normalized;return}if(v==='visits'){router.push('/visits');return}if(canInbound.value&&v==='inbound'){router.push('/inbound/create');return}if((v==='report'||v==='performance')&&auth.can('report:view')){router.push('/report');return}if(isManager.value&&v==='member'){loadTiers();loadBirthdayMembers();loadMemberReport()}if(v==='notifications')loadNotifications();if(v==='members')loadMembers();if(old&&sectionPath(v)!==route.path)router.push(sectionPath(v))},{immediate:true})
+watch(period,()=>{if(isManager.value){if(auth.can('report:store-performance'))loadManager();if(section.value==='report')loadReport()}})
+watch(()=>[route.params?.section,route.query?.goodsId,route.query?.gramWeight],([value,goodsId])=>{const normalized=sectionForRole(value || (isManager.value?'dashboard':'home'),role.value);if(normalized!==section.value)section.value=normalized;if(goodsId&&normalized==='order')void addDetailGoodsToOrder()},{immediate:true})
 const managerTrendRows=computed(()=>{const rows=Array.isArray(dashboard.value?.trend)?dashboard.value.trend:[];return rows.map(row=>({day:String(row.day||row.date||'').slice(0,10),amount:Number(row.amount||row.revenue||0),orderCount:Number(row.order_count||row.orderCount||0)})).filter(row=>row.day)})
 const managerTrendValues=computed(()=>managerTrendRows.value.map(row=>row.amount))
 const managerTrendLabels=computed(()=>managerTrendRows.value.map(row=>row.day))
 function weekdayLabel(day){const d=new Date(String(day));return Number.isNaN(d.getTime())?String(day).slice(5):WEEKDAYS[d.getDay()]}
 const managerTrendWeekdayLabels=computed(()=>managerTrendRows.value.map((row,i)=>i===managerTrendRows.value.length-1?'今天':weekdayLabel(row.day)))
 function formatDay(value){const text=String(value||'');return text.length>=10?text.slice(5):text||'-'}
-function openFunction(item){if(item.section)section.value=sectionForRole(item.section,role.value);else if(item.path)router.push(item.path)}
+function openFunction(item){if(item.section)navigateSection(item.section);else if(item.path)router.push(item.path)}
 const kpiDetailType=ref('orders'); const kpiDetailRows=ref([]); const kpiDetailSummary=ref(''); const kpiDetailLoading=ref(false)
 const kpiDetailTitle=computed(()=>({orders:'今日订单明细',weight:'今日销售克重明细',avg:'今日订单明细',recycle:'今日回收明细'}[kpiDetailType.value]||'数据明细'))
 const canKpiDetail=computed(()=>auth.can(kpiDetailType.value==='recycle'?'report:recycle':'report:store-performance'))
-function openKpiDetail(type){kpiDetailType.value=type;if(!canKpiDetail.value)return;section.value='kpidetail';loadKpiDetail()}
+function openKpiDetail(type){kpiDetailType.value=type;if(!canKpiDetail.value)return;navigateSection('kpidetail');loadKpiDetail()}
 async function loadKpiDetail(){if(!canKpiDetail.value)return;const scope=JSON.stringify(auth.user);kpiDetailLoading.value=true;try{if(kpiDetailType.value==='recycle'){const d=await api.reportRecycle({timeType:'today'})||{};if(scope!==JSON.stringify(auth.user)||!canKpiDetail.value)return;kpiDetailSummary.value=`今日回收 ${Number(d.order_count||0)} 单 · ${Number(d.weight||0).toFixed(3)}g · ${money(d.amount)}`;kpiDetailRows.value=(d.records||[]).slice(0,50).map(r=>({title:r.material_type||'旧料回收',sub:`${r.bill_no||''} · ${String(r.create_time||'').slice(5,16).replace('T',' ')}`,amount:money(r.total_amount),extra:`${Number(r.weight||0).toFixed(3)}g · 成色 ${(Number(r.purity||0)*100).toFixed(1)}%`}));}else{const d=await api.reportOverview({timeType:'today'})||{};if(scope!==JSON.stringify(auth.user)||!canKpiDetail.value)return;const s=d.summary||{};kpiDetailSummary.value=`今日 ${Number(s.order_count||0)} 单 · 营业额 ${money(s.sales_amount)} · 客单价 ${money(s.avg_order ?? (Number(s.sales_amount||0)/Math.max(1,Number(s.order_count||1))))}`;kpiDetailRows.value=(d.records||[]).slice(0,50).map(r=>({title:r.goods_name||'订单',sub:`${r.order_no||''} · ${String(r.date||'').slice(5,16)}`,amount:money(r.amount),extra:`${Number(r.weight||0).toFixed(2)}g · ${r.category||''}`}));}}catch(e){kpiDetailRows.value=[];kpiDetailSummary.value=e?.message||'明细加载失败'}finally{kpiDetailLoading.value=false}}
-function handlePanelDrilldown(event){if(touchMoved.value||Date.now()<suppressPanelClickUntil)return;const panel=event.target?.closest?.('.panel');if(!panel||!isManager.value)return;const title=panel.querySelector('.panel-head h2')?.textContent?.trim()||'';if(title==='员工排行榜')section.value='report';else if(title==='7日营业额趋势')section.value='trend'}
+function handlePanelDrilldown(event){if(touchMoved.value||Date.now()<suppressPanelClickUntil)return;const panel=event.target?.closest?.('.panel');if(!panel||!isManager.value)return;const title=panel.querySelector('.panel-head h2')?.textContent?.trim()||'';if(title==='员工排行榜')navigateSection('report');else if(title==='7日营业额趋势')navigateSection('trend')}
 watch(()=>dashboard.value?.trend,(rows)=>{if(Array.isArray(rows)&&rows.length)trendValues.value=alignTrend(rows)},{deep:true})
 async function loadSalespeople(){try{salespeople.value=await api.processingSalespeople()||[]}catch{salespeople.value=[]}}
 watch(section,(value)=>{if(value==='order'){if(order.value.salesId===undefined)order.value.salesId=role.value==='SALES'?auth.user?.user_id:null;loadSalespeople()}},{immediate:true})
 
-provide(roleHomeKey, { lastSubmitted, salespeople, marketCountdown, managerTrendWeekdayLabels, router, app, isAdmin, salePrice, section, dashboard, warnings, ranking, approvals, commission, spotPrice, managerFunctions, FUNCTION_ICONS, todayLabel, money, openFunction, openKpiDetail, formatApprovalReason, approvalFilter, approvalTabs, approvalView, approvalHistoryData, typeName, filteredApprovals, openApprovalHistory, openApprovalDetail, report, period, reportError, recycleData, reportTab, reportTabs, reportTabTitle, payMethodRows, categoryRows, loadReport, maskPhone, auth, members, birthdayMembers, memberCreateOpen, memberStats, tiers, openMember, call, role, isManager, visits, performance, trendValues, order, salesFunctions, SALES_FUNCTION_ICONS, monthLabel, targetValue, salesTrendLabels, visitStats, keyword, memberTab, loadMembers, claim, threshold, oldMaterialTypes, oldMaterialTypeError, oldMetal, orderMemberHits, recyclePrice, isGramItem, oldDeduct, orderTotal, scan, previewGoods, scanOrSearch, normalizeOrderQty, addOldMetal, searchOrderMember, pickOrderMember, clearOrderMember, startCheckout, stockRoots, oldMaterials, stockChecks, goodsTab, goodsTabs, goodsTabTitle, categoryStockText, goodsStockText, goodsImage, wallCat, wallGoods, wallLoading, pickWallCat, notices, loadNotifications, markNotificationRead, kpiDetailRows, kpiDetailSummary, kpiDetailLoading, kpiDetailTitle, api, managerTrendRows, managerTrendValues, managerTrendLabels, formatDay })
+provide(roleHomeKey, { lastSubmitted, salespeople, marketCountdown, managerTrendWeekdayLabels, rankingRangeLabel, router, app, isAdmin, salePrice, section, navigateSection, dashboard, dashboardError, warnings, ranking, rankingLoading, rankingError, loadManager, approvals, commission, spotPrice, managerFunctions, FUNCTION_ICONS, todayLabel, money, openFunction, openKpiDetail, formatApprovalReason, approvalFilter, approvalTabs, approvalView, approvalHistoryData, typeName, filteredApprovals, openApprovalHistory, openApprovalDetail, report, period, reportError, recycleData, reportTab, reportTabs, reportTabTitle, payMethodRows, categoryRows, loadReport, maskPhone, auth, members, birthdayMembers, memberCreateOpen, memberStats, tiers, openMember, call, role, isManager, visits, performance, trendValues, order, salesFunctions, SALES_FUNCTION_ICONS, monthLabel, targetValue, salesTrendLabels, visitStats, keyword, memberTab, loadMembers, claim, threshold, oldMaterialTypes, oldMaterialTypeError, oldMetal, orderMemberHits, recyclePrice, isGramItem, oldDeduct, orderTotal, scan, previewGoods, scanOrSearch, normalizeOrderQty, addOldMetal, searchOrderMember, pickOrderMember, clearOrderMember, startCheckout, stockRoots, oldMaterials, stockChecks, goodsTab, goodsTabs, goodsTabTitle, categoryStockText, goodsStockText, goodsImage, wallCat, wallGoods, wallLoading, pickWallCat, notices, loadNotifications, markNotificationRead, kpiDetailRows, kpiDetailSummary, kpiDetailLoading, kpiDetailTitle, api, managerTrendRows, managerTrendValues, managerTrendLabels, formatDay })
 </script>
 
 <style scoped>

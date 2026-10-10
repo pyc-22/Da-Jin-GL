@@ -266,7 +266,7 @@ public class OrderController {
             }
         }
     }
-    @GetMapping("/{id}") public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
+    @GetMapping("/{id}") @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true) public ApiResponse<?> detail(@PathVariable long id, HttpServletRequest r) {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("id", id).addValue("s", db.store(r));
         Map<String,Object> order = db.one("select o.*, " + SalesAmounts.originalDue("o") + " original_due, "
                 + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, "
@@ -275,6 +275,8 @@ public class OrderController {
                 + "left join sys_user cashier on cashier.user_id=o.cashier_id and cashier.store_id=o.store_id "
                 + "left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id "
                 + "where o.order_id=:id and o.store_id=:s", p);
+        if (order == null) throw new BusinessException(404108, "销售订单不存在");
+        if (isSales(r) && !salesCanView(order, userId(r))) throw new BusinessException(403403, "无权查看该销售订单");
         List<Map<String,Object>> payments = order == null ? List.of() : db.list(
                 "select pay_method,case when type='EXPENSE' then -amount else amount end as amount,type,category,create_time from finance_record where store_id=:s and related_bill_no=:no and ((type='INCOME' and category='SALE') or (type='EXPENSE' and category='SALE_REFUND')) order by finance_id",
                 new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", order.get("order_no")));
@@ -285,7 +287,7 @@ public class OrderController {
         result.put("payments", payments);
         return ApiResponse.ok(result);
     }
-    @GetMapping("/list") public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("limit", size).addValue("off", (page - 1) * size); return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, " + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, " + SalesAmounts.remainingDue("o") + " remaining_due, sales.real_name sales_name from sales_order o left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id where o.store_id=:s and o.status<>6 and (:st is null or o.status=:st) and (:ho is null or o.handover=:ho) order by o.order_id desc limit :limit offset :off", p)); }
+    @GetMapping("/list") @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true) public ApiResponse<?> list(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) Integer status, @RequestParam(required = false) Integer handover, HttpServletRequest r) { MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("st", status).addValue("ho", handover).addValue("uid", userId(r)).addValue("limit", size).addValue("off", (page - 1) * size); String scope = isSales(r) ? " and (o.sales_id=:uid or o.cashier_id=:uid)" : ""; return ApiResponse.ok(db.list("select o.*, " + SalesAmounts.originalDue("o") + " original_due, " + SalesAmounts.discountedDue("o") + " discounted_due, " + SalesAmounts.actualPaid("o") + " actual_paid, " + SalesAmounts.remainingDue("o") + " remaining_due, sales.real_name sales_name from sales_order o left join sys_user sales on sales.user_id=o.sales_id and sales.store_id=o.store_id where o.store_id=:s and o.status<>6" + scope + " and (:st is null or o.status=:st) and (:ho is null or o.handover=:ho) order by o.order_id desc limit :limit offset :off", p)); }
 
     /**
      * Compatibility endpoint for older cashier builds.  Older builds used
@@ -473,6 +475,16 @@ public class OrderController {
         }
     }
     private long userId(HttpServletRequest r) { io.jsonwebtoken.Claims c=(io.jsonwebtoken.Claims)r.getAttribute("claims"); return c == null ? 0L : Long.parseLong(c.getSubject()); }
+    private boolean isSales(HttpServletRequest request) {
+        Claims claims = (Claims) request.getAttribute("claims");
+        return claims != null && "SALES".equalsIgnoreCase(String.valueOf(claims.get("role")));
+    }
+    private boolean salesCanView(Map<String, Object> order, long userId) {
+        return matchesUser(order.get("sales_id"), userId) || matchesUser(order.get("cashier_id"), userId);
+    }
+    private boolean matchesUser(Object value, long userId) {
+        return value instanceof Number && ((Number) value).longValue() == userId;
+    }
     private Long nullableId(Object value) {
         if (value == null || String.valueOf(value).isBlank()) return null;
         try { return Long.parseLong(String.valueOf(value)); }
@@ -501,6 +513,7 @@ public class OrderController {
 
     /** 销售单据（热敏小票版式）：移动端预览 + 收银端待打印共用同一 HTML。 */
     @GetMapping(value = "/{id}/receipt", produces = "text/html;charset=UTF-8")
+    @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true)
     public String receipt(@PathVariable long id, @RequestParam(required = false) Boolean preview, HttpServletRequest r) {
         boolean previewMode = Boolean.TRUE.equals(preview);
         long storeId = db.store(r);
@@ -560,10 +573,13 @@ public class OrderController {
 
     /** 移动端送销售单据打印：进入收银端「待打印」队列。 */
     @PostMapping("/{id}/print-request")
+    @RequirePermission(value = {"order:create", "order:checkout"}, anyOf = true)
     @Transactional
     public ApiResponse<?> salesPrintRequest(@PathVariable long id, HttpServletRequest r) {
         long storeId = db.store(r);
-        Map<String, Object> o = db.one("select o.order_no,m.name member_name,m.phone member_phone from sales_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id where o.order_id=:id and o.store_id=:s", Map.of("id", id, "s", storeId));
+        Map<String, Object> o = db.one("select o.order_id,o.order_no,o.sales_id,o.cashier_id,m.name member_name,m.phone member_phone from sales_order o left join member m on m.member_id=o.member_id and m.store_id=o.store_id where o.order_id=:id and o.store_id=:s", Map.of("id", id, "s", storeId));
+        if (o == null) throw new BusinessException(404108, "销售订单不存在");
+        if (isSales(r) && !salesCanView(o, userId(r))) throw new BusinessException(403403, "无权打印该销售订单");
         List<Map<String, Object>> existing = db.list("select job_id from print_job where store_id=:s and order_id=:oid and job_type='SALES' and status='PENDING' limit 1", Map.of("s", storeId, "oid", id));
         if (!existing.isEmpty()) return ApiResponse.ok(Map.of("sent", true, "jobId", existing.get(0).get("job_id"), "duplicate", true));
         db.jdbc().update("insert into print_job(store_id,order_id,order_no,customer_name,customer_phone,job_type,status,created_by,create_time) values(:s,:oid,:no,:n,:p,'SALES','PENDING',:u,now())",

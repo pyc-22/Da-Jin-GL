@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { financeBusinessType, formatApprovalReason, formatFinanceBusiness, formatFinanceType, formatMoney, formatOperationAction, formatOperationModule, formatPaymentMethod, formatShiftContent, formatTime } from './format'
 
 describe('management display formatting', () => {
-  it('renders a UTC timestamp in Beijing time without an ISO separator', () => {
-    expect(formatTime('2026-09-03T06:38:47')).toBe('2026-09-03 14:38:47')
+  it('renders a database timestamp as stored without a timezone shift', () => {
+    expect(formatTime('2026-09-03T06:38:47')).toBe('2026-09-03 06:38')
   })
 
   it('renders supported payment channels in Chinese and handles missing values', () => {

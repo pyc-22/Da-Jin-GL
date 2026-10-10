@@ -1,7 +1,7 @@
 <template>
 <section  class="page">
 <PageTitle :title="kpiDetailTitle">
-<button class="outline" @click="section='dashboard'">返回看板</button>
+<button class="outline" @click="navigateSection('dashboard')">返回看板</button>
 </PageTitle>
 <p class="muted small" style="margin:0 0 10px">{{ kpiDetailSummary }}</p>
 <Panel :title="kpiDetailTitle">
@@ -25,5 +25,5 @@ import { inject } from 'vue'
 import { roleHomeKey } from './context.js'
 import Panel from '../../components/Panel.vue'
 import PageTitle from '../../components/PageTitle.vue'
-const { section, dashboard, kpiDetailRows, kpiDetailSummary, kpiDetailLoading, kpiDetailTitle } = inject(roleHomeKey)
+const { navigateSection, kpiDetailRows, kpiDetailSummary, kpiDetailLoading, kpiDetailTitle } = inject(roleHomeKey)
 </script>
