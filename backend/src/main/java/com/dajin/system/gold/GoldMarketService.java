@@ -185,6 +185,9 @@ public class GoldMarketService {
             item.put("price", price != null ? price : (salePrice != null ? salePrice : recyclePrice)); item.put("sort", definitions.size() + 1); item.put("status", 1);
             definitions.add(item);
         }
+        if (number(item.getOrDefault("status", 1)) != 1) {
+            throw new BusinessException(409303, "该金类已停用，请先启用后再保存价格");
+        }
         Map<String, Object> previous = latestPrices(storeId).get(String.valueOf(item.get("name")));
         BigDecimal previousSale = previous == null ? null : decimal(previous.get("sale_price"));
         BigDecimal previousRecycle = previous == null ? null : decimal(previous.get("recycle_price"));

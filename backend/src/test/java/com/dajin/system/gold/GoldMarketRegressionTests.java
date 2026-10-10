@@ -103,6 +103,18 @@ class GoldMarketRegressionTests {
         assertEquals(new BigDecimal("880.00"), payload.get("recyclePrice"));
     }
 
+    @Test void manualPriceRejectsDisabledMetalType() {
+        when(jdbc.queryForObject(contains("gold_metal_types"), anyMap(), eq(String.class)))
+                .thenReturn("[{\"name\":\"银\",\"code\":\"SILVER\",\"price\":10,\"status\":0}]");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.saveManual(9106, 1, "SILVER", new BigDecimal("10.00")));
+
+        assertEquals(409303, error.getCode());
+        verify(jdbc, never()).update(contains("insert into gold_price("), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
+        verify(ws, never()).broadcast(eq("GOLD_PRICE_UPDATED"), any());
+    }
+
     @Test void legacyManualPriceOnlyChangesItsMappedSide() {
         Map<String, Object> oldPrice = new HashMap<>(Map.of(
                 "price_type", "足金", "sale_price", new BigDecimal("940.00"),
