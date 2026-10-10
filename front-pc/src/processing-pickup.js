@@ -12,13 +12,14 @@ export async function markProcessingPickedUp(order, request, pickupPhotos) {
   if (processingOutstanding(order) > 0) throw new Error('尾款未收清，请先收尾款')
   if (processingRefundOutstanding(order) > 0) throw new Error('客户返款未完成，请先完成返款')
   const photos = Array.isArray(pickupPhotos) ? pickupPhotos.filter(photo => String(photo || '').trim()) : []
-  if (!photos.length) throw new Error('请先添加至少1张取货照片')
-  await request(`/api/processing/orders/${order.processing_order_id}/photos`, {
-    method: 'POST',
-    body: JSON.stringify({ type: 'pickup', urls: photos })
-  })
+  if (photos.length) {
+    await request(`/api/processing/orders/${order.processing_order_id}/photos`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'pickup', urls: photos, clientRequestId: `pickup-photo-${order.processing_order_id}-${Date.now()}` })
+    })
+  }
   return request(`/api/processing/orders/${order.processing_order_id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'PICKED_UP' })
+    body: JSON.stringify({ status: 'PICKED_UP', clientRequestId: `pickup-status-${order.processing_order_id}-${Date.now()}` })
   })
 }

@@ -14,17 +14,16 @@ describe('processing pickup', () => {
       '/api/processing/orders/18/photos',
       '/api/processing/orders/18/status'
     ])
-    expect(request).toHaveBeenLastCalledWith('/api/processing/orders/18/status', {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'PICKED_UP' })
-    })
+    const statusCall = calls.find(([path]) => path.endsWith('/status'))[1]
+    expect(JSON.parse(statusCall.body)).toEqual(expect.objectContaining({ status: 'PICKED_UP', clientRequestId: expect.any(String) }))
   })
 
-  it('does not change status when pickup photos are missing', async () => {
-    const request = vi.fn()
+  it('confirms pickup without photos', async () => {
+    const request = vi.fn(async () => ({ status: 'PICKED_UP' }))
     const row = { processing_order_id: 18, due_amount: 200, paid_amount: 200 }
-    await expect(markProcessingPickedUp(row, request, [])).rejects.toThrow('请先添加至少1张取货照片')
-    expect(request).not.toHaveBeenCalled()
+    await markProcessingPickedUp(row, request, [])
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request.mock.calls[0][0]).toBe('/api/processing/orders/18/status')
   })
 
   it('keeps unpaid orders in the pending-pickup list', async () => {

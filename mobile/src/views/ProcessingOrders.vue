@@ -28,7 +28,7 @@
           </div>
           <p>{{ order.customer_name || order.member_name || '散客' }} · {{ order.customer_phone || '—' }}</p>
           <p>{{ order.order_no }}</p>
-          <p>{{ order.quantity || 1 }} 件 · 工费 {{ money(order.labor_fee) }} · 整单应收 {{ money(order.settlement_due_amount ?? order.due_amount) }} · 待收 {{ money(outstanding(order)) }}</p>
+          <p>{{ order.item_count ?? order.quantity ?? 1 }} 件 · 工费 {{ money(order.labor_fee) }} · 整单应收 {{ money(order.settlement_due_amount ?? order.due_amount) }} · 待收 {{ money(outstanding(order)) }}</p>
           <p class="muted">师傅：{{ order.craftsman_name || '未指派' }} · 取货 {{ date(order.pickup_date) }}</p>
         </div>
         <div class="timeline">
@@ -52,12 +52,12 @@
             </div>
             <div class="detail-grid">
               <template v-if="Array.isArray(detail.items) && detail.items.length">
-                <div v-for="line in detail.items" :key="line.order_item_id || line.processing_item_id" class="detail-line"><span>{{ line.item_name_snapshot }} × {{ line.quantity || 1 }}</span><b>{{ line.pricing_unit }} · 工费 {{ money(line.labor_fee) }}{{ line.billing_weight ? ` · ${Number(line.billing_weight).toFixed(3)}g` : '' }}</b></div>
+              <div v-for="(line, index) in detail.items" :key="line.order_item_id || `${line.processing_item_id}-${index}`" class="detail-line"><span>{{ line.item_name_snapshot }} × {{ line.quantity || 1 }}</span><b>{{ line.pricing_unit }} · 工费 {{ money(line.labor_fee) }}{{ line.billing_weight != null ? ` · ${Number(line.billing_weight).toFixed(3)}g` : '' }}<small v-if="line.pricing_description">{{ line.pricing_description }}</small></b></div>
               </template>
               <div><span>加工单号</span><b>{{ detail.order_no }}</b></div>
               <div><span>客户</span><b>{{ detail.customer_name || detail.member_name || '散客' }}</b></div>
               <div><span>联系电话</span><b>{{ detail.customer_phone || '—' }}</b></div>
-              <div><span>数量</span><b>{{ detail.quantity || 1 }} 件</b></div>
+              <div><span>数量</span><b>{{ detail.item_count ?? detail.quantity ?? 1 }} 件</b></div>
               <div><span>单价工费</span><b>{{ money(detail.unit_labor_fee) }}</b></div>
               <div><span>工费合计</span><b>{{ money(detail.labor_fee) }}</b></div>
               <div><span>旧金克重</span><b>{{ grams(detail.old_gold_weight) }}</b></div>
@@ -125,13 +125,16 @@
           <label class="form-label">预计取货日期<input v-model="form.pickupDate" type="date"/></label>
           <label class="form-label">客户姓名 *<input v-model.trim="form.customerName" placeholder="请输入客户姓名"/></label>
           <label class="form-label">客户电话 *<input v-model.trim="form.customerPhone" type="tel" placeholder="11 位手机号，用于取货通知"/></label>
-          <label class="form-label">加工项目 *
-            <select v-model="form.itemId" @change="handleItemChange">
+          <div class="form-label">加工项目 *</div>
+          <div v-for="(piece, index) in form.items" :key="index" class="form-row">
+            <label class="form-label">第 {{ index + 1 }} 件
+            <select v-model="piece.processingItemId" @change="index === 0 && handleItemChange()">
               <option value="" disabled>请选择加工项目</option>
               <option v-for="item in items" :key="item.item_id" :value="item.item_id">{{ item.name }}（{{ item.category_name }}）· {{ money(item.labor_fee) }}{{ item.pricing_unit === '按克' ? '/g' : '/件' }} · {{ item.duration_text || `${item.processing_days}天` }}</option>
             </select>
-          </label>
-          <label class="form-label">数量 *<input v-model.number="form.quantity" type="number" min="1" step="1"/></label>
+            </label><button v-if="form.items.length > 1" class="outline" type="button" @click="form.items.splice(index, 1)">删除</button>
+          </div>
+          <button class="outline full" type="button" :disabled="form.items.length >= 20" @click="form.items.push({ processingItemId: Number(selectedItem?.item_id || form.itemId) || '' })">＋ 添加一件（{{ form.items.length }}/20）</button>
           <p v-if="selectedItem?.pricing_unit === '按克'" class="muted small" style="width:100%">按克项目：工费在完工登记成品实重时按「计费总克重 × {{ money(selectedItem.labor_fee) }}/g」计算，开单可留空。</p>
           <label class="form-label">加工师傅
             <select v-model="form.craftsmanId">
@@ -200,7 +203,7 @@ const creating = ref(false), saving = ref(false), createError = ref('')
 const pending = ref(pendingProcessingSummary()), syncing = ref(false), activeRef = ref('')
 function refreshPending() { pending.value = pendingProcessingSummary() }
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
-const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
+const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, items: [{ processingItemId: '' }], billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
 const recyclePrice = computed(() => Number(app.primaryGold?.recyclePrice || 0))
 const duePreview = computed(() => Math.max(0, laborFee.value))
@@ -233,8 +236,8 @@ async function advance(order) {
     detail.value = null; await load()
   } catch (e) { toast(e?.message || '状态更新失败') }
 }
-const selectedItem = computed(() => items.value.find(item => Number(item.item_id) === Number(form.itemId)) || null)
-const laborFee = computed(() => Math.round(Number(selectedItem.value?.labor_fee || 0) * Number((selectedItem.value?.pricing_unit === '按克' ? form.billingWeight : form.quantity) || 0) * 100) / 100)
+const selectedItem = computed(() => items.value.find(item => Number(item.item_id) === Number(form.items[0]?.processingItemId) || Number(item.item_id) === Number(form.itemId)) || null)
+const laborFee = computed(() => form.items.reduce((sum, piece) => { const item = items.value.find(row => Number(row.item_id) === Number(piece.processingItemId)); return sum + (item?.pricing_unit === '按克' ? 0 : Number(item?.labor_fee || 0)) }, 0))
 const localToday = () => { const now = new Date(); const pad = value => String(value).padStart(2, '0'); return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` }
 const lateCount = computed(() => { const today = localToday(); return orders.value.filter(o => o.status !== 'PICKED_UP' && o.pickup_date && String(o.pickup_date).slice(0, 10) < today).length })
 const list = rows => (Array.isArray(rows) ? rows : rows?.records || [])
@@ -291,6 +294,7 @@ async function submitRefund(method) {
 function call(phone) { if (typeof uni !== 'undefined') uni.makePhoneCall({ phoneNumber: String(phone) }); else window.location.href = `tel:${phone}` }
 async function openCreate() {
   creating.value = true; createError.value = ''
+  form.items = [{ processingItemId: form.itemId || '' }]
   // 这次开单的幂等标识：提交失败后按同一 ref 存草稿，重试不会重复建单
   if (!activeRef.value) activeRef.value = makeProcessingRef()
   if (!items.value.length) {
@@ -351,23 +355,26 @@ function handleItemChange() {
   // 用本地日期：toISOString 是 UTC，+08 凌晨会算成前一天
   const pad = value => String(value).padStart(2, '0')
   form.pickupDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`
+  form.itemId = form.items[0]?.processingItemId || ''
 }
 function resetForm() {
-  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
+  Object.assign(form, { customerName: '', customerPhone: '', itemId: '', quantity: 1, items: [{ processingItemId: '' }], billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
   memberKeyword.value = ''; memberHits.value = []
 }
 async function submit() {
   createError.value = ''
   if (!form.customerName) { createError.value = '请填写客户姓名'; return }
   if (!/^1\d{10}$/.test(form.customerPhone)) { createError.value = '请填写 11 位手机号'; return }
-  if (!form.itemId) { createError.value = '请选择加工项目'; return }
-  if (!(Number(form.quantity) > 0)) { createError.value = '数量必须大于 0'; return }
+  if (!form.items.length || form.items.length > 20 || form.items.some(piece => !piece.processingItemId)) { createError.value = '请选择每件加工项目（最多20件）'; return }
   // 按克项目的计费总克重要等完工、知道成品实际克重后才填，开单阶段允许留空（工费先记 0）
   if (!(Number(form.oldGoldWeight) > 0)) { createError.value = '请填写来料克重（客户没有旧金请到收银端开单）'; return }
   if (!(Number(form.oldGoldFineness) > 0 && Number(form.oldGoldFineness) <= 1)) { createError.value = '请填写 0~1 之间的来料成色'; return }
-  const payload = buildProcessingDraftPayload(form, selectedItem.value, activeRef.value)
+  form.itemId = form.items[0].processingItemId
+  form.quantity = 1
+  const payload = { ...buildProcessingDraftPayload(form, selectedItem.value, activeRef.value), items: form.items.map(piece => ({ processingItemId: Number(piece.processingItemId), quantity: 1 })) }
   saving.value = true
   try {
+    payload.clientRequestId = payload.clientRequestId || activeRef.value
     const created = await api.processingCreate(payload)
     removeProcessingDraft(activeRef.value)
     closeCreate(); resetForm()

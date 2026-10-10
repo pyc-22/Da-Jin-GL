@@ -8,8 +8,8 @@ import java.util.*;
 
 /**
  * The single pricing implementation used by processing orders and all clients.
- * Tier lower bounds are exclusive except for the first (zero) tier; upper bounds
- * are inclusive, so a weight exactly on a boundary stays in the lower tier.
+ * Tier lower bounds are exclusive; upper bounds are inclusive, so a weight
+ * exactly on a boundary stays in the lower tier.
  */
 public final class ProcessingPricing {
     public static final String WHOLE_TIER = "WHOLE_TIER";
@@ -34,13 +34,20 @@ public final class ProcessingPricing {
         BigDecimal grams = weight == null ? BigDecimal.ZERO : weight.max(BigDecimal.ZERO);
         BigDecimal base = fallback == null ? BigDecimal.ZERO : fallback;
         List<Tier> tiers = enabledSorted(input);
-        if (grams.signum() <= 0 || tiers.isEmpty()) {
-            return new Result(base.setScale(2, RoundingMode.HALF_UP), "基础工费", null);
+        if (grams.signum() <= 0) {
+            return new Result(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), "基础工费", null);
+        }
+        if (tiers.isEmpty()) {
+            BigDecimal fee = base.multiply(grams).setScale(2, RoundingMode.HALF_UP);
+            return new Result(fee, "基础工费：" + base.setScale(2, RoundingMode.HALF_UP).toPlainString() + "元/克 × " + grams.setScale(3, RoundingMode.HALF_UP).toPlainString() + "g = " + fee.toPlainString(), null);
         }
         String algorithm = normalizeMode(mode);
         if (WHOLE_TIER.equals(algorithm)) {
             Tier tier = matchingWhole(tiers, grams);
-            if (tier == null) return new Result(base.setScale(2, RoundingMode.HALF_UP), "基础工费（无匹配阶梯）", null);
+            if (tier == null) {
+                BigDecimal fee = base.multiply(grams).setScale(2, RoundingMode.HALF_UP);
+                return new Result(fee, "基础工费（无匹配阶梯）：" + base.setScale(2, RoundingMode.HALF_UP).toPlainString() + "元/克 × " + grams.setScale(3, RoundingMode.HALF_UP).toPlainString() + "g = " + fee.toPlainString(), null);
+            }
             BigDecimal fee = FLAT.equals(tier.mode()) ? tier.price() : grams.multiply(tier.price());
             fee = fee.setScale(2, RoundingMode.HALF_UP);
             return new Result(fee, describe(tier, grams, fee, false), tier);
@@ -63,13 +70,15 @@ public final class ProcessingPricing {
         }
         if (remaining.signum() > 0) {
             // A malformed/partial configuration must not silently undercharge.
-            return new Result(base.setScale(2, RoundingMode.HALF_UP), "基础工费（阶梯未覆盖）", null);
+            BigDecimal fallbackFee = base.multiply(grams).setScale(2, RoundingMode.HALF_UP);
+            return new Result(fallbackFee, "基础工费（阶梯未覆盖）", null);
         }
         return new Result(fee.setScale(2, RoundingMode.HALF_UP), String.join(" + ", parts), last);
     }
 
     public static void validate(String mode, List<Tier> input) {
-        if (!WHOLE_TIER.equals(normalizeMode(mode)) && !PROGRESSIVE.equals(normalizeMode(mode)))
+        String algorithm = normalizeMode(mode);
+        if (!WHOLE_TIER.equals(algorithm) && !PROGRESSIVE.equals(algorithm))
             throw new BusinessException(400741, "计费算法只能是全额按档或累进分段");
         List<Tier> tiers = enabledSorted(input);
         BigDecimal previousMax = null;
@@ -81,8 +90,8 @@ public final class ProcessingPricing {
                 throw new BusinessException(400743, "阶梯计价方式只能是每克价或一口价");
             if (tier.maxWeight() != null && tier.maxWeight().compareTo(tier.minWeight()) <= 0)
                 throw new BusinessException(400744, "阶梯上限必须大于下限");
-            if (previousMax != null && tier.minWeight().compareTo(previousMax) < 0)
-                throw new BusinessException(400745, "阶梯区间重叠，请检查第" + (i + 1) + "档");
+            if (i > 0 && (previousMax == null || tier.minWeight().compareTo(previousMax) < 0))
+                throw new BusinessException(400745, "阶梯区间重叠，请检查第" + i + "档与第" + (i + 1) + "档");
             previousMax = tier.maxWeight();
         }
         if (PROGRESSIVE.equals(normalizeMode(mode)) && !tiers.isEmpty()) {
@@ -99,13 +108,13 @@ public final class ProcessingPricing {
     }
 
     public static String normalizeMode(String mode) {
-        return mode == null || mode.isBlank() ? WHOLE_TIER : mode.toUpperCase(Locale.ROOT);
+        return mode == null || mode.isBlank() ? "" : mode.toUpperCase(Locale.ROOT);
     }
 
     private static List<Tier> enabledSorted(List<Tier> input) {
         if (input == null) return List.of();
         return input.stream().filter(Objects::nonNull).filter(Tier::enabled)
-                .sorted(Comparator.comparingInt(Tier::sort).thenComparing(Tier::minWeight)).toList();
+                .sorted(Comparator.comparing(Tier::minWeight).thenComparing(Tier::maxWeight, Comparator.nullsLast(Comparator.naturalOrder())).thenComparingInt(Tier::sort)).toList();
     }
 
     private static Tier matchingWhole(List<Tier> tiers, BigDecimal weight) {

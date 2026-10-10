@@ -70,6 +70,10 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("visit_task", "call_result", "VARCHAR(24) NULL AFTER record");
         addColumn("visit_task", "call_started_at", "DATETIME NULL AFTER call_result");
         addColumn("processing_order", "commission_rate_snapshot", "DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER unit_labor_fee");
+        // 加工写接口的幂等预占使用 operation_log 的唯一键；老库可能只有
+        // operation_log 基础字段，因此这里必须补列和索引后才能安全重放。
+        addColumn("operation_log", "client_request_id", "VARCHAR(64) NULL AFTER content");
+        addIndex("operation_log", "uk_log_idempotency", "store_id,module,client_request_id", true);
         addColumn("sys_user", "remark", "VARCHAR(500) NULL AFTER entry_date");
         addColumn("sys_user", "permission_initialized", "TINYINT NOT NULL DEFAULT 0 AFTER remark");
         addColumn("sys_user", "permission_customized", "TINYINT NOT NULL DEFAULT 0 AFTER permission_initialized");
@@ -89,6 +93,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "pricing_unit", "VARCHAR(10) NOT NULL DEFAULT '按件' AFTER commission_rate_snapshot");
         addColumn("processing_order", "billing_weight", "DECIMAL(10,3) NULL AFTER pricing_unit");
         createProcessingPricingTables();
+        addColumn("processing_order_item", "remark", "VARCHAR(500) NULL AFTER pricing_description");
         migrateProcessingOrderItems();
         addColumn("processing_order", "original_due_amount", "DECIMAL(12,2) NULL AFTER due_amount");
         addColumn("processing_order", "promotion_discount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER original_due_amount");
@@ -536,14 +541,14 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
     }
 
     private void createProcessingPricingTables() {
-        jdbc.execute("create table if not exists processing_order_item (order_item_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,pricing_unit varchar(10) not null default '按件',unit_labor_fee decimal(12,2) not null default 0,price_calc_mode varchar(20) null,billing_weight decimal(10,3) null,labor_fee decimal(12,2) not null default 0,price_snapshot json null,pricing_description varchar(1000) null,sort int not null default 0,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,key idx_processing_order_item_order(store_id,processing_order_id,sort),key idx_processing_order_item_project(store_id,processing_item_id))");
+        jdbc.execute("create table if not exists processing_order_item (order_item_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,pricing_unit varchar(10) not null default '按件',unit_labor_fee decimal(12,2) not null default 0,price_calc_mode varchar(20) null,quantity int not null default 1,billing_weight decimal(10,3) null,labor_fee decimal(12,2) not null default 0,price_snapshot json null,pricing_description varchar(1000) null,remark varchar(500) null,sort int not null default 0,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,key idx_processing_order_item_order(store_id,processing_order_id,sort),key idx_processing_order_item_project(store_id,processing_item_id))");
         addColumn("processing_order_item", "quantity", "INT NOT NULL DEFAULT 1 AFTER price_calc_mode");
         jdbc.execute("create table if not exists processing_price_tier (tier_id bigint primary key auto_increment,store_id bigint not null,processing_item_id bigint not null,min_weight decimal(10,3) not null default 0,max_weight decimal(10,3) null,mode varchar(16) not null default 'PER_GRAM',price decimal(12,2) not null default 0,sort int not null default 0,enabled tinyint not null default 1,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,key idx_processing_price_tier_item(store_id,processing_item_id,enabled,sort))");
     }
 
     private void migrateProcessingOrderItems() {
         jdbc.update("update processing_order set item_count=coalesce(nullif(item_count,0),quantity,1) where item_count is null or item_count=0");
-        jdbc.update("insert into processing_order_item(store_id,processing_order_id,processing_item_id,item_name_snapshot,pricing_unit,unit_labor_fee,price_calc_mode,billing_weight,labor_fee,sort) select o.store_id,o.processing_order_id,o.processing_item_id,o.item_name_snapshot,coalesce(o.pricing_unit,'按件'),o.unit_labor_fee,null,o.billing_weight,o.labor_fee,0 from processing_order o left join processing_order_item i on i.processing_order_id=o.processing_order_id where i.order_item_id is null");
+        jdbc.update("insert into processing_order_item(store_id,processing_order_id,processing_item_id,item_name_snapshot,pricing_unit,unit_labor_fee,price_calc_mode,quantity,billing_weight,labor_fee,sort) select o.store_id,o.processing_order_id,o.processing_item_id,o.item_name_snapshot,coalesce(o.pricing_unit,'按件'),o.unit_labor_fee,null,greatest(coalesce(o.quantity,1),1),o.billing_weight,o.labor_fee,0 from processing_order o left join processing_order_item i on i.store_id=o.store_id and i.processing_order_id=o.processing_order_id where i.order_item_id is null");
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','processing_order_items_v1','1','加工单子项及阶梯计价迁移标记',101,1 from sys_store");
     }
 

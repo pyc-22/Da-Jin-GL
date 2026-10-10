@@ -32,9 +32,9 @@ final class ProcessingWarrantyHtml {
                 + "<span>客户电话：<b>" + esc(String.valueOf(o.getOrDefault("customer_phone", "-"))) + "</b></span>"
                 + "<span>导购（销售）：<b>" + esc(salesName) + "</b></span>"
                 + "<span>加工师傅：<b>" + esc(craftsmanName) + "</b></span></div>"
-                + "<table><thead><tr><th>加工项目</th><th>数量</th><th class=\"num\">工费</th></tr></thead><tbody><tr><td>"
-                + esc(String.valueOf(o.getOrDefault("item_name_snapshot", "-")))
-                + "</td><td>" + esc(String.valueOf(o.getOrDefault("quantity", "1"))) + " 件</td><td class=\"num\">¥" + dec(o.get("labor_fee")).toPlainString() + "</td></tr></tbody></table>"
+                + "<table><thead><tr><th>加工项目</th><th>数量</th><th>计价方式/重量</th><th>单价/说明</th><th class=\"num\">工费</th></tr></thead><tbody>"
+                + warrantyLines(o)
+                + "</tbody><tfoot><tr><th colspan=4>整单工费合计</th><th class=\"num\">¥" + dec(o.get("labor_fee")).setScale(2, RoundingMode.HALF_UP).toPlainString() + "</th></tr></tfoot></table>"
                 + "<h2>费用</h2><div class=\"fee\"><div><span>加工工费</span><span>" + dec(o.get("labor_fee")).toPlainString() + "</span></div>"
                 + "<div><span>回收屑抵扣</span><span>-" + dec(o.get("residual_gold_deduction")).toPlainString() + (dec(o.get("residual_gold_weight")).signum() > 0 ? "（" + dec(o.get("residual_gold_weight")).toPlainString() + "g）" : "") + "</span></div>"
                 + "<div><span>应收金额</span><span>" + due.toPlainString() + "</span></div>"
@@ -73,6 +73,22 @@ final class ProcessingWarrantyHtml {
     }
 
     private static String esc(String s) { return s == null ? "-" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
+    private static String warrantyLines(Map<String,Object> o) {
+        Object raw = o.get("items");
+        if (!(raw instanceof java.util.List<?> lines) || lines.isEmpty()) {
+            return "<tr><td>" + esc(String.valueOf(o.getOrDefault("item_name_snapshot", "-"))) + "</td><td>" + esc(String.valueOf(o.getOrDefault("quantity", "1"))) + " 件</td><td>" + esc(String.valueOf(o.getOrDefault("pricing_unit", "按件"))) + "</td><td>¥" + dec(o.get("unit_labor_fee")).setScale(2, RoundingMode.HALF_UP).toPlainString() + "</td><td class=\"num\">¥" + dec(o.get("labor_fee")).setScale(2, RoundingMode.HALF_UP).toPlainString() + "</td></tr>";
+        }
+        StringBuilder result = new StringBuilder();
+        for (Object rawLine : lines) {
+            if (!(rawLine instanceof Map<?,?> line)) continue;
+            String unit = line.get("pricing_unit") == null ? "按件" : String.valueOf(line.get("pricing_unit"));
+            String weight = line.get("billing_weight") == null ? "" : grams(dec(line.get("billing_weight")));
+            String description = line.get("pricing_description") == null ? "" : String.valueOf(line.get("pricing_description"));
+            String lineName = line.get("item_name_snapshot") == null ? "-" : String.valueOf(line.get("item_name_snapshot"));
+            result.append("<tr><td>").append(esc(lineName)).append("</td><td>1 件</td><td>").append(esc(unit)).append(weight.isEmpty() ? "" : " · " + esc(weight)).append("</td><td>").append(esc(description.isEmpty() ? "¥" + dec(line.get("unit_labor_fee")).setScale(2, RoundingMode.HALF_UP).toPlainString() : description)).append("</td><td class=\"num\">¥").append(dec(line.get("labor_fee")).setScale(2, RoundingMode.HALF_UP).toPlainString()).append("</td></tr>");
+        }
+        return result.toString();
+    }
     private static BigDecimal dec(Object v) { return v == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(v)); }
     private static String grams(BigDecimal v) { return v.stripTrailingZeros().toPlainString() + "g"; }
 }

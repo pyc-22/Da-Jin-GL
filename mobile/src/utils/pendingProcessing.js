@@ -107,11 +107,15 @@ export function pendingProcessingSummary() {
 }
 
 export function buildProcessingDraftPayload(form, item, clientRequestId = '') {
+  const items = Array.isArray(form.items) && form.items.length
+    ? form.items.map(piece => ({ processingItemId: Number(piece.processingItemId), quantity: 1 }))
+    : Array.from({ length: Number(form.quantity) }, () => ({ processingItemId: Number(form.itemId), quantity: 1 }))
   return {
     customerName: form.customerName,
     customerPhone: form.customerPhone,
     processingItemId: Number(form.itemId),
     quantity: Number(form.quantity),
+    items,
     billingWeight: null,
     ...(clientRequestId ? { clientRequestId } : {}),
     ...(form.memberId ? { memberId: Number(form.memberId) } : {}),
