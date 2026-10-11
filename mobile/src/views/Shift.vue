@@ -9,8 +9,8 @@
           <h3>{{ info.shiftNo }}</h3>
         </div>
         <Panel title="收款汇总">
-          <div v-for="l in info.lines" :key="l.pay_method" class="rank-row">
-            <span>{{ methodLabel(l.pay_method) }}</span>
+          <div v-for="l in info.lines" :key="`${l.pay_method}-${l.channel_name || ''}`" class="rank-row">
+            <span>{{ methodLabel(l.pay_method, l.channel_name) }}</span>
             <strong>¥{{ money(l.amount) }}</strong>
             <small>{{ l.count }} 笔</small>
           </div>
@@ -75,12 +75,12 @@ const done = ref(false)
 const result = ref({})
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const LABELS = { CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BALANCE: '储值', BANK_CARD: '银行卡', XIANJIN: '现金', WEIXIN: '微信', ZHIFEBAO: '支付宝', CHUZHI: '储值', SQBWX: '收钱吧微信', SQBZFB: '收钱吧支付宝', DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购' }
-const methodLabel = (m) => LABELS[m] || m || '未指定'
+const methodLabel = (m, label) => label || LABELS[String(m || '').toUpperCase()] || m || '未指定'
 // 门店渠道 code 不统一（生产 XIANJIN、本地 CASH），现金行要按语义匹配，否则交班核对永远是 0
 const isCashMethod = (method, label) => ['CASH', 'XIANJIN'].includes(String(method || '').toUpperCase()) || String(label || method || '').includes('现金')
 const cashSystem = computed(() => {
-  const line = (info.value.lines || []).find(l => isCashMethod(l.pay_method, l.pay_method_name))
-  return Number(line?.amount || 0)
+  return (info.value.lines || []).filter(l => isCashMethod(l.pay_method, l.channel_name || l.pay_method_name))
+    .reduce((sum, line) => sum + Number(line.amount || 0), 0)
 })
 const cashDiff = computed(() => {
   const actual = Number(cashActual.value || 0)

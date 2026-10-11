@@ -15,6 +15,13 @@
           <b>{{ pending.drafts }} 单未提交成功{{ pending.handovers ? ` · ${pending.handovers} 单未转交前台` : '' }}</b>
           <small>{{ syncing ? '正在补传…' : '点这里立即重试（联网后会自动补传）' }}</small>
         </button>
+        <div v-if="draftRows.length" class="pending-drafts">
+          <div class="pending-drafts-title"><b>待同步草稿</b><small>草稿仅在原门店、原账号下可见</small></div>
+          <div v-for="draft in draftRows" :key="draft.ref" class="pending-draft-row">
+            <div><b>{{ draft.display?.itemName || '加工单' }}</b><span>{{ draft.display?.customerName || '散客' }} · {{ draft.status === 'FAILED' ? '同步失败' : '待同步' }}</span><small v-if="draft.error" class="error-text">失败原因：{{ draft.error }}</small></div>
+            <div class="pending-draft-actions"><button class="outline" type="button" :disabled="syncing" @click="retryOneDraft(draft)">{{ syncing ? '处理中…' : '重试' }}</button><button class="outline danger" type="button" @click="deleteDraft(draft)">删除</button></div>
+          </div>
+        </div>
         <p v-if="lateCount" class="muted small">有 {{ lateCount }} 笔加工单已超过预计取货日期，请及时联系客户。</p>
       </section>
       <EmptyState v-if="loading" title="加载中..." />
@@ -161,6 +168,7 @@
         </div>
       </section>
     </div>
+    <div v-if="refundAmountOpen" class="sheet-mask" @click.self="refundAmountOpen = false"><section class="sheet"><header><strong>登记返款</strong><button class="icon-btn" @click="refundAmountOpen = false">×</button></header><div class="sheet-body"><label class="form-label">返款金额（最多 {{ money(refundAmountMax) }}）<input v-model="refundAmountInput" type="number" min="0.01" :max="refundAmountMax" step="0.01" /></label><button class="primary full" @click="confirmRefundAmount">选择返款方式</button></div></section></div>
     <PayMethodPicker :open="refundPicker.open" :methods="payMethods" :model-value="refundPicker.method" title="选择返款方式" hint="返款会同时记入财务流水，请选择实际给客户的方式" @update:open="value => refundPicker.open = value" @pick="submitRefund" />
   </div>
 </template>
@@ -183,9 +191,9 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
-import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, isRetryableSubmitError, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft } from '../utils/pendingProcessing.js'
+import { addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, isRetryableSubmitError, listDrafts, makeProcessingRef, pendingProcessingSummary, removeProcessingDraft, removeDraft } from '../utils/pendingProcessing.js'
 import PayMethodPicker from '../components/PayMethodPicker.vue'
-import { syncPendingProcessing } from '../utils/processingSync.js'
+import { retryPendingDraft, syncPendingProcessing } from '../utils/processingSync.js'
 const route = useRoute()
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
@@ -206,8 +214,19 @@ let archiveStartX = 0, archiveStartY = 0, archiveHorizontal = false, suppressArc
 const detail = ref(null), detailLoading = ref(false)
 const creating = ref(false), saving = ref(false), createError = ref('')
 // 断网/服务异常时的兜底：开单没提交成功 → 存草稿；已创建但转交失败 → 待转交队列
-const pending = ref(pendingProcessingSummary()), syncing = ref(false), activeRef = ref('')
-function refreshPending() { pending.value = pendingProcessingSummary() }
+const pending = ref(pendingProcessingSummary()), draftRows = ref(listDrafts('processing')), syncing = ref(false), activeRef = ref('')
+function refreshPending() { pending.value = pendingProcessingSummary(); draftRows.value = listDrafts('processing') }
+async function retryOneDraft(draft) {
+  const result = await retryPendingDraft('processing', draft.ref)
+  refreshPending()
+  if (result.ok) toast('该草稿已补传成功')
+  else if (!result.busy) toast(result.error?.message || '该草稿补传失败，请稍后重试')
+}
+function deleteDraft(draft) {
+  if (!window.confirm(`确认删除 ${draft.display?.itemName || '这条加工草稿'}？删除后不能恢复。`)) return
+  removeDraft('processing', draft.ref)
+  refreshPending()
+}
 const items = ref([]), craftsmen = ref([]), materialTypes = ref(['足金旧料', '18K旧料', '22K旧料', '银旧料'])
 const form = reactive({ customerName: '', customerPhone: '', itemId: '', quantity: 1, items: [{ processingItemId: '' }], billingWeight: '', craftsmanId: '', pickupDate: '', oldGoldWeight: '', oldGoldFineness: '', remark: '', memberId: null })
 const memberKeyword = ref(''), memberHits = ref([])
@@ -304,8 +323,17 @@ async function notify(order) {
 }
 async function refund(order) {
   if (!canRefund.value || refundOutstanding(order) <= 0) return
-  const amount = Number(window.prompt(`请输入返款金额（待返 ${refundOutstanding(order).toFixed(2)} 元）`, refundOutstanding(order).toFixed(2)))
-  if (!Number.isFinite(amount) || amount <= 0 || amount > refundOutstanding(order)) return
+  refundAmountOrder.value = order
+  refundAmountMax.value = refundOutstanding(order)
+  refundAmountInput.value = refundOutstanding(order).toFixed(2)
+  refundAmountOpen.value = true
+}
+const refundAmountOpen = ref(false), refundAmountOrder = ref(null), refundAmountMax = ref(0), refundAmountInput = ref('')
+async function confirmRefundAmount() {
+  const amount = Number(refundAmountInput.value)
+  const order = refundAmountOrder.value
+  if (!order || !Number.isFinite(amount) || amount <= 0 || amount > refundAmountMax.value) return toast('返款金额必须大于0且不超过待返金额')
+  refundAmountOpen.value = false
   await ensurePayMethods()
   refundPicker.value = { open: true, order, amount, method: payMethods.value[0]?.code || '' }
 }
@@ -318,6 +346,7 @@ async function ensurePayMethods() {
     const rows = await api.payMethods()
     payMethods.value = (Array.isArray(rows) ? rows : rows?.records || [])
       .filter(item => Number(item.status ?? 1) === 1 && String(item.channel_code || '').trim())
+      .filter(item => !/储值|余额|团购|组合|balance|chuzhi|stored.?value|prepaid|group|combination/i.test(`${item.channel_code || ''} ${item.channel_name || ''}`))
       .map(item => ({ code: item.channel_code, label: item.channel_name || item.channel_code }))
   } catch (error) { toast(error?.message || '收款方式加载失败') }
 }
@@ -424,8 +453,14 @@ async function submit() {
         await api.processingHandover(created.processing_order_id)
         refreshPending()
       } catch (e) {
-        // 单子已经在服务器上了，只是没转过去 → 进"待转交"队列，可一键重试
-        addPendingHandover({ orderId: created.processing_order_id, orderNo: created.order_no || '' })
+        // 单子已经在服务器上了，只是没转过去 → 进"待转交"队列，可一键重试。
+        // 队列满时也不能把已创建的单子重新当成开单失败，否则外层
+        // catch 会再次保存开单草稿。此处只提示稍后从订单详情重试。
+        try {
+          addPendingHandover({ orderId: created.processing_order_id, orderNo: created.order_no || '' })
+        } catch (queueError) {
+          toast(queueError?.message || '待转交队列已满，请稍后在订单详情重试')
+        }
         refreshPending()
         toast(`加工单 ${created.order_no || ''} 已创建，但转交失败：${e?.message || '已在列表里加入待转交，可一键重试'}`)
       }
@@ -434,13 +469,18 @@ async function submit() {
   } catch (e) {
     // 提交没到服务器（断网/服务异常）→ 存成草稿，联网后自动补传；业务校验类错误只提示，不进队列
     if (isRetryableSubmitError(e)) {
-      const count = addProcessingDraft({
-        ref: activeRef.value || makeProcessingRef(),
-        payload,
-        display: { customerName: payload.customerName, itemName: selectedItem.value?.name || '', phone: payload.customerPhone }
-      })
-      refreshPending()
-      createError.value = `${e?.message || '开加工单失败'}；已保存为待同步草稿（共 ${count} 单），联网后会自动补传`
+      try {
+        const count = addProcessingDraft({
+          ref: activeRef.value || makeProcessingRef(),
+          payload,
+          display: { customerName: payload.customerName, itemName: selectedItem.value?.name || '', phone: payload.customerPhone }
+        })
+        refreshPending()
+        createError.value = `${e?.message || '开加工单失败'}；已保存为待同步草稿（共 ${count} 单），联网后会自动补传`
+      } catch (draftError) {
+        // 草稿已满时保留当前表单，不覆盖已有草稿，并把容量提示展示给用户。
+        createError.value = draftError?.message || '待同步草稿已达上限，请先处理或删除已有草稿'
+      }
     } else {
       createError.value = e?.message || '开加工单失败'
     }
@@ -533,6 +573,9 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 .estimate-lines .total{border-top:1px dashed var(--gold-line);margin-top:4px;padding-top:6px}
 .estimate-lines .total b{color:var(--gold-deep);font-size:16px}
 .error{margin:0 0 10px;color:var(--err);font-size:12px}
+.pending-drafts{margin-top:10px;border:1px solid var(--line);border-radius:var(--r-md);padding:10px;background:var(--card)}
+.pending-drafts-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;font-size:12px}.pending-drafts-title small{color:var(--ink-3);font-size:10px}
+.pending-draft-row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}.pending-draft-row>div:first-child{min-width:0;display:flex;flex-direction:column;gap:2px}.pending-draft-row span{font-size:11px;color:var(--ink-2)}.pending-draft-row .error-text{font-size:11px;color:var(--err);overflow-wrap:anywhere}.pending-draft-actions{display:flex;gap:6px;flex:none}.pending-draft-actions button{min-width:48px;padding:5px 8px;font-size:11px}.pending-draft-actions .danger{color:var(--err)}
 .photo-strip{margin-top:12px;display:grid;gap:10px}
 .photo-strip h4{margin:0 0 6px;font-size:13px}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px}

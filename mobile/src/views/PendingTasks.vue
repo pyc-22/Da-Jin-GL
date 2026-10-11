@@ -8,6 +8,13 @@
         <div><span>未收尾款</span><b class="due">{{ money(outstandingTotal) }}</b></div>
         <div><span>待返款</span><b class="due">{{ money(refundOutstandingTotal) }}</b></div>
       </section>
+      <section v-if="draftRows.length" class="form-card draft-card">
+        <div class="draft-heading"><b>本机待同步草稿</b><small>仅当前门店、当前账号可见</small></div>
+        <div v-for="draft in draftRows" :key="`${draft.kind}-${draft.ref}`" class="draft-row">
+          <div class="draft-copy"><b>{{ draft.display?.itemName || draft.display?.customerName || draft.kindLabel }}</b><small>{{ draft.status === 'FAILED' ? '同步失败' : '待同步' }} · {{ draft.error || '联网后自动补传' }}</small></div>
+          <div class="draft-actions"><button class="outline" :disabled="draftBusy" @click="retryDraft(draft)">{{ draftBusy ? '处理中…' : '重试' }}</button><button class="outline danger" @click="deleteDraftRow(draft)">删除</button></div>
+        </div>
+      </section>
       <p v-if="!loading && !error && rows.length" class="muted small">未结加工单按状态排列，款项由收银端处理。</p>
       <EmptyState v-if="loading" title="加载中..." />
       <EmptyState v-else-if="error" title=""><span>{{ error }}</span><button class="outline" @click="load">重试</button></EmptyState>
@@ -31,6 +38,8 @@
         <p v-if="String(row.status).toUpperCase() === 'PENDING' && Number(row.handover) === 1" class="muted small">已转交前台，等待收银端确认加工。</p>
       </article>
     </main>
+    <div v-if="refundAmountOpen" class="sheet-mask" @click.self="refundAmountOpen = false"><section class="sheet"><header><strong>登记返款</strong><button class="icon-btn" @click="refundAmountOpen = false">×</button></header><div class="sheet-body"><label class="form-label">返款金额（最多 {{ money(refundAmountMax) }}）<input v-model="refundAmountInput" type="number" min="0.01" :max="refundAmountMax" step="0.01" /></label><button class="primary full" @click="confirmRefundAmount">选择返款方式</button></div></section></div>
+    <PayMethodPicker :open="refundPicker.open" :methods="payMethods" :model-value="refundPicker.method" title="选择返款方式" hint="仅可选择门店已启用的外部渠道" @update:open="value => refundPicker.open = value" @pick="submitRefund" />
     <div v-if="photoOrder" class="sheet-mask" @click.self="closePickupPhotos">
       <section class="sheet">
         <header><strong>取货照片</strong><button class="icon-btn" @click="closePickupPhotos">×</button></header>
@@ -62,11 +71,15 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
 import { api, http } from '../api/request.js'
 import { uploadImage } from '../api/upload.js'
+import PayMethodPicker from '../components/PayMethodPicker.vue'
+import { listDrafts, removeDraft, pendingSubmitSummary } from '../utils/pendingProcessing.js'
+import { retryPendingDraft, syncPendingProcessing } from '../utils/processingSync.js'
 const router = useRouter(), auth = useAuthStore(), app = useAppStore()
 const storeName = computed(() => auth.user?.store_name || auth.user?.storeName || '默认门店')
 const canManage = computed(() => ['ADMIN', 'MANAGER'].includes(auth.role))
 const canRefund = computed(() => ['ADMIN', 'MANAGER', 'FRONT', 'CASHIER'].includes(auth.role))
 const rows = ref([]), loading = ref(false), error = ref('')
+const draftRows = ref([]), draftBusy = ref(false)
 const photoOrder = ref(null), photoBusy = ref(false), photoError = ref('')
 const STATUS_ORDER = { PENDING: 0, PROCESSING: 1, COMPLETED: 2 }
 const money = v => `¥${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -80,7 +93,7 @@ const readyCount = computed(() => rows.value.filter(row => String(row.status) ==
 const outstandingTotal = computed(() => rows.value.reduce((sum, row) => sum + outstanding(row), 0))
 const refundOutstandingTotal = computed(() => rows.value.reduce((sum, row) => sum + refundOutstanding(row), 0))
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; refreshDrafts()
   try {
     const data = await api.processingOrders({})
     const list = Array.isArray(data) ? data : data?.records || []
@@ -88,6 +101,19 @@ async function load() {
       .sort((a, b) => (STATUS_ORDER[String(a.status)] ?? 9) - (STATUS_ORDER[String(b.status)] ?? 9) || String(b.create_time || '').localeCompare(String(a.create_time || '')))
   } catch (e) { error.value = e?.message || '待处理加载失败' } finally { loading.value = false }
 }
+function refreshDrafts() {
+  draftRows.value = [
+    ...listDrafts('processing').map(row => ({ ...row, kind: 'processing', kindLabel: '加工单' })),
+    ...listDrafts('recycle').map(row => ({ ...row, kind: 'recycle', kindLabel: '回收单' })),
+    ...listDrafts('sale').map(row => ({ ...row, kind: 'sale', kindLabel: '销售单' }))
+  ]
+}
+async function retryDraft(draft) {
+  if (draftBusy.value) return
+  draftBusy.value = true
+  try { await retryPendingDraft(draft.kind, draft.ref) } finally { draftBusy.value = false; refreshDrafts(); await load() }
+}
+function deleteDraftRow(draft) { removeDraft(draft.kind, draft.ref); refreshDrafts() }
 async function advance(row) {
   if (!window.confirm(`确认将 ${row.order_no}「确认加工」？`)) return
   try {
@@ -99,10 +125,21 @@ async function notify(row) {
   try { await api.processingNotify(row.processing_order_id); toast(`已记录通知 ${row.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
 }
 async function refund(row) {
-  const amount = Number(window.prompt(`请输入返款金额（待返 ${refundOutstanding(row).toFixed(2)} 元）`, refundOutstanding(row).toFixed(2)))
-  if (!Number.isFinite(amount) || amount <= 0 || amount > refundOutstanding(row)) return
-  const payMethod = window.prompt('请输入返款方式（如 CASH / WECHAT / ALIPAY）', 'CASH')
-  if (!payMethod) return
+  refundAmountOrder.value = row; refundAmountMax.value = refundOutstanding(row); refundAmountInput.value = refundOutstanding(row).toFixed(2); refundAmountOpen.value = true
+}
+const refundAmountOpen = ref(false), refundAmountOrder = ref(null), refundAmountMax = ref(0), refundAmountInput = ref('')
+const payMethods = ref([]), refundPicker = ref({ open: false, order: null, amount: 0, method: '' })
+async function confirmRefundAmount() {
+  const amount = Number(refundAmountInput.value), row = refundAmountOrder.value
+  if (!row || !Number.isFinite(amount) || amount <= 0 || amount > refundAmountMax.value) return toast('返款金额必须大于0且不超过待返金额')
+  if (!payMethods.value.length) {
+    try { const data = await api.payMethods(); payMethods.value = (Array.isArray(data) ? data : data?.records || []).filter(item => Number(item.status ?? 1) === 1 && item.channel_code).filter(item => !/储值|余额|团购|组合|balance|chuzhi|stored.?value|prepaid|group|combination/i.test(`${item.channel_code || ''} ${item.channel_name || ''}`)).map(item => ({ code: item.channel_code, label: item.channel_name || item.channel_code })) } catch (e) { return toast(e?.message || '收款方式加载失败') }
+  }
+  refundAmountOpen.value = false; refundPicker.value = { open: true, order: row, amount, method: payMethods.value[0]?.code || '' }
+}
+async function submitRefund(payMethod) {
+  const { order: row, amount } = refundPicker.value; refundPicker.value = { ...refundPicker.value, open: false }
+  if (!row || !payMethod) return
   try {
     const result = await api.processingRefund(row.processing_order_id, { amount, payMethod, clientRequestId: `${Date.now()}-${Math.random()}` })
     toast(result?.approvalRequired ? '返款超过审批上限，已提交审批' : '客户返款已登记')
@@ -151,6 +188,7 @@ watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER
 </script>
 <style scoped>
 .summary-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:12px;text-align:center}
+.draft-card{margin-top:10px}.draft-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}.draft-heading small{color:var(--ink-3);font-size:11px}.draft-row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;border-top:1px solid var(--line);padding:9px 0 0;margin-top:9px}.draft-copy{min-width:0;display:flex;flex-direction:column;gap:3px}.draft-copy small{color:var(--err);overflow-wrap:anywhere}.draft-actions{display:flex;gap:6px;flex:none}.draft-actions button{padding:5px 8px;font-size:11px}.draft-actions .danger{color:var(--err)}
 .summary-card span{display:block;color:var(--ink-3);font-size:11px}
 .summary-card b{display:block;margin-top:4px;font-size:15px}
 .due{color:var(--err)}

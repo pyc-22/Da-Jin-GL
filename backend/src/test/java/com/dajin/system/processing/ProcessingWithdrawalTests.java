@@ -29,12 +29,13 @@ class ProcessingWithdrawalTests {
         when(db.store(request)).thenReturn(1L);
         when(db.list(contains("from processing_order"), anyMap())).thenReturn(List.of(order));
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         ProcessingController controller = controller(db);
 
         BusinessException paymentError = assertThrows(BusinessException.class, () -> controller.pay(18L,
                 Map.of("clientRequestId", "withdrawn-pay", "paymentType", "BALANCE", "payMethod", "CASH", "amount", 10), request));
         BusinessException statusError = assertThrows(BusinessException.class, () -> controller.changeStatus(18L,
-                Map.of("status", "PICKED_UP"), request));
+                Map.of("status", "PICKED_UP", "clientRequestId", "withdrawn-status"), request));
 
         assertEquals(409704, paymentError.getCode());
         assertEquals(409704, statusError.getCode());
@@ -49,10 +50,11 @@ class ProcessingWithdrawalTests {
         when(db.store(request)).thenReturn(1L);
         when(db.one(contains("from processing_order"), anyMap())).thenReturn(order("WITHDRAWN", 9));
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         ProcessingController controller = controller(db);
 
         BusinessException detailError = assertThrows(BusinessException.class, () -> controller.detail(18L, request));
-        BusinessException notifyError = assertThrows(BusinessException.class, () -> controller.notifyPickup(18L, request));
+        BusinessException notifyError = assertThrows(BusinessException.class, () -> controller.notifyPickup(18L, Map.of("clientRequestId", "withdrawn-notify"), request));
 
         assertEquals(409704, detailError.getCode());
         assertEquals(409704, notifyError.getCode());
@@ -62,23 +64,54 @@ class ProcessingWithdrawalTests {
     @Test
     void retryWithOldVersionReturnsIdempotentSuccessForWithdrawnOrder() {
         DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
         Map<String, Object> order = order("WITHDRAWN", 9);
         Map<String, Object> linked = new HashMap<>();
         linked.put("source_sales_order_id", null);
         when(db.store(request)).thenReturn(1L);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
+        when(db.list(contains("select source_sales_order_id"), anyMap())).thenReturn(List.of(linked));
+        when(db.list(contains("for update"), anyMap())).thenReturn(List.of(order));
+        when(db.list(contains("from operation_log"), anyMap())).thenAnswer(invocation -> {
+            Map<?, ?> params = invocation.getArgument(1);
+            return "withdrawn-replay".equals(params.get("client"))
+                    ? List.of(Map.of("content", "processingOrderId=18,action=WITHDRAW"))
+                    : List.of();
+        });
+        when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "CASHIER")).setSubject("7"));
+        ProcessingController controller = controller(db);
+
+        ApiResponse<?> response = controller.withdraw(18L, Map.of("version", 3, "clientRequestId", "withdrawn-replay"), request);
+
+        Map<?, ?> result = (Map<?, ?>) response.data();
+        assertEquals("WITHDRAWN", result.get("status"));
+        assertEquals(true, result.get("idempotentReplay"));
+        assertEquals(true, result.get("withdrawn"));
+    }
+
+    @Test
+    void withdrawnOrderWithDifferentRequestIdIsNotAReplay() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        Map<String, Object> order = order("WITHDRAWN", 9);
+        when(db.store(request)).thenReturn(1L);
+        when(db.jdbc()).thenReturn(jdbc);
+        Map<String,Object> linked = new HashMap<>();
+        linked.put("source_sales_order_id", null);
         when(db.list(contains("select source_sales_order_id"), anyMap())).thenReturn(List.of(linked));
         when(db.list(contains("for update"), anyMap())).thenReturn(List.of(order));
         when(db.list(contains("from operation_log"), anyMap())).thenReturn(List.of());
         when(request.getAttribute("claims")).thenReturn(Jwts.claims(Map.of("role", "CASHIER")).setSubject("7"));
         ProcessingController controller = controller(db);
 
-        ApiResponse<?> response = controller.withdraw(18L, Map.of("version", 3), request);
+        BusinessException error = assertThrows(BusinessException.class, () -> controller.withdraw(18L,
+                Map.of("version", 9, "clientRequestId", "a-new-withdrawal"), request));
 
-        Map<?, ?> result = (Map<?, ?>) response.data();
-        assertEquals("WITHDRAWN", result.get("status"));
-        assertEquals(true, result.get("idempotentReplay"));
-        assertEquals(true, result.get("withdrawn"));
+        assertEquals(409704, error.getCode());
+        verify(jdbc, never()).update(contains("insert into finance_record"), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class));
     }
 
     private ProcessingController controller(DbSupport db) {

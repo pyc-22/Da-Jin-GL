@@ -73,6 +73,12 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         // 加工写接口的幂等预占使用 operation_log 的唯一键；老库可能只有
         // operation_log 基础字段，因此这里必须补列和索引后才能安全重放。
         addColumn("operation_log", "client_request_id", "VARCHAR(64) NULL AFTER content");
+        // Never discard historical audit/idempotency rows while repairing the
+        // unique key.  Surface duplicate legacy keys and stop the migration so
+        // an operator can reconcile them explicitly.
+        ensureNoDuplicateKeys("operation_log", "store_id,module,client_request_id",
+                "client_request_id is not null and trim(client_request_id)<>''",
+                "操作日志幂等编号存在历史重复，迁移已停止");
         addIndex("operation_log", "uk_log_idempotency", "store_id,module,client_request_id", true);
         addColumn("sys_user", "remark", "VARCHAR(500) NULL AFTER entry_date");
         addColumn("sys_user", "permission_initialized", "TINYINT NOT NULL DEFAULT 0 AFTER remark");
@@ -88,6 +94,15 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addIndex("stock_check", "idx_stock_check_operator_time", "store_id,operator_id,create_time");
         addIndex("trade_in", "idx_tradein_operator_time", "store_id,operator_id,create_time");
         createProcessingTables();
+        // Older local databases may already have processing_payment without
+        // the request column/index.  Repair it additively and stop on
+        // historical duplicate keys instead of deleting payment history.
+        addColumn("processing_payment", "client_request_id", "VARCHAR(64) NULL AFTER pay_method");
+        ensureNoDuplicateKeys("processing_payment", "store_id,client_request_id",
+                "client_request_id is not null and trim(client_request_id)<>''",
+                "加工收款幂等编号存在历史重复，迁移已停止");
+        addIndex("processing_payment", "uk_processing_payment_client", "store_id,client_request_id", true);
+        createProcessingPaymentComponentTable();
         addColumn("processing_item", "price_calc_mode", "VARCHAR(20) NULL AFTER pricing_unit");
         addColumn("processing_order", "item_count", "INT NOT NULL DEFAULT 1 AFTER quantity");
         addColumn("processing_order", "pricing_unit", "VARCHAR(10) NOT NULL DEFAULT '按件' AFTER commission_rate_snapshot");
@@ -99,6 +114,10 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "promotion_discount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER original_due_amount");
         addColumn("processing_order", "promotion_channel", "VARCHAR(50) NULL AFTER promotion_discount");
         addColumn("processing_order", "voucher_no", "VARCHAR(100) NULL AFTER promotion_channel");
+        // Backfill only after the legacy order has the promotion columns used
+        // to identify a group-voucher component.  Older databases may have
+        // created processing_order before those columns existed.
+        backfillProcessingPaymentComponents();
         addColumn("processing_order", "settlement_remark", "VARCHAR(255) NULL AFTER voucher_no");
         addColumn("processing_order", "promotion_reason", "VARCHAR(200) NULL AFTER voucher_no");
         addColumn("processing_order", "sales_id", "BIGINT NULL AFTER craftsman_id");
@@ -126,6 +145,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         migrateRecycleCreators();
         addIndex("processing_order", "idx_processing_order_sales", "store_id,sales_id,status");
         replaceProcessingCommissionUniqueIndex();
+        ensureNoDuplicateKeys("processing_order", "store_id,promotion_channel,voucher_no", "promotion_channel is not null and voucher_no is not null", "加工团购核销号存在历史重复，迁移已停止");
         addIndex("processing_order", "uk_processing_voucher", "store_id,promotion_channel,voucher_no", true);
         jdbc.update("insert ignore into pay_channel(store_id,channel_name,channel_code,sort,status) "
                 + "select s.store_id,'抖音团购','DOUYIN_GROUP',7,1 from sys_store s where not exists "
@@ -153,6 +173,9 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "refund_paid_amount", "DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER refund_amount");
         addColumn("processing_order", "refund_pay_method", "VARCHAR(50) NULL AFTER refund_paid_amount");
         addColumn("processing_order", "refund_approval_id", "BIGINT NULL AFTER refund_pay_method");
+        ensureNoDuplicateKeys("finance_record", "store_id,client_request_id",
+                "client_request_id is not null and trim(client_request_id)<>''",
+                "财务流水幂等编号存在历史重复，迁移已停止");
         addIndex("finance_record", "uk_finance_client_request", "store_id,client_request_id", true);
         jdbc.update("insert ignore into sys_config(store_id,config_group,config_key,config_value,description,config_sort,enabled) select store_id,'SYSTEM','processing_refund_approval_limit','200','加工客户返款超过此金额需店长或管理员审批',8,1 from sys_store");
         createOldMaterialTypeTable();
@@ -271,6 +294,12 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addColumn("processing_order", "billing_weight", "DECIMAL(10,3) NULL");
         // 开单幂等键：收银端离线队列/手机待同步草稿重传时，同 key 不会重复建单
         addColumn("processing_order", "client_request_id", "VARCHAR(64) NULL");
+        // Older installations used an empty string for requests that did not
+        // carry an idempotency key.  Keep those rows replay-safe by converting
+        // them to NULL before adding the store-scoped unique index (multiple
+        // NULLs remain valid, while new writes are required to be non-empty).
+        jdbc.update("update processing_order set client_request_id=null where client_request_id is not null and trim(client_request_id)=''");
+        ensureNoDuplicateKeys("processing_order", "store_id,client_request_id", "client_request_id is not null and trim(client_request_id)<>''", "加工单幂等编号存在历史重复，迁移已停止");
         addIndex("processing_order", "uk_processing_client", "store_id,client_request_id", true);
         // 会员删除用软删除：列表/未分配池/统计里消失，但历史订单、消费与账务记录完整保留。
         addColumn("member", "deleted", "TINYINT NOT NULL DEFAULT 0");
@@ -524,7 +553,7 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
     private void createProcessingTables() {
         jdbc.execute("create table if not exists processing_category (category_id bigint primary key auto_increment,store_id bigint not null,name varchar(64) not null,category_code varchar(32) not null,sort int not null default 0,status tinyint not null default 1,created_by bigint,updated_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_category_store_code(store_id,category_code),key idx_processing_category_store_status(store_id,status,sort))");
         jdbc.execute("create table if not exists processing_item (item_id bigint primary key auto_increment,store_id bigint not null,category_id bigint not null,name varchar(100) not null,item_code varchar(32) not null,labor_fee decimal(12,2) not null default 0,pricing_unit varchar(10) not null default '按件',price_calc_mode varchar(20) null,processing_days smallint not null default 0,duration_text varchar(30) not null default '',process_steps varchar(200) not null default '',commission_rate decimal(5,2) not null default 0,status tinyint not null default 1,remark varchar(500),created_by bigint,updated_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_item_store_code(store_id,item_code),key idx_processing_item_category(store_id,category_id,status))");
-        jdbc.execute("create table if not exists processing_order (processing_order_id bigint primary key auto_increment,store_id bigint not null,order_no varchar(32) not null,member_id bigint,customer_name varchar(64) not null,customer_phone varchar(32) not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,unit_labor_fee decimal(12,2) not null default 0,commission_rate_snapshot decimal(5,2) not null default 0,quantity int not null default 1,item_count int not null default 1,labor_fee decimal(12,2) not null default 0,old_gold_weight decimal(10,3),old_gold_fineness decimal(6,4),store_gold_weight decimal(10,3) not null default 0,store_gold_fineness decimal(6,4) null,store_gold_price decimal(12,2) not null default 0,gold_base_instrument varchar(16) null,gold_base_price decimal(12,4) null,gold_purity_coefficient decimal(8,6) null,gold_markup decimal(12,2) null,gold_recycle_deduction decimal(12,2) null,gold_price_snapshot decimal(12,2) null,gold_quote_time varchar(32) null,gold_quote_source varchar(20) null,gold_market_status varchar(16) null,store_gold_amount decimal(12,2) not null default 0,residual_material_type varchar(50),residual_gold_weight decimal(10,3),residual_gold_fineness decimal(6,4),residual_gold_handling varchar(24) not null default 'TAKE_AWAY',residual_gold_deduction decimal(12,2) not null default 0,residual_material_recorded tinyint not null default 0,due_amount decimal(12,2) not null default 0,original_due_amount decimal(12,2),promotion_discount decimal(12,2) not null default 0,promotion_channel varchar(50),voucher_no varchar(100),promotion_reason varchar(200),paid_amount decimal(12,2) not null default 0,refund_amount decimal(12,2) not null default 0,refund_paid_amount decimal(12,2) not null default 0,refund_pay_method varchar(50),refund_approval_id bigint,pickup_date date,craftsman_id bigint,sales_id bigint,sales_commission_rate_snapshot decimal(8,4),status varchar(24) not null default 'PENDING',remark varchar(500),source_sales_order_id bigint,created_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,completed_time datetime null,picked_up_time datetime null,version int not null default 0,unique key uk_processing_order_store_no(store_id,order_no),key idx_processing_order_status(store_id,status,create_time),key idx_processing_order_craftsman(store_id,craftsman_id,status),key idx_processing_order_sales(store_id,sales_id,status))");
+        jdbc.execute("create table if not exists processing_order (processing_order_id bigint primary key auto_increment,store_id bigint not null,order_no varchar(32) not null,member_id bigint,customer_name varchar(64) not null,customer_phone varchar(32) not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,unit_labor_fee decimal(12,2) not null default 0,commission_rate_snapshot decimal(5,2) not null default 0,quantity int not null default 1,item_count int not null default 1,labor_fee decimal(12,2) not null default 0,old_gold_weight decimal(10,3),old_gold_fineness decimal(6,4),store_gold_weight decimal(10,3) not null default 0,store_gold_fineness decimal(6,4) null,store_gold_price decimal(12,2) not null default 0,gold_base_instrument varchar(16) null,gold_base_price decimal(12,4) null,gold_purity_coefficient decimal(8,6) null,gold_markup decimal(12,2) null,gold_recycle_deduction decimal(12,2) null,gold_price_snapshot decimal(12,2) null,gold_quote_time varchar(32) null,gold_quote_source varchar(20) null,gold_market_status varchar(16) null,store_gold_amount decimal(12,2) not null default 0,residual_material_type varchar(50),residual_gold_weight decimal(10,3),residual_gold_fineness decimal(6,4),residual_gold_handling varchar(24) not null default 'TAKE_AWAY',residual_gold_deduction decimal(12,2) not null default 0,residual_material_recorded tinyint not null default 0,due_amount decimal(12,2) not null default 0,original_due_amount decimal(12,2),promotion_discount decimal(12,2) not null default 0,promotion_channel varchar(50),voucher_no varchar(100),promotion_reason varchar(200),paid_amount decimal(12,2) not null default 0,refund_amount decimal(12,2) not null default 0,refund_paid_amount decimal(12,2) not null default 0,refund_pay_method varchar(50),refund_approval_id bigint,pickup_date date,craftsman_id bigint,sales_id bigint,sales_commission_rate_snapshot decimal(8,4),status varchar(24) not null default 'PENDING',remark varchar(500),source_sales_order_id bigint,client_request_id varchar(64) null,created_by bigint,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,completed_time datetime null,picked_up_time datetime null,version int not null default 0,unique key uk_processing_order_store_no(store_id,order_no),unique key uk_processing_client(store_id,client_request_id),key idx_processing_order_status(store_id,status,create_time),key idx_processing_order_craftsman(store_id,craftsman_id,status),key idx_processing_order_sales(store_id,sales_id,status))");
         jdbc.execute("create table if not exists processing_payment (payment_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,payment_type varchar(16) not null,amount decimal(12,2) not null,pay_method varchar(50) not null,client_request_id varchar(64),operator_id bigint,remark varchar(500),create_time datetime not null default current_timestamp,unique key uk_processing_payment_client(store_id,client_request_id),key idx_processing_payment_order(store_id,processing_order_id,create_time))");
         jdbc.execute("create table if not exists processing_commission (commission_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,employee_id bigint not null,commission_base decimal(12,2) not null default 0,commission_rate decimal(5,2) not null default 0,commission_amount decimal(12,2) not null default 0,status varchar(16) not null default 'PENDING',paid_at datetime null,paid_by bigint null,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,unique key uk_processing_commission_order_employee(processing_order_id,employee_id),key idx_processing_commission_status(store_id,status,employee_id))");
         jdbc.execute("create table if not exists print_job (job_id bigint primary key auto_increment,store_id bigint not null,order_id bigint not null,order_no varchar(32) not null,customer_name varchar(64),customer_phone varchar(32),job_type varchar(20) not null default 'PROCESSING',status varchar(16) not null default 'PENDING',created_by bigint,create_time datetime not null default current_timestamp,printed_time datetime null,printed_by bigint null,ignored_time datetime null,ignored_by bigint null,key idx_print_store_status(store_id,status,create_time))");
@@ -544,6 +573,37 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         jdbc.execute("create table if not exists processing_order_item (order_item_id bigint primary key auto_increment,store_id bigint not null,processing_order_id bigint not null,processing_item_id bigint not null,item_name_snapshot varchar(100) not null,pricing_unit varchar(10) not null default '按件',unit_labor_fee decimal(12,2) not null default 0,price_calc_mode varchar(20) null,quantity int not null default 1,billing_weight decimal(10,3) null,labor_fee decimal(12,2) not null default 0,price_snapshot json null,pricing_description varchar(1000) null,remark varchar(500) null,sort int not null default 0,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,key idx_processing_order_item_order(store_id,processing_order_id,sort),key idx_processing_order_item_project(store_id,processing_item_id))");
         addColumn("processing_order_item", "quantity", "INT NOT NULL DEFAULT 1 AFTER price_calc_mode");
         jdbc.execute("create table if not exists processing_price_tier (tier_id bigint primary key auto_increment,store_id bigint not null,processing_item_id bigint not null,min_weight decimal(10,3) not null default 0,max_weight decimal(10,3) null,mode varchar(16) not null default 'PER_GRAM',price decimal(12,2) not null default 0,sort int not null default 0,enabled tinyint not null default 1,create_time datetime not null default current_timestamp,update_time datetime not null default current_timestamp on update current_timestamp,key idx_processing_price_tier_item(store_id,processing_item_id,enabled,sort))");
+    }
+
+    private void createProcessingPaymentComponentTable() {
+        jdbc.execute("create table if not exists processing_payment_component (component_id bigint primary key auto_increment,store_id bigint not null,payment_id bigint not null,processing_order_id bigint not null,pay_method varchar(50) not null,amount decimal(12,2) not null,voucher_no varchar(100) null,status varchar(16) not null default 'ACTIVE',reversal_of_component_id bigint null,create_time datetime not null default current_timestamp,key idx_processing_payment_component_payment(store_id,payment_id),key idx_processing_payment_component_order(store_id,processing_order_id,create_time),key idx_processing_payment_component_voucher(store_id,pay_method,voucher_no))");
+        // `create table if not exists` does not repair a table created by an
+        // interrupted/older migration.  Add the payload columns separately so
+        // a partially-created local database becomes compatible on the next
+        // start without dropping its audit rows.  The normal schema already
+        // has these columns, so these calls are no-ops for fresh databases.
+        addColumn("processing_payment_component", "store_id", "BIGINT NULL");
+        addColumn("processing_payment_component", "payment_id", "BIGINT NULL");
+        addColumn("processing_payment_component", "processing_order_id", "BIGINT NULL");
+        addColumn("processing_payment_component", "pay_method", "VARCHAR(50) NULL");
+        addColumn("processing_payment_component", "amount", "DECIMAL(12,2) NULL");
+        addColumn("processing_payment_component", "voucher_no", "VARCHAR(100) NULL");
+        addColumn("processing_payment_component", "status", "VARCHAR(16) NULL DEFAULT 'ACTIVE'");
+        addColumn("processing_payment_component", "reversal_of_component_id", "BIGINT NULL");
+        addColumn("processing_payment_component", "create_time", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP");
+        addIndex("processing_payment_component", "idx_processing_payment_component_payment", "store_id,payment_id");
+        addIndex("processing_payment_component", "idx_processing_payment_component_order", "store_id,processing_order_id,create_time");
+        addIndex("processing_payment_component", "idx_processing_payment_component_voucher", "store_id,pay_method,voucher_no");
+    }
+
+    /** Give legacy processing payments the same auditable component shape as new payments. */
+    private void backfillProcessingPaymentComponents() {
+        jdbc.update("insert into processing_payment_component(store_id,payment_id,processing_order_id,pay_method,amount,voucher_no,status,create_time) "
+                + "select p.store_id,p.payment_id,p.processing_order_id,p.pay_method, p.amount, "
+                + "case when o.promotion_channel=p.pay_method then o.voucher_no else null end, 'ACTIVE', p.create_time "
+                + "from processing_payment p join processing_order o on o.store_id=p.store_id and o.processing_order_id=p.processing_order_id "
+                + "where p.payment_type<>'WITHDRAW' and not exists "
+                + "(select 1 from processing_payment_component c where c.store_id=p.store_id and c.payment_id=p.payment_id)");
     }
 
     private void migrateProcessingOrderItems() {
@@ -664,7 +724,32 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
     }
     private void addIndex(String table, String index, String fields, boolean unique) {
         Integer count = jdbc.queryForObject("select count(*) from information_schema.statistics where table_schema=database() and table_name=? and index_name=?", Integer.class, table, index);
-        if (count != null && count == 0) jdbc.execute("alter table " + table + " add " + (unique ? "unique key " : "key ") + index + "(" + fields + ")");
+        if (count != null && count == 0) {
+            jdbc.execute("alter table " + table + " add " + (unique ? "unique key " : "key ") + index + "(" + fields + ")");
+            return;
+        }
+        if (count == null || count == 0) return;
+        // An index with the expected name is not necessarily the expected
+        // index.  Never silently accept a legacy index that covers different
+        // columns (or has different uniqueness); report it so an operator can
+        // reconcile it without the migration dropping business data.
+        String actualFields = jdbc.queryForObject("select group_concat(column_name order by seq_in_index) from information_schema.statistics "
+                + "where table_schema=database() and table_name=? and index_name=?", String.class, table, index);
+        Integer nonUnique = jdbc.queryForObject("select min(non_unique) from information_schema.statistics "
+                + "where table_schema=database() and table_name=? and index_name=?", Integer.class, table, index);
+        String expectedFields = fields.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        String normalizedActual = actualFields == null ? "" : actualFields.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        boolean actualUnique = nonUnique != null && nonUnique == 0;
+        if (!expectedFields.equals(normalizedActual) || unique != actualUnique) {
+            throw new IllegalStateException("索引结构不匹配，迁移已停止：" + table + "." + index
+                    + " 期望(" + fields + "," + (unique ? "UNIQUE" : "NON_UNIQUE") + ") 实际(" + actualFields + ","
+                    + (actualUnique ? "UNIQUE" : "NON_UNIQUE") + ")");
+        }
+    }
+
+    private void ensureNoDuplicateKeys(String table, String fields, String predicate, String message) {
+        Integer duplicates = jdbc.queryForObject("select count(*) from (select " + fields + ",count(*) c from " + table + " where " + predicate + " group by " + fields + " having c>1) d", Integer.class);
+        if (duplicates != null && duplicates > 0) throw new IllegalStateException(message + "：" + duplicates + "组");
     }
 
     private void replaceProcessingCommissionUniqueIndex() {

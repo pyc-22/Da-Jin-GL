@@ -114,7 +114,7 @@ const paymentMethods = ref(defaultMethods.map(x => ({ ...x, amount: 0, selected:
 const groupPaymentMethods = ref([])
 const oldMaterialPayoutMethod = ref('CASH')
 const oldMaterialPayoutAmount = ref(0)
-const payoutMethods = computed(() => paymentMethods.value.filter(method => !['BALANCE', 'COMBINATION'].includes(method.code)))
+const payoutMethods = computed(() => paymentMethods.value.filter(method => !isBalanceChannel(method) && !isGroupChannel(method) && String(method.code).toUpperCase() !== 'COMBINATION'))
 const paymentTotal = ref(0)
 const printPreview = ref({ type: 'receipt', text: '', html: '' })
 const processingPrintModel = ref(null)
@@ -190,6 +190,8 @@ const procPayMethods = computed(() => {
 // 储值渠道各门店 code 不同（生产是 CHUZHI），按 code + 渠道名一起认；储值不参与组合支付
 const BALANCE_CODES = ['BALANCE', 'CHUZHI', 'STORED_VALUE', 'PREPAID']
 const isBalanceChannel = method => BALANCE_CODES.includes(String(method?.code || '').toUpperCase()) || /储值|余额|balance/i.test(String(method?.name || ''))
+const GROUP_CODES = ['DOUYIN_GROUP', 'MEITUAN_GROUP', 'GROUP_BUY', 'GROUPBUY', 'TuanGou'.toUpperCase()]
+const isGroupChannel = method => GROUP_CODES.includes(String(method?.code || '').toUpperCase()) || /团购|抖音|美团|组合/i.test(String(method?.name || ''))
 const isBalanceOrCombination = method => isBalanceChannel(method) || String(method?.code || '').toUpperCase() === 'COMBINATION'
 // 组合支付：尾款一笔里用多种方式收（储值/团购不参与组合，避免撤回冲销算不准）
 const procPayCombination = ref(false)
@@ -204,7 +206,7 @@ const procPayCombinationReady = computed(() => {
   if (!procPayParts.value.length) return false
   const methods = procPayParts.value.map(part => part.method)
   if (new Set(methods).size !== methods.length) return false
-  if (!procPayParts.value.every(part => Number(part.amount) > 0 && Number(part.method))) return false
+  if (!procPayParts.value.every(part => Number(part.amount) > 0 && String(part.method || '').trim())) return false
   if (procPayGroupParts.value.length > 1) return false
   if (procPayGroupParts.value.some(part => !String(part.voucherNo || '').trim())) return false
   return Math.abs(procPayPartsTotal.value - Math.round(Number(procPayAmount.value || 0) * 100) / 100) < 0.005
@@ -219,7 +221,7 @@ function splitProcPayEvenly() {
     part.amount = (index === procPayParts.value.length - 1 ? total - each * (procPayParts.value.length - 1) : each) / 100
   })
 }
-const procGroupPayment = computed(() => ['DOUYIN_GROUP', 'MEITUAN_GROUP'].includes(procPayMethod.value))
+const procGroupPayment = computed(() => isGroupChannel([...paymentMethods.value, ...groupPaymentMethods.value].find(method => method.code === procPayMethod.value) || { code: procPayMethod.value }))
 const procPayDiscount = computed(() => Math.max(0, Math.round(processingOutstanding(procManage.value) * 100 - Number(procPayAmount.value || 0) * 100) / 100))
 const procGoldForm = reactive({ weight: null, fineness: 0.999, price: 0, downMaterial: null })
 const procWeighForm = reactive({ finishedWeight: null, finishedFineness: null, recoveredWeight: null, meltedWeight: null, billingWeight: null, itemWeights: [], note: '' })
@@ -274,7 +276,7 @@ function openProcPay(row, type = 'BALANCE') {
   procSettlementDiscountReason.value = ''
   procPayMethod.value = paymentMethods.value[0]?.code || ''
   procPayCombination.value = false
-  procPayParts.value = [{ method: paymentMethods.value.filter(method => !['BALANCE', 'COMBINATION'].includes(method.code))[0]?.code || 'CASH', amount: '', voucherNo: '' }]
+  procPayParts.value = [{ method: procPayComboMethods.value[0]?.code || 'CASH', amount: '', voucherNo: '' }]
   procVoucherNo.value = ''
   procPayRequestId.value = uuid()
   activeDialog.value = 'procPay'
@@ -338,7 +340,7 @@ async function confirmProcGold() {
   const row = procManage.value; if (!row) return
   if (!(Number(procGoldForm.weight) > 0)) return ElMessage.warning('请填写补金克重')
   try {
-    await request(`/api/processing/orders/${row.processing_order_id}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procGoldForm.weight), fineness: Number(procGoldForm.fineness || 0.999), price: Number(procGoldForm.price || 0), downMaterialWeight: Number(procGoldForm.downMaterial || 0) }) })
+    await request(`/api/processing/orders/${row.processing_order_id}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procGoldForm.weight), fineness: Number(procGoldForm.fineness || 0.999), price: Number(procGoldForm.price || 0), downMaterialWeight: Number(procGoldForm.downMaterial || 0), clientRequestId: uuid() }) })
     ElMessage.success(`加工单 ${row.order_no} 补金已登记，库存已扣减`)
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '补金登记失败') }
@@ -474,7 +476,7 @@ async function submitProcFinish() {
     const oid = row.processing_order_id
     // 补金必须先于称重：损耗率与回收屑都依赖店供金登记；尾款在待取货环节收取
     if (Number(procFinish.goldWeight) > 0 || Number(procFinish.downMaterialWeight) > 0) {
-      await request(`/api/processing/orders/${oid}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procFinish.goldWeight || 0), fineness: Number(procFinish.goldFineness || 0.999), price: Number(procFinish.goldPrice || 0), downMaterialWeight: Number(procFinish.downMaterialWeight || 0) }) })
+      await request(`/api/processing/orders/${oid}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procFinish.goldWeight || 0), fineness: Number(procFinish.goldFineness || 0.999), price: Number(procFinish.goldPrice || 0), downMaterialWeight: Number(procFinish.downMaterialWeight || 0), clientRequestId: uuid() }) })
     }
     if (Number(procFinish.finishedWeight) > 0) {
       // 来料随称重一起提交：后端先存来料再核算损耗，否则会拿旧的来料算账
@@ -484,8 +486,8 @@ async function submitProcFinish() {
     }
     const newIncoming = procFinish.incoming.filter(u => !procFinish.baseIncoming.includes(u))
     const newWeigh = procFinish.weighPhotos.filter(u => !procFinish.baseWeigh.includes(u))
-    if (newIncoming.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'incoming', urls: newIncoming }) })
-    if (newWeigh.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'weigh', urls: newWeigh }) })
+    if (newIncoming.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'incoming', urls: newIncoming, clientRequestId: uuid() }) })
+    if (newWeigh.length) await request(`/api/processing/orders/${oid}/photos`, { method: 'POST', body: JSON.stringify({ type: 'weigh', urls: newWeigh, clientRequestId: uuid() }) })
     // 来料随完成加工一起提交：后端会先更新来料、再据此计算回收屑与抵扣
     await request(`/api/processing/orders/${oid}/status`, { method: 'PATCH', body: JSON.stringify({
       status: 'COMPLETED', clientRequestId: uuid(),
@@ -705,7 +707,7 @@ async function withdrawProcessingOrder(row) {
     : '撤回后原加工单将从日常列表中消失。系统回滚店供补金、留店旧料、提成和审批；需要重办时请新开单。'
   try {
     await ElMessageBox.confirm(`${details}\n\n确定撤回加工单 ${row.order_no || orderId} 吗？`, '撤回加工单', { confirmButtonText: '确认撤回', cancelButtonText: '取消', type: 'warning' })
-    const result = await request(`/api/processing/orders/${orderId}/withdraw`, { method: 'POST', body: JSON.stringify({ version: row.version }) })
+    const result = await request(`/api/processing/orders/${orderId}/withdraw`, { method: 'POST', body: JSON.stringify({ version: row.version, clientRequestId: uuid() }) })
     if (result?.clientRefundRequired) ElMessage.warning(result.message || '加工单已冲销，请在线下完成客户退款')
     else ElMessage.success(result?.message || '加工单已撤回，后续需新开单')
     await Promise.all([loadFrontTodo(), loadProcessingData(), refreshProducts()])
@@ -750,16 +752,15 @@ function applyProcessingMemberSales(rawSalesId) {
   processingForm.salesId = id
 }
 function applyPaymentChannels(channels) {  const icons = Object.fromEntries(defaultMethods.map(item => [item.code, item.icon]))
-  const groupCodes = ['DOUYIN_GROUP', 'MEITUAN_GROUP']
-  groupPaymentMethods.value = (channels || []).filter(channel => Number(channel.status) === 1 && groupCodes.includes(String(channel.channel_code).toUpperCase())).map(channel => ({ code: String(channel.channel_code).toUpperCase(), name: channel.channel_name }))
-  paymentMethods.value = reconcilePaymentMethods((channels || []).filter(channel => !groupCodes.includes(String(channel.channel_code).toUpperCase())), paymentMethods.value).map(method => ({
+  groupPaymentMethods.value = (channels || []).filter(channel => Number(channel.status) === 1 && isGroupChannel({ code: channel.channel_code, name: channel.channel_name })).map(channel => ({ code: String(channel.channel_code).toUpperCase(), name: channel.channel_name }))
+  paymentMethods.value = reconcilePaymentMethods((channels || []).filter(channel => !isGroupChannel({ code: channel.channel_code, name: channel.channel_name })), paymentMethods.value).map(method => ({
     ...method,
     icon: icons[method.code] || CircleDollarSign
   }))
   const collectionCodes = new Set(paymentMethods.value.map(method => method.code))
-  const payoutCodes = new Set(paymentMethods.value.filter(method => method.code !== 'BALANCE').map(method => method.code))
+  const payoutCodes = new Set(payoutMethods.value.map(method => method.code))
   const firstCollection = paymentMethods.value[0]?.code || ''
-  const firstPayout = paymentMethods.value.find(method => method.code !== 'BALANCE')?.code || ''
+    const firstPayout = payoutMethods.value[0]?.code || ''
   if (!collectionCodes.has(processingForm.depositMethod)) processingForm.depositMethod = firstCollection
   if (!collectionCodes.has(procPayMethod.value)) procPayMethod.value = firstCollection
   if (!payoutCodes.has(oldMaterialPayoutMethod.value)) oldMaterialPayoutMethod.value = firstPayout
@@ -840,7 +841,7 @@ const tradeDiff = computed(() => Number(tradeForm.newValue || 0) - Number(tradeF
 const tradeOldPurity = computed(() => parsePurity(tradeOldForm.purityChoice, tradeOldForm.customPurity))
 const tradeOldTotal = computed(() => tradeOldMetals.value.reduce((sum, item) => sum + oldGoldDeduction(item.weight, item.purity, recycleSpot.value), 0))
 const shiftTotal = computed(() => shiftRows.value.reduce((sum, row) => sum + Number(row.amount || 0), 0))
-const shiftCashSystem = computed(() => { const meta = shiftMeta.value?.cashSystem; return meta == null ? Number(shiftRows.value.find(row => String(row.pay_method || '').toUpperCase() === 'CASH')?.amount || 0) : Number(meta) })
+const shiftCashSystem = computed(() => { const meta = shiftMeta.value?.cashSystem; return meta == null ? Number(shiftRows.value.filter(row => ['CASH', 'XIANJIN'].includes(String(row.pay_method || '').toUpperCase()) || String(row.pay_method_name || '').includes('现金')).reduce((sum, row) => sum + Number(row.amount || 0), 0)) : Number(meta) })
 const shiftCashDifference = computed(() => Number(shiftCash.value || 0) - shiftCashSystem.value)
 const selectedProcessingItem = computed(() => processingItems.value.find(item => String(item.item_id ?? item.id) === String(processingForm.processingItemId)) || null)
 const processingLaborFee = computed(() => processingForm.items.reduce((sum, line) => { const item = processingItems.value.find(row => String(row.item_id ?? row.id) === String(line.processingItemId)); return sum + (item?.pricing_unit === '按克' ? 0 : Number(item?.labor_fee || 0)) }, 0))
@@ -911,7 +912,8 @@ function purityText(value) {
   const percentage = Number(value || 0) * 100
   return `${percentage.toFixed(2).replace(/\.00$/, '')}%`
 }
-function paymentLabel(value) {
+function paymentLabel(value, name) {
+  if (name) return String(name)
   const code = String(value || '').trim()
   if (!code || code === '0') return '未标注'
   const configured = Object.fromEntries([...paymentMethods.value, ...groupPaymentMethods.value].map(method => [method.code, method.name]))
@@ -2083,7 +2085,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <template v-else-if="activeMenu === 'stock'"><div class="page-heading"><div><div class="eyebrow">库存盘点</div><h1>扫码盘点与差异提交</h1></div><button class="primary-button" :disabled="!checkRows.length" @click="submitStockCheck"><ClipboardCheck :size="16" />提交盘点审批</button></div><div class="stock-grid"><section class="panel stock-scan"><div class="scan-heading"><div><b>扫码录入</b><small>扫码枪扫描后回车确认</small></div><Search :size="18" /></div><input class="scan-input" placeholder="扫描条码" @keyup.enter="e => { const p = products.find(x => x.barcode === e.target.value.trim()); if (p) { addCheckRow(p); e.target.value = '' } }" /><div class="scan-shortcuts"><button v-for="product in products.slice(0, 5)" :key="product.id" @click="addCheckRow(product)"><Plus :size="14" />{{ product.name }}</button></div></section><section class="panel table-panel"><div class="table-toolbar"><b>盘点明细</b><span :class="checkRows.some(x => Number(x.actual) !== Number(x.stock)) ? 'danger-text' : 'muted'">差异 {{ checkRows.reduce((s, x) => s + Number(x.actual || 0) - Number(x.stock || 0), 0) }}</span></div><table><thead><tr><th>商品</th><th>系统库存</th><th>实盘数量</th><th>差异</th></tr></thead><tbody><tr v-for="row in checkRows" :key="row.id"><td><b>{{ row.name }}</b><small class="block-muted">{{ row.barcode }}</small></td><td>{{ checkDisplay(row.stock, row) }}</td><td><input v-model.number="row.actual" class="number-input" type="number" min="0" :step="checkStep(row)" /></td><td :class="Number(row.actual) - Number(row.stock) === 0 ? 'muted' : 'danger-text'">{{ checkDisplay(Number(row.actual || 0) - Number(row.stock || 0), row) }}</td></tr><tr v-if="!checkRows.length"><td colspan="4" class="empty-table">扫描商品后会出现在这里</td></tr></tbody></table></section></div></template>
         <template v-else-if="activeMenu === 'bill'"><div class="page-heading"><div><div class="eyebrow">单据查询</div><h1>历史销售单据</h1></div><button class="secondary-button" @click="loadPageData"><RefreshCw :size="16" />刷新</button></div><div class="panel table-panel"><div class="table-toolbar"><label class="inline-search"><Search :size="16" /><input v-model="billKeyword" placeholder="订单号 / 会员" /></label><span class="muted">支持小票补打与质保单补打</span></div><table><thead><tr><th>单号</th><th>时间</th><th>商品金额</th><th>净实收</th><th>状态</th><th></th></tr></thead><tbody><tr v-for="row in billRows.filter(r => `${r.order_no}${r.member_id}`.includes(billKeyword))" :key="row.id"><td><b>{{ row.order_no }}</b></td><td>{{ row.create_time || '-' }}</td><td>{{ money(row.total_amount) }}</td><td>{{ money(row.actual_paid ?? row.pay_amount) }}</td><td><span class="status-tag" :class="row.status === 1 ? 'success' : 'warning'">{{ row.status === 1 ? '已完成' : row.status === 3 ? '待审批' : row.status === 5 ? '已退款' : '草稿' }}</span></td><td><div class="inline-actions"><button class="text-button" @click="reprint(row)"><Printer :size="14" />补打</button><button v-if="Number(row.status) === 0" class="text-button" @click="resumeSalesDraft(row)"><ArrowRight :size="14" />继续开单</button><button v-if="![4, 5].includes(Number(row.status))" class="text-button danger-text" @click="withdrawSalesOrder(row)"><ArrowRightLeft :size="14" />{{ Number(row.status) === 1 ? '撤回成品单' : '撤回草稿' }}</button></div></td></tr><tr v-if="!billRows.length"><td colspan="6" class="empty-table">登录后可加载云端历史单据，离线单据保存在本地队列</td></tr></tbody></table></div></template>
          <template v-else-if="activeMenu === 'todo'"><div class="page-heading"><div><div class="eyebrow">前台待办</div><h1>前台待办</h1></div><button class="secondary-button" @click="loadFrontTodo"><RefreshCw :size="16" />刷新</button></div><div class="print-tabs todo-tabs"><button v-for="t in todoTabs" :key="t.key" :class="{ active: todoTab === t.key }" @click="todoTab = t.key">{{ t.label }} {{ t.count() }}</button></div><template v-if="todoTab === 'print'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">移动端送来的加工工单和销售小票；预览确认后由本机打印。</span></div><table><thead><tr><th>单号</th><th>类型</th><th>客户</th><th>内容</th><th>申请时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in printJobs" :key="'j'+row.job_id"><td><b>{{ row.order_no }}</b></td><td><span class="status-tag" :class="row.job_type === 'PROCESSING' ? 'warning' : 'success'">{{ row.job_type === 'PROCESSING' ? '加工工单' : '销售小票' }}</span></td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.item_name_snapshot || (row.job_type === 'SALES' ? '销售单据' : '-') }}<small v-if="row.quantity" class="block-muted">数量 {{ row.quantity }}</small></td><td>{{ String(row.create_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button class="primary-button compact" @click="openPrintJob(row)"><Printer :size="14" />预览打印</button><button class="text-button danger-text" @click="ignorePrintJob(row)">忽略</button></div></td></tr><tr v-if="!printJobs.length"><td colspan="6" class="empty-table">暂无移动端待打印单据</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'handover'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">手机端转交的加工单：确认加工即开始加工（可不打印）；需要纸质工单时点「打印工单」。</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>师傅</th><th>整单应收</th><th>已收</th><th>尾款</th><th>转交时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in todoHandovers" :key="'h'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.craftsman_name || '未分配' }}</td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ (row.handover_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button v-if="processingOutstanding(row) > 0" class="secondary-button compact" @click="openProcPay(row, 'DEPOSIT')"><Receipt :size="14" />收定金</button><button class="secondary-button compact" @click="confirmProcessingHandover(row)"><Printer :size="14" />打印工单</button><button class="primary-button compact" @click="confirmProcessingStart(row)"><Check :size="14" />确认加工</button></div></td></tr><tr v-if="!todoHandovers.length"><td colspan="9" class="empty-table">暂无待确认加工单</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'pay'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">收银端和移动端的待收销售单，可按待收金额继续收款</span></div><table><thead><tr><th>单号</th><th>应收</th><th>已收</th><th>待收</th><th>开单时间</th><th></th></tr></thead><tbody><tr v-for="row in todoOrders" :key="'o'+row.order_id"><td><b>{{ row.order_no }}</b></td><td>{{ money(row.discounted_due ?? row.total_amount) }}</td><td>{{ money(row.actual_paid ?? row.pay_amount ?? 0) }}</td><td>{{ money(row.remaining_due ?? row.total_amount) }}</td><td>{{ (row.create_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button v-if="Number(row.status) === 0" class="text-button" @click="resumeSalesDraft(row)"><ArrowRight :size="14" />继续开单</button><button class="primary-button compact" @click="payHandoverOrder(row)"><Receipt :size="14" />收款</button><button class="text-button danger-text" @click="withdrawSalesOrder(row)"><ArrowRightLeft :size="14" />撤回草稿</button><button v-if="Number(row.actual_paid ?? row.pay_amount ?? 0) === 0" class="text-button danger-text" @click="cancelHandoverOrder(row)">取消</button></div></td></tr><tr v-if="!todoOrders.length"><td colspan="6" class="empty-table">暂无待收款单据</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'processing'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">加工中的单子：补金登记、损耗登记，完成后点「完成加工」进入待取货（尾款在待取货收取）</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>师傅</th><th>整单应收</th><th>已收</th><th>尾款</th><th>成品克重</th><th>操作</th></tr></thead><tbody><tr v-for="row in todoProcessings" :key="'g'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.craftsman_name || '未分配' }}</td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ row.finished_weight ? row.finished_weight + 'g' : '未称重' }}</td><td><div class="inline-actions"><button class="secondary-button compact" @click="confirmProcessingHandover(row, { advanceStatus: false })"><Printer :size="14" />打印工单</button><button class="primary-button compact" @click="openProcFinish(row)"><Check :size="14" />完成加工</button></div></td></tr><tr v-if="!todoProcessings.length"><td colspan="9" class="empty-table">暂无加工中的单子</td></tr></tbody></table></div></template><template v-else><div class="panel table-panel"><div class="table-toolbar"><span class="muted">加工完成待取货的单子：先收尾款，再预览质保单确认无误打印给客户</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>整单应收</th><th>已收</th><th>尾款</th><th>待返款</th><th>成品克重</th><th></th></tr></thead><tbody><tr v-for="row in todoPickups" :key="'p'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ money(row.refund_outstanding ?? processingRefundOutstanding(row)) }}</td><td>{{ row.finished_weight ? row.finished_weight + 'g' : '未称重' }}</td><td><div class="inline-actions"><button class="secondary-button compact" @click="confirmProcessingHandover(row, { advanceStatus: false })"><Printer :size="14" />打印工单</button><button v-if="processingOutstanding(row) > 0" class="primary-button compact" @click="openProcPay(row)"><Receipt :size="14" />收尾款</button><button v-if="processingRefundOutstanding(row) > 0" class="primary-button compact" @click="openProcPay(row, 'REFUND')"><Receipt :size="14" />返款</button><button v-if="processingRefundOutstanding(row) > 0" class="secondary-button compact" @click="pickupWithWarranty(row)"><BookOpen :size="14" />查看质保单</button><button v-else :class="processingOutstanding(row) > 0 ? 'secondary-button compact' : 'primary-button compact'" @click="pickupWithWarranty(row)"><BookOpen :size="14" />预览并打质保单</button><button v-if="processingOutstanding(row) === 0 && processingRefundOutstanding(row) === 0" class="secondary-button compact" @click="confirmProcessingPickup(row)"><PackageCheck :size="14" />确认取货</button><button v-if="row.status === 'COMPLETED'" class="text-button danger-text" @click="withdrawProcessingOrder(row)"><ArrowRightLeft :size="14" />撤回加工单</button></div></td></tr><tr v-if="!todoPickups.length"><td colspan="9" class="empty-table">暂无待取货加工单</td></tr></tbody></table></div></template></template>
-                <template v-else-if="activeMenu === 'shift'"><div class="page-heading"><div><div class="eyebrow">交班对账</div><h1>本班收款核对</h1></div><button class="primary-button" @click="confirmShift"><Check :size="16" />确认交班</button></div><div class="shift-grid"><section class="panel shift-summary"><div class="summary-title"><b>按支付方式统计</b><span class="status-tag success">本班</span></div><div v-for="row in shiftRows" :key="row.pay_method" class="shift-row"><span>{{ paymentLabel(row.pay_method) }}</span><b>{{ money(row.amount) }}</b></div><div class="shift-total"><span>系统应收合计</span><strong>{{ money(shiftTotal) }}</strong></div></section><section class="panel cash-check"><div class="summary-title"><b>现金实点</b><Landmark :size="18" /></div><div class="cash-amount"><span>系统现金</span><strong>{{ money(shiftCashSystem) }}</strong></div><label>实点现金<input v-model.number="shiftCash" type="number" min="0" step="0.01" /></label><div class="cash-diff" :class="shiftCashDifference === 0 ? 'ok' : 'warn'"><span>差额</span><b>{{ money(shiftCashDifference) }}</b></div><label>交班备注<textarea v-model="shiftRemark" :placeholder="shiftCashDifference === 0 ? '交班备注（可选）' : '现金有差异时必须填写原因' "></textarea></label><button class="secondary-button full" @click="showShiftPreview"><Printer :size="16" />预览交班单</button></section></div></template>
+                <template v-else-if="activeMenu === 'shift'"><div class="page-heading"><div><div class="eyebrow">交班对账</div><h1>本班收款核对</h1></div><button class="primary-button" @click="confirmShift"><Check :size="16" />确认交班</button></div><div class="shift-grid"><section class="panel shift-summary"><div class="summary-title"><b>按支付方式统计</b><span class="status-tag success">本班</span></div><div v-for="row in shiftRows" :key="row.pay_method" class="shift-row"><span>{{ paymentLabel(row.pay_method, row.channel_name || row.pay_method_name) }}</span><b>{{ money(row.amount) }}</b></div><div class="shift-total"><span>系统应收合计</span><strong>{{ money(shiftTotal) }}</strong></div></section><section class="panel cash-check"><div class="summary-title"><b>现金实点</b><Landmark :size="18" /></div><div class="cash-amount"><span>系统现金</span><strong>{{ money(shiftCashSystem) }}</strong></div><label>实点现金<input v-model.number="shiftCash" type="number" min="0" step="0.01" /></label><div class="cash-diff" :class="shiftCashDifference === 0 ? 'ok' : 'warn'"><span>差额</span><b>{{ money(shiftCashDifference) }}</b></div><label>交班备注<textarea v-model="shiftRemark" :placeholder="shiftCashDifference === 0 ? '交班备注（可选）' : '现金有差异时必须填写原因' "></textarea></label><button class="secondary-button full" @click="showShiftPreview"><Printer :size="16" />预览交班单</button></section></div></template>
       </section>
     </main>
 

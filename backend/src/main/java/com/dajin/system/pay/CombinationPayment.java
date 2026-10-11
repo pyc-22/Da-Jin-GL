@@ -55,9 +55,20 @@ public final class CombinationPayment {
 
     /** 团购核销那一笔（最多一笔）；没有团购参与时返回 null。 */
     public static Part groupPart(List<Part> parts) {
+        return groupPart(parts, PaymentChannelPolicy::isGroupChannel);
+    }
+
+    /**
+     * Resolve the group-voucher component with the store-aware channel policy.
+     * Some deployments use a custom code and identify the channel by its
+     * configured name (for example, "抖音团购").  Callers that have a store
+     * database should use this overload so those channels receive the same
+     * voucher validation and one-per-payment rule as the built-in codes.
+     */
+    public static Part groupPart(List<Part> parts, Function<String, Boolean> groupPredicate) {
         Part found = null;
         for (Part part : parts) {
-            if (!PaymentChannelPolicy.isGroupChannel(part.method())) continue;
+            if (groupPredicate == null || !Boolean.TRUE.equals(groupPredicate.apply(part.method()))) continue;
             if (found != null) throw new BusinessException(400726, "组合支付里团购核销只能有一笔");
             found = part;
         }

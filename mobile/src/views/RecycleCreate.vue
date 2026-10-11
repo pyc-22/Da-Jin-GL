@@ -265,9 +265,13 @@ async function submit() {
     confirmOpen.value = false
     if (isRetryableSubmitError(error)) {
       // 网络中断/服务异常 → 存草稿，联网后自动补传
-      addDraft('recycle', { ref: activeRef.value, payload, display: { customerName: '旧料回收', itemName: submittedSnapshot.value.materialType } })
-      refreshPending()
-      submitError.value = `${error?.message || '回收登记失败'}；已保存为待同步草稿（共 ${pending.value.recycle} 单），联网后会自动补传`
+      try {
+        addDraft('recycle', { ref: activeRef.value, payload, display: { customerName: '旧料回收', itemName: submittedSnapshot.value.materialType } })
+        refreshPending()
+        submitError.value = `${error?.message || '回收登记失败'}；已保存为待同步草稿（共 ${pending.value.recycle} 单），联网后会自动补传`
+      } catch (draftError) {
+        submitError.value = draftError?.message || '待同步草稿已达上限，请先处理或删除已有草稿'
+      }
     } else {
       submitError.value = error?.message || '回收登记失败，请检查后重试'
     }

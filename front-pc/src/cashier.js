@@ -60,12 +60,13 @@ export function goldBalance({ melt, finished } = {}) {
 }
 
 export function buildShiftPreview(model) {
-  const paymentLabel = value => {
+  const paymentLabel = (value, name) => {
+    if (name) return String(name)
     const code = String(value || '').trim()
     if (!code || code === '0') return '-'
     return code.split('+').map(part => PAYMENT_LABELS[part.trim().toUpperCase()] || part.trim()).join('+')
   }
-  const lines = (model.rows || []).map(row => `${paymentLabel(row.pay_method)}  ${formatCashierMoney(row.amount)}  (${row.count || 0}笔)`).join('\n') || '本班暂无收款'
+  const lines = (model.rows || []).map(row => `${paymentLabel(row.pay_method, row.pay_method_name)}  ${formatCashierMoney(row.amount)}  (${row.count || 0}笔)`).join('\n') || '本班暂无收款'
   return `${model.storeName || '-'}\n交班对账单\n交班时间：${model.confirmedAt || '-'}\n收银员：${model.cashierName || '-'}\n班次：${model.shiftNo || '-'}\n------------------------------\n${lines}\n------------------------------\n现金应收：${formatCashierMoney(model.cashExpected)}\n现金实点：${formatCashierMoney(model.cashActual)}\n现金差额：${formatCashierMoney(model.difference)}\n收款合计：${formatCashierMoney(model.total)}\n差异原因：${model.remark || '-'}`
 }
 
@@ -77,12 +78,13 @@ function escapeHtml(value) {
 
 export function buildShiftPrintHtml(model, paper = '58') {
   const isA4 = paper === 'a4'
-  const paymentLabel = value => {
+  const paymentLabel = (value, name) => {
+    if (name) return String(name)
     const code = String(value || '').trim()
     if (!code || code === '0') return '-'
     return code.split('+').map(part => PAYMENT_LABELS[part.trim().toUpperCase()] || part.trim()).join('+')
   }
-  const rows = (model.rows || []).map(row => `<tr><td>${escapeHtml(paymentLabel(row.pay_method))}</td><td>${Number(row.count || 0)}笔</td><td>${escapeHtml(formatCashierMoney(row.amount))}</td></tr>`).join('')
+  const rows = (model.rows || []).map(row => `<tr><td>${escapeHtml(paymentLabel(row.pay_method, row.pay_method_name))}</td><td>${Number(row.count || 0)}笔</td><td>${escapeHtml(formatCashierMoney(row.amount))}</td></tr>`).join('')
     || '<tr><td colspan="3" class="empty">本班暂无收款</td></tr>'
   const pageSize = isA4 ? 'A4' : '58mm auto'
   const pageWidth = isA4 ? '180mm' : '50mm'

@@ -40,7 +40,8 @@ const rangeLabel = computed(() => {
 
 const paymentSummary = computed(() => {
   const result = new Map()
-  summary.value.filter(row => row.type === 'INCOME').forEach((row) => {
+  const hasComponentBreakdown = summary.value.some(row => row.component_breakdown)
+  summary.value.filter(row => row.type === 'INCOME' && !(hasComponentBreakdown && row.pay_method === 'COMBINATION' && !row.component_breakdown)).forEach((row) => {
     const key = row.pay_method || '未指定'
     const current = result.get(key) || { pay_method: key, amount: 0, count: 0 }
     current.amount += Number(row.amount || 0)
@@ -49,6 +50,18 @@ const paymentSummary = computed(() => {
   })
   return [...result.values()]
 })
+
+function processingComponents(row) {
+  return Array.isArray(row?.processing_components) ? row.processing_components : []
+}
+
+function componentText(row) {
+  return processingComponents(row).map(component => {
+    const label = component.pay_method_name || formatPaymentMethod(component.pay_method, app.paymentChannels)
+    const voucher = component.voucher_no ? ` · 券号 ${component.voucher_no}` : ''
+    return `${label} ${formatMoney(component.amount)}${voucher}`
+  }).join('；')
+}
 
 const businessSummary = computed(() => {
   const result = new Map()
@@ -141,6 +154,7 @@ async function exportXlsx() {
       支付方式: formatPaymentMethod(row.pay_method, app.paymentChannels),
       团购平台: row.processing_promotion_channel ? formatPaymentMethod(row.processing_promotion_channel, app.paymentChannels) : '',
       核销号: row.processing_voucher_no || '',
+      支付组成: componentText(row),
       关联单据: row.related_bill_no || '',
       时间: formatTime(row.create_time)
     })))
@@ -241,6 +255,7 @@ onBeforeUnmount(()=>{loadVersion++})
   <section v-if="period && period !== 'recycle' && period !== 'shifts'" class="panel" style="margin-top:16px">
     <div class="panel-title"><span>收支流水</span><span class="muted">{{ rangeLabel }} · 页面最多显示 500 条，导出为完整结果</span></div>
     <el-table :data="records" empty-text="当前范围暂无收支流水">
+      <el-table-column type="expand" width="42"><template #default="s"><div v-if="processingComponents(s.row).length" class="component-detail"><span class="muted">支付组成：</span><span v-for="component in processingComponents(s.row)" :key="component.component_id" class="component-pill"><b>{{ component.pay_method_name || formatPaymentMethod(component.pay_method, app.paymentChannels) }}</b> {{ formatMoney(component.amount) }}<em v-if="component.voucher_no">券号 {{ component.voucher_no }}</em><small>{{ component.status === 'REVERSED' ? '已冲销' : '有效' }}</small></span></div><span v-else class="muted">该流水为单一支付方式或历史汇总记录</span></template></el-table-column>
       <el-table-column prop="finance_id" label="流水号" width="90" />
       <el-table-column label="业务类型" min-width="115"><template #default="s">{{ formatFinanceBusiness(s.row) }}</template></el-table-column>
       <el-table-column label="收支方向" width="90"><template #default="s"><el-tag :type="s.row.type === 'EXPENSE' ? 'danger' : 'success'">{{ formatFinanceType(s.row.type) }}</el-tag></template></el-table-column>
@@ -248,6 +263,7 @@ onBeforeUnmount(()=>{loadVersion++})
       <el-table-column label="优惠" align="right" min-width="95"><template #default="s">{{ s.row.processing_promotion_discount == null ? '-' : formatMoney(s.row.processing_promotion_discount) }}</template></el-table-column>
       <el-table-column label="实收" align="right" min-width="105"><template #default="s"><span :class="s.row.type === 'EXPENSE' ? 'amount-expense' : ''">{{ formatMoney(s.row.amount) }}</span></template></el-table-column>
       <el-table-column label="支付方式" min-width="100"><template #default="s">{{ formatPaymentMethod(s.row.pay_method, app.paymentChannels) }}</template></el-table-column>
+      <el-table-column label="支付组成" min-width="180"><template #default="s">{{ componentText(s.row) || '-' }}</template></el-table-column>
       <el-table-column label="团购平台" min-width="110"><template #default="s">{{ s.row.processing_promotion_channel ? formatPaymentMethod(s.row.processing_promotion_channel, app.paymentChannels) : '-' }}</template></el-table-column>
       <el-table-column prop="processing_voucher_no" label="核销号" min-width="130" />
       <el-table-column prop="related_bill_no" label="关联单据" min-width="180" />
@@ -261,4 +277,8 @@ onBeforeUnmount(()=>{loadVersion++})
 .finance-subtitle { margin-top: 22px; margin-bottom: 10px; }
 .amount-expense { color: var(--el-color-danger); }
 .profit-category-note { margin-top: 12px; line-height: 1.6; }
+.component-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; }
+.component-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; background: #fffdf8; }
+.component-pill em { color: var(--el-text-color-secondary); font-style: normal; font-size: 12px; }
+.component-pill small { color: var(--el-color-danger); }
 </style>

@@ -32,6 +32,7 @@ class ProcessingPaymentTests {
         when(db.one(contains("from processing_order"), anyMap())).thenReturn(order);
         when(jdbc.queryForObject(contains("from pay_channel"), anyMap(), eq(Integer.class))).thenReturn(1);
         when(jdbc.queryForObject(contains("promotion_channel"), anyMap(), eq(Integer.class))).thenReturn(0);
+        when(jdbc.update(contains("insert ignore into operation_log"), any(SqlParameterSource.class))).thenReturn(1);
         return new Fixture(db, jdbc, request, new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class)), order);
     }
@@ -182,6 +183,7 @@ class ProcessingPaymentTests {
         when(db.one(anyString(), anyMap())).thenReturn(order);
         when(db.one(anyString(), any(SqlParameterSource.class))).thenReturn(order);
         when(jdbc.queryForObject(contains("from pay_channel"), anyMap(), eq(Integer.class))).thenReturn(1);
+        when(jdbc.update(contains("insert ignore into operation_log"), any(SqlParameterSource.class))).thenReturn(1);
         ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
@@ -189,5 +191,19 @@ class ProcessingPaymentTests {
                 "clientRequestId", "balance-7", "paymentType", "DEPOSIT", "payMethod", "BALANCE", "amount", 100), request));
         assertEquals(409106, error.getCode());
         verify(jdbc, never()).update(contains("insert into processing_payment"), any(SqlParameterSource.class));
+    }
+
+    @Test
+    void requestIdClaimedByCreateCannotBeReusedForPayment() {
+        Fixture f = fixture("COMPLETED", 100, 0);
+        when(f.jdbc.update(contains("insert ignore into operation_log"), any(SqlParameterSource.class))).thenReturn(0);
+        when(f.db.list(contains("from operation_log"), anyMap()))
+                .thenReturn(List.of(Map.of("content", "processingOrderId=-1,action=CREATE")));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.pay(7L, Map.of(
+                "clientRequestId", "create-key", "paymentType", "BALANCE", "payMethod", "CASH", "amount", 100), f.request));
+
+        assertEquals(409708, error.getCode());
+        verify(f.jdbc, never()).update(contains("insert into processing_payment"), any(SqlParameterSource.class));
     }
 }

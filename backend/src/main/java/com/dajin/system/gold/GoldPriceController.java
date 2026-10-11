@@ -11,6 +11,8 @@ import javax.validation.constraints.DecimalMin;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 
 @RestController
@@ -48,7 +50,8 @@ public class GoldPriceController {
     @GetMapping("/history") @RequirePermission("gold:view")
     public ApiResponse<?> history(@RequestParam(defaultValue = "30") int days, HttpServletRequest request) {
         if (days < 1 || days > 365) throw new BusinessException(400308, "历史天数必须在1到365之间");
-        return ApiResponse.ok(db.list("select * from gold_price where store_id=:s and date>=date_sub(curdate(),interval :d day) order by date desc,price_id desc", Map.of("s", db.store(request), "d", days)));
+        LocalDate from = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days);
+        return ApiResponse.ok(db.list("select * from gold_price where store_id=:s and date>=:from order by date desc,price_id desc", Map.of("s", db.store(request), "from", from)));
     }
     @GetMapping("/spot") @RequirePermission("gold:view")
     public ApiResponse<?> spot(HttpServletRequest request) { return ApiResponse.ok(market.spot(db.store(request), GoldMarketService.AU_TD)); }

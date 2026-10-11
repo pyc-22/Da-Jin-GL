@@ -92,4 +92,13 @@ class CombinationPaymentTests {
                 List.of(Map.of("payMethod", "DOUYIN_GROUP", "amount", "10", "voucherNo", "x".repeat(101))), BigDecimal.TEN, resolve));
         assertEquals("团购核销单号不能超过100字", tooLong.getMessage());
     }
+
+    @Test void supportsStoreDefinedGroupChannelPredicate() {
+        List<CombinationPayment.Part> parts = List.of(
+                new CombinationPayment.Part("STORE_GROUP", new BigDecimal("10.00"), "G-1"),
+                new CombinationPayment.Part("CASH", new BigDecimal("5.00"), null));
+        var group = CombinationPayment.groupPart(parts, "STORE_GROUP"::equals);
+        assertNotNull(group);
+        assertEquals("G-1", group.voucherNo());
+    }
 }

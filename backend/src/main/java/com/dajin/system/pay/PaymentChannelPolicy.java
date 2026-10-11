@@ -13,9 +13,41 @@ public final class PaymentChannelPolicy {
 
     public static boolean isGroupChannel(String code) { return GROUP_CHANNELS.contains(code); }
 
+    public static boolean isGroupChannel(DbSupport db, long storeId, String code) {
+        if (isGroupChannel(code)) return true;
+        if (db == null || code == null || code.isBlank()) return false;
+        try {
+            String name = db.jdbc().queryForObject("select channel_name from pay_channel where store_id=:s and channel_code=:code limit 1", Map.of("s", storeId, "code", code), String.class);
+            String text = name == null ? "" : name.toLowerCase(Locale.ROOT);
+            return text.contains("团购") || text.contains("douyin") || text.contains("meituan");
+        } catch (Exception ignored) { return false; }
+    }
+
+    /** Cash is a semantic channel: deployments use CASH, XIANJIN, or a
+     * store-defined Chinese name.  Keep the predicate in one place so shift
+     * totals and refund/payment screens cannot drift apart. */
+    public static boolean isCashChannel(String code, String name) {
+        String normalized = code == null ? "" : code.trim().toUpperCase(Locale.ROOT);
+        String label = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+        return Set.of("CASH", "XIANJIN").contains(normalized)
+                || label.contains("现金") || label.contains("xianjin") || label.equals("cash");
+    }
+
+    public static boolean isCashChannel(DbSupport db, long storeId, Object rawCode) {
+        String code = rawCode == null ? "" : String.valueOf(rawCode).trim().toUpperCase(Locale.ROOT);
+        if (isCashChannel(code, null)) return true;
+        if (db == null || code.isBlank()) return false;
+        try {
+            String name = db.jdbc().queryForObject(
+                    "select channel_name from pay_channel where store_id=:s and channel_code=:code and status=1 limit 1",
+                    Map.of("s", storeId, "code", code), String.class);
+            return isCashChannel(code, name);
+        } catch (Exception ignored) { return false; }
+    }
+
     public static String requireActiveCollection(DbSupport db, long storeId, Object rawCode) {
         String code = requireActive(db, storeId, rawCode, true);
-        if (isGroupChannel(code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
+        if (isGroupChannel(db, storeId, code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
         return code;
     }
 
@@ -54,7 +86,7 @@ public final class PaymentChannelPolicy {
 
     public static String requireActiveExternal(DbSupport db, long storeId, Object rawCode) {
         String code = requireActive(db, storeId, rawCode, false);
-        if (isGroupChannel(code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
+        if (isGroupChannel(db, storeId, code)) throw new BusinessException(400310, "团购方式仅用于加工尾款");
         return code;
     }
 

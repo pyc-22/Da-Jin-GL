@@ -46,6 +46,7 @@ class ProcessingResidualMaterialTests {
         order.put("finished_fineness", 0.999);
         when(db.store(request)).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0, String.class);
             if (sql.contains("for update")) return List.of(order);
@@ -65,7 +66,7 @@ class ProcessingResidualMaterialTests {
 
         f.controller.changeStatus(18L, Map.of(
                 "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT",
-                "residualMaterialType", "足金旧料"
+                "residualMaterialType", "足金旧料", "clientRequestId", "complete-record"
         ), f.request);
 
         verify(f.ledger).recordMaterial(1L, 901L, "PROCESSING:18",
@@ -81,7 +82,7 @@ class ProcessingResidualMaterialTests {
 
         f.controller.changeStatus(18L, Map.of(
                 "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT",
-                "residualMaterialType", "足金旧料"
+                "residualMaterialType", "足金旧料", "clientRequestId", "complete-refund"
         ), f.request);
 
         verify(f.ledger).recordMaterial(1L, 901L, "PROCESSING:18",
@@ -92,12 +93,30 @@ class ProcessingResidualMaterialTests {
     }
 
     @Test
+    void approvedPromotionUsesFinalDueWhenCalculatingRefund() {
+        Fixture f = fixture(90, 0);
+        // No residual deduction: gross receivable is 100, approved promotion is 20.
+        f.order.put("finished_weight", 20);
+        f.order.put("promotion_discount", 20);
+
+        f.controller.changeStatus(18L, Map.of(
+                "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT",
+                "residualMaterialType", "足金旧料", "clientRequestId", "complete-promotion-refund"
+        ), f.request);
+
+        org.mockito.ArgumentCaptor<SqlParameterSource> params = org.mockito.ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(f.jdbc).update(contains("residual_material_type=:type"), params.capture());
+        assertEquals(new java.math.BigDecimal("80.00"), params.getValue().getValue("due"));
+        assertEquals(new java.math.BigDecimal("10.00"), params.getValue().getValue("refund"));
+    }
+
+    @Test
     void customRecyclePriceOverridesTheConfiguredOne() {
         Fixture f = fixture(0, 0);
 
         f.controller.changeStatus(18L, Map.of(
                 "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT",
-                "residualMaterialType", "足金旧料", "residualRecyclePrice", 200
+                "residualMaterialType", "足金旧料", "residualRecyclePrice", 200, "clientRequestId", "complete-custom-price"
         ), f.request);
 
         // 回收屑 1.000g × 手工回收价 200 = 200.00（系统配置价是 50）
@@ -114,20 +133,47 @@ class ProcessingResidualMaterialTests {
         f.order.remove("old_gold_fineness");
 
         BusinessException error = assertThrows(BusinessException.class, () -> f.controller.changeStatus(18L, Map.of(
-                "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT"), f.request));
+                "status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT", "clientRequestId", "complete-missing-incoming"), f.request));
 
         assertEquals(400711, error.getCode());
         verifyNoInteractions(f.ledger);
     }
 
     @Test
+    void takeAwayCompletionAlsoRequiresIncomingWeightAndFineness() {
+        Fixture f = fixture(0, 0);
+        f.order.remove("old_gold_weight");
+        f.order.remove("old_gold_fineness");
+
+        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.changeStatus(18L, Map.of(
+                "status", "COMPLETED", "residualGoldHandling", "TAKE_AWAY", "clientRequestId", "complete-take-away-missing-incoming"), f.request));
+
+        assertEquals(400711, error.getCode());
+        verifyNoInteractions(f.ledger);
+        verify(f.jdbc, never()).update(contains("set status=:status"), anyMap());
+    }
+
+    @Test
     void recordedResidualMaterialIsNotInsertedAgain() {
         Fixture f = fixture(0, 1);
 
-        f.controller.changeStatus(18L, Map.of("status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT"), f.request);
+        f.controller.changeStatus(18L, Map.of("status", "COMPLETED", "residualGoldHandling", "STORE_DEDUCT", "clientRequestId", "complete-recorded"), f.request);
 
         verifyNoInteractions(f.ledger);
         verify(f.jdbc, never()).update(contains("insert into old_material"), any(SqlParameterSource.class));
         verify(f.jdbc).update(contains("set status=:status"), anyMap());
+    }
+
+    @Test
+    void invalidSettlementRemarkDoesNotConsumeIdempotencyKey() {
+        Fixture f = fixture(0, 0);
+        String tooLong = "x".repeat(201);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> f.controller.changeStatus(18L, Map.of(
+                "status", "COMPLETED", "settlementRemark", tooLong,
+                "clientRequestId", "complete-invalid-remark"), f.request));
+
+        assertEquals(400719, error.getCode());
+        verify(f.jdbc, never()).update(contains("insert ignore into operation_log"), any(SqlParameterSource.class));
     }
 }

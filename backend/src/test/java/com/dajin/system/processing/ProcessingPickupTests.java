@@ -38,13 +38,14 @@ class ProcessingPickupTests {
         ));
         when(db.store(request)).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenAnswer(invocation ->
                 invocation.getArgument(0, String.class).contains("for update") ? List.of(order) : List.of());
         when(db.one(anyString(), anyMap())).thenReturn(order);
         ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
-        controller.changeStatus(18L, Map.of("status", "PICKED_UP"), request);
+        controller.changeStatus(18L, Map.of("status", "PICKED_UP", "clientRequestId", "pickup-no-photo"), request);
 
         verify(db.jdbc()).update(contains("update processing_order set status"), anyMap());
     }
@@ -66,13 +67,14 @@ class ProcessingPickupTests {
         ));
         when(db.store(request)).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenAnswer(invocation ->
                 invocation.getArgument(0, String.class).contains("for update") ? List.of(order) : List.of());
         when(db.one(anyString(), anyMap())).thenReturn(order);
         ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
-        controller.changeStatus(18L, Map.of("status", "PICKED_UP", "settlementRemark", "客户要求加刻名字"), request);
+        controller.changeStatus(18L, Map.of("status", "PICKED_UP", "clientRequestId", "pickup-remark", "settlementRemark", "客户要求加刻名字"), request);
 
         verify(db.jdbc()).update(contains("set settlement_remark"), anyMap());
     }
@@ -93,13 +95,14 @@ class ProcessingPickupTests {
         ));
         when(db.store(request)).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenAnswer(invocation ->
                 invocation.getArgument(0, String.class).contains("for update") ? List.of(order) : List.of());
         when(db.one(anyString(), anyMap())).thenReturn(order);
         ProcessingController controller = new ProcessingController(db, mock(SyncWebSocketHandler.class),
                 mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
-        controller.changeStatus(18L, Map.of("status", "PICKED_UP"), request);
+        controller.changeStatus(18L, Map.of("status", "PICKED_UP", "clientRequestId", "pickup-photo"), request);
 
         verify(db.jdbc()).update(contains("update processing_order set status"), anyMap());
     }

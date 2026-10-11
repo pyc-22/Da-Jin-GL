@@ -44,10 +44,14 @@ class AdminDashboardTests {
         String all = String.join("\n", sql.getAllValues());
         assertTrue(all.contains("m.deleted=0"), all);
         assertTrue(all.contains("status<>'WITHDRAWN'"), all);
-        assertTrue(all.contains("date(o.create_time)>=:from"), all);
+        assertTrue(all.contains("o.create_time>=:fromStart"), all);
+        assertTrue(all.contains("o.create_time<:trendEnd"), all);
+        assertTrue(all.contains("processing_order"), all);
+        assertTrue(all.contains("status='PICKED_UP'"), all);
         var params = org.mockito.ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(db, atLeastOnce()).one(anyString(), params.capture());
         assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")), params.getValue().getValue("today"));
+        assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(1).toString(), params.getValue().getValue("trendEnd"));
     }
 
     @Test

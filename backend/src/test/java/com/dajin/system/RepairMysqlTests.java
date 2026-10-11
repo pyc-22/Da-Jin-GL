@@ -468,7 +468,7 @@ class RepairMysqlTests {
         var controller=transactional(new com.dajin.system.processing.ProcessingController(db,ws,new ShiftService(db),new OldMaterialLedgerService(db)));
         var order=(Map<?,?>)controller.createOrder(Map.of("processingItemId",1,"customerName","Test","customerPhone","13800000000","quantity",1),request).data();
         long id=((Number)order.get("processing_order_id")).longValue();
-        controller.changeStatus(id,Map.of("status","PROCESSING"),request);
+        controller.changeStatus(id,Map.of("status","PROCESSING","clientRequestId","repair-processing-1"),request);
         for(int weight:new int[]{10,8,6}) controller.registerStoreGold(id,Map.of("weight",weight,"price",100),request);
         assertEquals(94,inventory());
         assertEquals(new BigDecimal("4.000"),jdbc.queryForObject("select sum(qty) from stock_in",BigDecimal.class));
@@ -549,7 +549,7 @@ class RepairMysqlTests {
         controller.handover(id, request);
         request.setAttribute("claims", Jwts.claims(Map.of("role", "CASHIER", "storeId", 1L)).setSubject("2"));
         assertEquals(1, ((List<?>) controller.handovers(request).data()).size());
-        controller.changeStatus(id, Map.of("status", "PROCESSING"), request);
+        controller.changeStatus(id, Map.of("status", "PROCESSING", "clientRequestId", "repair-processing-2"), request);
         assertTrue(((List<?>) controller.handovers(request).data()).isEmpty());
         var active = (List<?>) controller.orders(null, "PROCESSING", null, null, null, null, request).data();
         assertEquals(1, active.size());

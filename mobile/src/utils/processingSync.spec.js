@@ -41,8 +41,15 @@ describe('mobile pending submit sync (加工/回收/销售 断网补传)', () =>
     const first = await syncPendingProcessing({ knownOrders: [] })
     expect(first.failed).toBe(1)
     expect(listPendingHandovers().map(row => row.orderId)).toEqual([12])
+    expect(listPendingHandovers()[0]).toEqual(expect.objectContaining({ status: 'FAILED', error: '断网', lastRetryAt: expect.any(String) }))
 
     api.processingHandover.mockResolvedValue({ handover: 1 })
+    // The failed network attempt is backoff-limited; simulate the next retry
+    // window opening as a real reconnect would do.
+    const key = Object.keys(localStorage).find(item => item.includes('dajin-order-processing-handover'))
+    const rows = JSON.parse(localStorage.getItem(key))
+    rows[0].nextRetryAt = new Date(Date.now() - 1).toISOString()
+    localStorage.setItem(key, JSON.stringify(rows))
     await syncPendingProcessing({ knownOrders: [] })
     expect(listPendingHandovers()).toHaveLength(0)
   })
@@ -84,5 +91,31 @@ describe('mobile pending submit sync (加工/回收/销售 断网补传)', () =>
 
     expect(result.failed).toBe(1)
     expect(listDrafts('recycle')).toHaveLength(1)
+    expect(listDrafts('recycle')[0]).toEqual(expect.objectContaining({ status: 'FAILED', error: '还是不通', lastRetryAt: expect.any(String), nextRetryAt: expect.any(String) }))
+  })
+
+  it('业务校验失败保留失败详情但不会在下一轮自动循环', async () => {
+    api.recycleCreate.mockRejectedValue({ response: { status: 200, data: { code: 400711, message: '参数错误' } } })
+    addDraft('recycle', { ref: 'business-error', payload: {}, display: {} })
+
+    const first = await syncPendingProcessing()
+    expect(first.failed).toBe(1)
+    expect(listDrafts('recycle')[0]).toEqual(expect.objectContaining({ status: 'FAILED', error: '参数错误', nextRetryAt: null }))
+    api.recycleCreate.mockClear()
+    await syncPendingProcessing()
+    expect(api.recycleCreate).not.toHaveBeenCalled()
+  })
+
+  it('待转交队列满时不丢失已创建订单的幂等草稿', async () => {
+    api.processingCreate.mockResolvedValue({ processing_order_id: 999, order_no: 'JG0999' })
+    api.processingHandover.mockRejectedValue(new Error('网络中断'))
+    for (let i = 1; i <= 50; i += 1) addPendingHandover({ orderId: i, orderNo: `JG${i}` })
+    addProcessingDraft({ ref: 'p-overflow', payload: { clientRequestId: 'p-overflow' }, display: {} })
+
+    const result = await syncPendingProcessing()
+
+    expect(result.failed).toBeGreaterThan(0)
+    expect(listDrafts('processing')).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'p-overflow', status: 'FAILED' })]))
+    expect(listPendingHandovers()).toHaveLength(50)
   })
 })

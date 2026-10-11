@@ -68,7 +68,7 @@ class ProcessingGuideFallbackTests {
     private Map<String, Object> orderBody(Map<String, Object> extra) {
         Map<String, Object> body = new HashMap<>(Map.of(
                 "memberId", 8200, "customerName", "王小红", "customerPhone", "13800001234",
-                "processingItemId", 5, "quantity", 1));
+                "processingItemId", 5, "quantity", 1, "clientRequestId", "guide-test-" + System.nanoTime()));
         body.putAll(extra);
         return body;
     }

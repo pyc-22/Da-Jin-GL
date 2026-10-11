@@ -50,12 +50,13 @@ class ProcessingSalesScopeTests {
         order.put("sales_id", 27L);
         when(db.store(request)).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(SqlParameterSource.class))).thenReturn(1);
         when(db.one(anyString(), anyMap())).thenReturn(order);
         when(db.list(anyString(), anyMap())).thenReturn(List.of());
         ProcessingController controller = new ProcessingController(db, ws, mock(ShiftService.class), mock(OldMaterialLedgerService.class));
 
         controller.detail(8L, request);
-        controller.notifyPickup(8L, request);
+        controller.notifyPickup(8L, Map.of("clientRequestId", "sales-notify"), request);
 
         verify(jdbc).update(contains("'PROCESSING_READY'"), any(SqlParameterSource.class));
         var params = org.mockito.ArgumentCaptor.forClass(SqlParameterSource.class);

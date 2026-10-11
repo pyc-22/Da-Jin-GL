@@ -29,9 +29,10 @@ class ProcessingArchiveTests {
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         when(db.store(any())).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenReturn(List.of(order(status, 9L)));
 
-        var ex = assertThrows(BusinessException.class, () -> controller(db).archiveOnMobile(12L, Map.of(), managerRequest(1L)));
+        var ex = assertThrows(BusinessException.class, () -> controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-status-" + status), managerRequest(1L)));
         assertEquals(409716, ex.getCode());
         verify(jdbc, never()).update(startsWith("update processing_order set mobile_archived"), anyMap());
     }
@@ -42,9 +43,10 @@ class ProcessingArchiveTests {
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         when(db.store(any())).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenReturn(List.of(order("PICKED_UP", 27L)));
 
-        controller(db).archiveOnMobile(12L, Map.of(), salesRequest(27L));
+        controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-own"), salesRequest(27L));
 
         verify(jdbc).update(contains("set mobile_archived=1"), anyMap());
     }
@@ -55,9 +57,10 @@ class ProcessingArchiveTests {
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         when(db.store(any())).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenReturn(List.of(order("PICKED_UP", 99L)));
 
-        var ex = assertThrows(BusinessException.class, () -> controller(db).archiveOnMobile(12L, Map.of(), salesRequest(27L)));
+        var ex = assertThrows(BusinessException.class, () -> controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-other"), salesRequest(27L)));
         assertEquals(403403, ex.getCode());
         verify(jdbc, never()).update(startsWith("update processing_order set mobile_archived"), anyMap());
     }
@@ -68,9 +71,10 @@ class ProcessingArchiveTests {
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         when(db.store(any())).thenReturn(1L);
         when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
         when(db.list(anyString(), anyMap())).thenReturn(List.of(order("PICKED_UP", 99L)));
 
-        controller(db).archiveOnMobile(12L, Map.of(), managerRequest(1L));
+        controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-manager"), managerRequest(1L));
 
         var sql = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(jdbc, atLeastOnce()).update(sql.capture(), anyMap());

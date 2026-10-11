@@ -685,7 +685,9 @@ public class StockController {
     @RequirePermission("stock:view")
     public ApiResponse<?> old(HttpServletRequest r) {
         long storeId = db.store(r);
-        List<Map<String, Object>> rows = db.list("select material_id,material_type,weight,purity,direction,weight*purity*coalesce(direction,1) effective_weight,source,value,status,create_time,update_time from old_material where store_id=:s and status=1 order by material_id desc", Map.of("s", storeId));
+        // Do not multiply purity in SQL: the shared Fineness policy treats
+        // 0.995+ as full-gold and the aggregation layer applies that rule.
+        List<Map<String, Object>> rows = db.list("select material_id,material_type,weight,purity,direction,source,value,status,create_time,update_time from old_material where store_id=:s and status=1 order by material_id desc", Map.of("s", storeId));
         List<Map<String, Object>> aggregated = OldMaterialAggregation.aggregate(rows);
         List<Map<String, Object>> types = db.list("select name,status from old_material_type where store_id=:s order by sort,type_id", Map.of("s", storeId));
         for (Map<String, Object> type : types) {

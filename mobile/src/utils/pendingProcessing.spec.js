@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   addPendingHandover, addProcessingDraft, buildProcessingDraftPayload, bumpProcessingDraft,
-  findDuplicateOrder, listPendingHandovers, listProcessingDrafts, makeProcessingRef,
+  findDuplicateOrder, isRetryableSubmitError, listPendingHandovers, listProcessingDrafts, makeProcessingRef,
   pendingProcessingSummary, removePendingHandover, removeProcessingDraft
 } from './pendingProcessing.js'
 
@@ -30,6 +30,13 @@ describe('mobile pending processing queue', () => {
     expect(listProcessingDrafts()).toHaveLength(0)
   })
 
+  it('rejects a new draft at capacity without replacing existing drafts', () => {
+    for (let i = 0; i < 50; i += 1) addProcessingDraft(draft(`full-${i}`))
+    expect(() => addProcessingDraft(draft('full-overflow'))).toThrow(/上限/)
+    expect(listProcessingDrafts()).toHaveLength(50)
+    expect(listProcessingDrafts()[0].ref).toBe('full-0')
+  })
+
   it('tracks orders created on the server but not yet handed to the cashier', () => {
     addPendingHandover({ orderId: 12, orderNo: 'JG0012' })
     addPendingHandover({ orderId: 12, orderNo: 'JG0012' })
@@ -38,6 +45,13 @@ describe('mobile pending processing queue', () => {
     expect(pendingProcessingSummary()).toEqual({ drafts: 0, handovers: 2, total: 2 })
     removePendingHandover(12)
     expect(listPendingHandovers().map(row => row.orderId)).toEqual([13])
+  })
+
+  it('rejects a new handover when the queue is full without replacing existing rows', () => {
+    for (let i = 0; i < 50; i += 1) addPendingHandover({ orderId: i + 1, orderNo: `JG${i + 1}` })
+    expect(() => addPendingHandover({ orderId: 999, orderNo: 'JG0999' })).toThrow(/上限/)
+    expect(listPendingHandovers()).toHaveLength(50)
+    expect(listPendingHandovers()[0].orderId).toBe(1)
   })
 
   it('builds the payload the same way the create form does', () => {
@@ -56,5 +70,11 @@ describe('mobile pending processing queue', () => {
     expect(findDuplicateOrder(draft('proc-1'), rows)).toMatchObject({ processing_order_id: 99 })
     expect(findDuplicateOrder(draft('proc-1', '13900000000'), rows)).toBeNull()
     expect(findDuplicateOrder(draft('proc-1', '13800000000', 6), rows)).toBeNull()
+  })
+
+  it('does not auto-retry HTTP-200 business errors encoded as 4xxxx/409xxx', () => {
+    expect(isRetryableSubmitError({ response: { status: 200, data: { code: 400711 } } })).toBe(false)
+    expect(isRetryableSubmitError({ response: { status: 200, data: { code: 409708 } } })).toBe(false)
+    expect(isRetryableSubmitError({ message: 'network down' })).toBe(true)
   })
 })

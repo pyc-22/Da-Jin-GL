@@ -427,6 +427,10 @@ onMounted(loadCurrent)
 .stat-card span,.muted { color:var(--el-text-color-secondary); font-size:13px; }
 .stat-card strong { color:#9d6726; font-size:20px; }
 .form-grid { display:grid; grid-template-columns:1fr 1fr; column-gap:14px; }
+.payment-components { display:flex; flex-wrap:wrap; gap:4px; }
+.payment-component { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--el-border-color-lighter); border-radius:4px; padding:2px 5px; font-size:12px; }
+.payment-component em { color:var(--el-text-color-secondary); font-style:normal; }
+.payment-component small { color:var(--el-color-danger); }
 .category-field { display:flex; align-items:center; gap:10px; width:100%; }
 .form-suffix { margin-left:8px; color:var(--el-text-color-secondary); }
 .order-head { margin-bottom:14px; }.order-head p { margin:5px 0 0; color:var(--el-text-color-secondary); }

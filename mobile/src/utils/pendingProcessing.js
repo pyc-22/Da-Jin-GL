@@ -16,7 +16,13 @@ const readList = key => {
     return Array.isArray(rows) ? rows : []
   } catch { return [] }
 }
-const writeList = (key, rows) => setStorage(key, JSON.stringify(rows.slice(0, MAX_ROWS)))
+const writeList = (key, rows) => setStorage(key, JSON.stringify(rows))
+
+export function canAddDraft(kind = 'processing', ref = '') {
+  const key = DRAFT_KINDS[kind] || DRAFT_KEY
+  const rows = readList(key)
+  return rows.some(row => row.ref === ref) || rows.length < MAX_ROWS
+}
 
 export const makeProcessingRef = () => `proc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 export const makeDraftRef = kind => `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -29,7 +35,10 @@ export const makeDraftRef = kind => `${kind}-${Date.now()}-${Math.random().toStr
 export function isRetryableSubmitError(error) {
   const status = Number(error?.response?.status || 0)
   const code = Number(error?.response?.data?.code || 0)
-  if (code && code < 50000) return false
+  // The API uses HTTP 200 for business failures, with 400xxx/409xxx in the
+  // response body.  Do not put those deterministic validation/state errors
+  // into an automatic retry loop.  Transport errors and 5xx remain retryable.
+  if (code >= 400000 && code < 500000) return false
   if (status >= 400 && status < 500) return false
   return true
 }
@@ -40,6 +49,7 @@ export function listDrafts(kind = 'processing') { return readList(DRAFT_KINDS[ki
 export function addDraft(kind, draft) {
   const key = DRAFT_KINDS[kind] || DRAFT_KEY
   const rows = readList(key).filter(row => row.ref !== draft.ref)
+  if (rows.length >= MAX_ROWS) throw new Error('待同步草稿已达上限，请先处理或删除已有草稿')
   rows.push({ ...draft, createdAt: draft.createdAt || new Date().toISOString(), tries: Number(draft.tries || 0) })
   writeList(key, rows)
   return rows.length
@@ -52,9 +62,22 @@ export function removeDraft(kind, ref) {
   return rows.length
 }
 
-export function bumpDraft(kind, ref) {
+export function bumpDraft(kind, ref, errorMessage = '') {
+  markDraftFailed(kind, ref, errorMessage, true)
+}
+
+/** Keep the row visible after a deterministic business error, but do not
+ * schedule it for automatic retries.  A user may still invoke manual retry. */
+export function markDraftFailed(kind, ref, errorMessage = '', retryable = true) {
   const key = DRAFT_KINDS[kind] || DRAFT_KEY
-  writeList(key, readList(key).map(row => row.ref === ref ? { ...row, tries: Number(row.tries || 0) + 1 } : row))
+  writeList(key, readList(key).map(row => {
+    if (row.ref !== ref) return row
+    const next = { ...row, tries: Number(row.tries || 0) + 1, status: 'FAILED', error: errorMessage || row.error || '同步失败', lastRetryAt: new Date().toISOString() }
+    next.nextRetryAt = retryable
+      ? new Date(Date.now() + Math.min(3600000, 1000 * (2 ** Math.min(Number(row.tries || 0), 10)))).toISOString()
+      : null
+    return next
+  }))
 }
 
 export function pendingSubmitSummary() {
@@ -69,6 +92,7 @@ export function listProcessingDrafts() { return readList(DRAFT_KEY) }
 
 export function addProcessingDraft(draft) {
   const rows = readList(DRAFT_KEY).filter(row => row.ref !== draft.ref)
+  if (rows.length >= MAX_ROWS) throw new Error('待同步草稿已达上限，请先处理或删除已有草稿')
   rows.push({ ...draft, createdAt: draft.createdAt || new Date().toISOString(), tries: Number(draft.tries || 0) })
   writeList(DRAFT_KEY, rows)
   return rows.length
@@ -89,9 +113,25 @@ export function listPendingHandovers() { return readList(HANDOVER_KEY) }
 
 export function addPendingHandover(entry) {
   const rows = readList(HANDOVER_KEY).filter(row => Number(row.orderId) !== Number(entry.orderId))
-  rows.push({ ...entry, createdAt: entry.createdAt || new Date().toISOString() })
+  if (rows.length >= MAX_ROWS) throw new Error('待转交队列已达上限，请先处理或删除已有记录')
+  rows.push({ ...entry, createdAt: entry.createdAt || new Date().toISOString(), tries: Number(entry.tries || 0), status: entry.status || 'PENDING' })
   writeList(HANDOVER_KEY, rows)
   return rows.length
+}
+
+export function bumpPendingHandover(orderId, errorMessage = '') {
+  markPendingHandoverFailed(orderId, errorMessage, true)
+}
+
+export function markPendingHandoverFailed(orderId, errorMessage = '', retryable = true) {
+  writeList(HANDOVER_KEY, readList(HANDOVER_KEY).map(row => {
+    if (Number(row.orderId) !== Number(orderId)) return row
+    const next = { ...row, tries: Number(row.tries || 0) + 1, status: 'FAILED', error: errorMessage || row.error || '转交前台失败', lastRetryAt: new Date().toISOString() }
+    next.nextRetryAt = retryable
+      ? new Date(Date.now() + Math.min(3600000, 1000 * (2 ** Math.min(Number(row.tries || 0), 10)))).toISOString()
+      : null
+    return next
+  }))
 }
 
 export function removePendingHandover(orderId) {
