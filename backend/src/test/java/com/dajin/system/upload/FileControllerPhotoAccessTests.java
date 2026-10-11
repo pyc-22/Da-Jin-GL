@@ -90,7 +90,8 @@ class FileControllerPhotoAccessTests {
         JwtService jwt = mock(JwtService.class);
         NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
         when(db.jdbc()).thenReturn(jdbc);
-        when(jwt.parse("legacy-token")).thenReturn(claims(12L, 3L, "SALES"));
+        Claims legacyClaims = claims(12L, 3L, "SALES");
+        when(jwt.parse("legacy-token")).thenReturn(legacyClaims);
         when(jdbc.queryForObject(anyString(), any(SqlParameterSource.class), eq(Integer.class))).thenReturn(1);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setParameter("access_token", "legacy-token");

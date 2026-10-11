@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { memberApi, processingApi } from '../api/modules'
+import http from '../api/request'
 import { formatMoney, formatPaymentMethod as formatConfiguredPaymentMethod, formatTime } from '../utils/format'
 import { goldBalance } from '../utils/goldBalance'
 import { useAppStore } from '../stores/app'
@@ -118,6 +119,7 @@ const recyclePriceText = row => {
 }
 const photoObjectUrls = reactive({})
 const photoLoading = new Set()
+let photoGeneration = 0
 const parsePhotos = v => {
   let values = v
   if (!Array.isArray(values)) { try { values = JSON.parse(v || '[]') } catch { values = [] } }
@@ -126,22 +128,35 @@ const parsePhotos = v => {
 const photoRequestUrl = value => {
   const raw = String(value || '').trim()
   try {
-    const url = new URL(raw, window.location.origin)
+    const url = new URL(raw, http.defaults.baseURL || window.location.origin)
+    const apiOrigin = new URL(http.defaults.baseURL || window.location.origin, window.location.origin).origin
+    if (url.origin !== apiOrigin) return ''
     url.searchParams.delete('access_token')
     return url.toString()
-  } catch { return raw }
+  } catch { return '' }
 }
 async function loadPhotoObjectUrl(value) {
   const raw = String(value || '').trim()
   if (!raw || !raw.includes('/api/file/processing/') || photoObjectUrls[raw] || photoLoading.has(raw) || !auth.token) return
   photoLoading.add(raw)
+  const generation = photoGeneration
+  const requestToken = auth.token
   try {
-    const response = await fetch(photoRequestUrl(raw), { headers: { Authorization: `Bearer ${auth.token}` } })
+    const requestUrl = photoRequestUrl(raw)
+    if (!requestUrl) throw new Error('照片地址与当前后端不一致')
+    const response = await fetch(requestUrl, { headers: { Authorization: `Bearer ${requestToken}` } })
+    if (response.status === 401 && auth.token === requestToken) {
+      auth.logout()
+      location.hash = '#/login'
+      throw new Error('登录已过期，请重新登录')
+    }
     if (!response.ok) throw new Error(`照片加载失败 (${response.status})`)
-    photoObjectUrls[raw] = URL.createObjectURL(await response.blob())
+    const blob = await response.blob()
+    if (generation !== photoGeneration || auth.token !== requestToken) return
+    photoObjectUrls[raw] = URL.createObjectURL(blob)
   } catch (error) {
     ElMessage.error(error?.message || '照片加载失败')
-  } finally { photoLoading.delete(raw) }
+  } finally { if (generation === photoGeneration) photoLoading.delete(raw) }
 }
 const photoUrl = value => {
   const raw = String(value || '').trim()
@@ -151,6 +166,7 @@ const photoUrl = value => {
 }
 const photoPreviewList = values => parsePhotos(values).map(photoUrl).filter(Boolean)
 function releasePhotoObjectUrls() {
+  photoGeneration += 1
   for (const url of Object.values(photoObjectUrls)) URL.revokeObjectURL(url)
   for (const key of Object.keys(photoObjectUrls)) delete photoObjectUrls[key]
   photoLoading.clear()

@@ -32,7 +32,7 @@ export async function fetchBackend(path, options = {}) {
     // available to the cashier rather than collapsing into a generic error.
     const body = result.status === 204 ? null
       : result.bodyBase64 != null
-        ? new Blob([Uint8Array.from(atob(result.bodyBase64), char => char.charCodeAt(0))], { type: result.contentType || 'application/octet-stream' })
+        ? Uint8Array.from(atob(result.bodyBase64), char => char.charCodeAt(0))
         : result.body == null
       ? null
       : (typeof result.body === 'string' || result.body instanceof Blob

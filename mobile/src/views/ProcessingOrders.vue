@@ -250,26 +250,41 @@ const dateTime = v => {
 // Fetch them with Bearer auth and expose only a short-lived object URL to the DOM.
 const photoObjectUrls = reactive({})
 const photoLoading = new Set()
+let photoGeneration = 0
 const photoRaw = value => String(value || '').trim()
 const photoRequestUrl = raw => {
   if (!raw) return ''
   try {
     const url = new URL(raw, window.location.origin)
+    const apiOrigin = new URL(http.defaults.baseURL || window.location.origin, window.location.origin).origin
+    if (url.origin !== apiOrigin) throw new Error('照片地址与当前后端不一致')
     url.searchParams.delete('access_token')
     return url.toString()
-  } catch { return raw }
+  } catch { return '' }
 }
 async function loadPhotoObjectUrl(value) {
   const raw = photoRaw(value)
   if (!raw || !raw.includes('/api/file/processing/') || photoObjectUrls[raw] || photoLoading.has(raw) || !auth.token) return
   photoLoading.add(raw)
+  const generation = photoGeneration
+  const requestToken = auth.token
   try {
-    const response = await fetch(photoRequestUrl(raw), { headers: { Authorization: `Bearer ${auth.token}` } })
+    const requestUrl = photoRequestUrl(raw)
+    const apiOrigin = new URL(http.defaults.baseURL || window.location.origin, window.location.origin).origin
+    if (!requestUrl || new URL(requestUrl, window.location.origin).origin !== apiOrigin) throw new Error('照片地址与当前后端不一致')
+    const response = await fetch(requestUrl, { headers: { Authorization: `Bearer ${requestToken}` } })
+    if (response.status === 401 && auth.token === requestToken) {
+      auth.logout()
+      window.dispatchEvent(new CustomEvent('dajin-auth-expired'))
+      throw new Error('登录已过期，请重新登录')
+    }
     if (!response.ok) throw new Error(`照片加载失败 (${response.status})`)
-    photoObjectUrls[raw] = URL.createObjectURL(await response.blob())
+    const blob = await response.blob()
+    if (generation !== photoGeneration || auth.token !== requestToken) return
+    photoObjectUrls[raw] = URL.createObjectURL(blob)
   } catch (error) {
     console.warn('[dajin-mobile] processing photo load failed:', error?.message || error)
-  } finally { photoLoading.delete(raw) }
+  } finally { if (generation === photoGeneration) photoLoading.delete(raw) }
 }
 const photoUrl = value => {
   const raw = photoRaw(value)
@@ -278,6 +293,7 @@ const photoUrl = value => {
   return photoObjectUrls[raw] || ''
 }
 function releasePhotoObjectUrls() {
+  photoGeneration += 1
   for (const url of Object.values(photoObjectUrls)) URL.revokeObjectURL(url)
   for (const key of Object.keys(photoObjectUrls)) delete photoObjectUrls[key]
   photoLoading.clear()

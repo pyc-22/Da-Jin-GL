@@ -383,6 +383,7 @@ async function confirmProcWeigh() {
 // dialog is closed/unmounted so tokens and blobs do not linger in the DOM.
 const photoObjectUrls = reactive({})
 const photoLoading = new Set()
+let photoGeneration = 0
 function photoPath(value) {
   const raw = String(value || '').trim()
   if (!raw) return ''
@@ -396,13 +397,17 @@ async function loadPhotoObjectUrl(value) {
   const path = photoPath(value)
   if (!path || !path.includes('/api/file/processing/') || photoObjectUrls[path] || photoLoading.has(path) || !getToken()) return
   photoLoading.add(path)
+  const generation = photoGeneration
+  const requestToken = getToken()
   try {
-    const response = await fetchBackend(path, { headers: { Authorization: `Bearer ${getToken()}` }, responseType: 'arrayBuffer' })
+    const response = await fetchBackend(path, { headers: { Authorization: `Bearer ${requestToken}` }, responseType: 'arrayBuffer' })
     if (!response.ok) throw new Error(`照片加载失败 (${response.status})`)
-    photoObjectUrls[path] = URL.createObjectURL(await response.blob())
+    const blob = await response.blob()
+    if (generation !== photoGeneration || getToken() !== requestToken) return
+    photoObjectUrls[path] = URL.createObjectURL(blob)
   } catch (error) {
     console.warn('[dajin-front] processing photo load failed:', error?.message || error)
-  } finally { photoLoading.delete(path) }
+  } finally { if (generation === photoGeneration) photoLoading.delete(path) }
 }
 function absFileUrl(value) {
   const raw = String(value || '').trim()
@@ -412,6 +417,7 @@ function absFileUrl(value) {
   return photoObjectUrls[path] || ''
 }
 function releasePhotoObjectUrls() {
+  photoGeneration += 1
   for (const url of Object.values(photoObjectUrls)) URL.revokeObjectURL(url)
   for (const key of Object.keys(photoObjectUrls)) delete photoObjectUrls[key]
   photoLoading.clear()

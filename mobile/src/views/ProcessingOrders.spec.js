@@ -34,7 +34,7 @@ vi.mock('../api/request.js', () => ({
   http: { get: mocks.httpGet, defaults: { baseURL: 'http://localhost:8080' } }
 }))
 vi.mock('../api/upload.js', () => ({ uploadImage: vi.fn() }))
-vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'MANAGER', user: { storeName: '测试店' } }) }))
+vi.mock('../stores/auth.js', () => ({ useAuthStore: () => ({ role: 'MANAGER', token: 'photo-token', user: { storeName: '测试店' } }) }))
 vi.mock('../stores/app.js', () => ({ useAppStore: () => ({ eventVersion: 0, lastEventType: '', gold: [], loadGold: vi.fn(), offline: false, processingSyncVersion: 0 }) }))
 vi.mock('vue-router', () => ({ useRoute:()=>({query:mocks.query}), useRouter: () => ({ back: vi.fn() }) }))
 
@@ -226,6 +226,66 @@ describe('ProcessingOrders mobile actions', () => {
 
     expect(wrapper.text()).toContain('取货照片')
     expect(wrapper.find('.pickup-photo-input').exists()).toBe(true)
+  })
+
+  it('loads private photos with Bearer fetch and revokes the object URL on unmount', async () => {
+    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100 }
+    const photo = '/api/file/processing/JG0012/incoming/photo.jpg'
+    mocks.processingOrders.mockResolvedValue([order])
+    mocks.processingOrder.mockResolvedValue({ ...order, incoming_photos: [photo], weigh_photos: [], pickup_photos: [], payments: [] })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(Uint8Array.from([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/jpeg' } }))
+    const createObjectUrl = vi.fn(() => 'blob:photo')
+    const revokeObjectUrl = vi.fn()
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await wrapper.get('.processing-card').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/file/processing/JG0012/incoming/photo.jpg', { headers: { Authorization: 'Bearer photo-token' } })
+    expect(wrapper.find('img').attributes('src')).toBe('blob:photo')
+    expect(fetchMock.mock.calls[0][0]).not.toContain('access_token=')
+    wrapper.unmount()
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:photo')
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL })
+    else delete URL.createObjectURL
+    if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: originalRevokeObjectURL })
+    else delete URL.revokeObjectURL
+    vi.unstubAllGlobals()
+  })
+
+  it('discards a pending photo response after the detail sheet closes', async () => {
+    const order = { processing_order_id: 12, order_no: 'JG0012', status: 'COMPLETED', customer_name: '张三', customer_phone: '13800000000', due_amount: 100, paid_amount: 100 }
+    const photo = '/api/file/processing/JG0012/incoming/photo.jpg'
+    mocks.processingOrders.mockResolvedValue([order])
+    mocks.processingOrder.mockResolvedValue({ ...order, incoming_photos: [photo], weigh_photos: [], pickup_photos: [], payments: [] })
+    let resolveFetch
+    const fetchMock = vi.fn(() => new Promise(resolve => { resolveFetch = resolve }))
+    const createObjectUrl = vi.fn(() => 'blob:stale-photo')
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ProcessingOrders)
+    await flushPromises()
+    await wrapper.get('.processing-card').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    await wrapper.find('.sheet header .icon-btn').trigger('click')
+    resolveFetch(new Response(Uint8Array.from([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/jpeg' } }))
+    await flushPromises()
+    expect(createObjectUrl).not.toHaveBeenCalled()
+    wrapper.unmount()
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL })
+    else delete URL.createObjectURL
+    if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: originalRevokeObjectURL })
+    else delete URL.revokeObjectURL
+    vi.unstubAllGlobals()
   })
 
   it('offers archive only for picked-up orders and removes it after confirmation', async () => {
