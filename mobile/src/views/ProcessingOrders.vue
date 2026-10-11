@@ -100,15 +100,15 @@
             </div>
             <div v-if="(detail.incoming_photos?.length || detail.weigh_photos?.length || detail.pickup_photos?.length) || (canManage && detail.status !== 'PICKED_UP')" class="photo-strip">
               <div v-if="(detail.incoming_photos?.length) || (canManage && detail.status !== 'PICKED_UP')"><h4>来料照片</h4>
-                <div class="thumbs"><img v-for="(p,i) in detail.incoming_photos" :key="'in'+i" :src="p" @click="preview(p)"/>
+                <div class="thumbs"><img v-for="(p,i) in detail.incoming_photos" :key="'in'+i" :src="photoUrl(p)" @click="preview(p)"/>
                 <label v-if="canManage && detail.status !== 'PICKED_UP'" class="add-photo" @click="nativeProcessingPhoto($event, 'incoming')">＋<input type="file" accept="image/*" multiple hidden @change="addPhotos($event, 'incoming')"/></label></div>
               </div>
               <div v-if="(detail.weigh_photos?.length) || (canManage && detail.status !== 'PICKED_UP')"><h4>称重照片</h4>
-                <div class="thumbs"><img v-for="(p,i) in detail.weigh_photos" :key="'w'+i" :src="p" @click="preview(p)"/>
+                <div class="thumbs"><img v-for="(p,i) in detail.weigh_photos" :key="'w'+i" :src="photoUrl(p)" @click="preview(p)"/>
                 <label v-if="canManage && detail.status !== 'PICKED_UP'" class="add-photo" @click="nativeProcessingPhoto($event, 'weigh')">＋<input type="file" accept="image/*" multiple hidden @change="addPhotos($event, 'weigh')"/></label></div>
               </div>
               <div v-if="(detail.pickup_photos?.length) || (canManage && detail.status === 'COMPLETED')"><h4>取货照片</h4>
-                <div class="thumbs"><img v-for="(p,i) in detail.pickup_photos" :key="'p'+i" :src="p" @click="preview(p)"/>
+                <div class="thumbs"><img v-for="(p,i) in detail.pickup_photos" :key="'p'+i" :src="photoUrl(p)" @click="preview(p)"/>
                 <label v-if="canManage && detail.status === 'COMPLETED' && detail.pickup_photos.length < 6" class="add-photo" @click="nativeProcessingPhoto($event, 'pickup')">＋<input class="pickup-photo-input" type="file" accept="image/*" capture="environment" multiple hidden @change="addPhotos($event, 'pickup')"/></label></div>
               </div>
             </div>
@@ -185,7 +185,7 @@ import Chip from '../components/Chip.vue'
 import DesignHeader from '../components/DesignHeader.vue'
 
 import { isNativeApp, takeNativePhoto } from '../utils/nativeDevice.js'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAppStore } from '../stores/app.js'
@@ -246,6 +246,42 @@ const dateTime = v => {
   const text = String(v).trim().replace('T', ' ')
   return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(text) ? text.slice(0, 16) : text
 }
+// Private processing photos cannot be loaded by an <img> with a custom header.
+// Fetch them with Bearer auth and expose only a short-lived object URL to the DOM.
+const photoObjectUrls = reactive({})
+const photoLoading = new Set()
+const photoRaw = value => String(value || '').trim()
+const photoRequestUrl = raw => {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw, window.location.origin)
+    url.searchParams.delete('access_token')
+    return url.toString()
+  } catch { return raw }
+}
+async function loadPhotoObjectUrl(value) {
+  const raw = photoRaw(value)
+  if (!raw || !raw.includes('/api/file/processing/') || photoObjectUrls[raw] || photoLoading.has(raw) || !auth.token) return
+  photoLoading.add(raw)
+  try {
+    const response = await fetch(photoRequestUrl(raw), { headers: { Authorization: `Bearer ${auth.token}` } })
+    if (!response.ok) throw new Error(`照片加载失败 (${response.status})`)
+    photoObjectUrls[raw] = URL.createObjectURL(await response.blob())
+  } catch (error) {
+    console.warn('[dajin-mobile] processing photo load failed:', error?.message || error)
+  } finally { photoLoading.delete(raw) }
+}
+const photoUrl = value => {
+  const raw = photoRaw(value)
+  if (!raw || !raw.includes('/api/file/processing/')) return raw
+  if (!photoObjectUrls[raw]) void loadPhotoObjectUrl(raw)
+  return photoObjectUrls[raw] || ''
+}
+function releasePhotoObjectUrls() {
+  for (const url of Object.values(photoObjectUrls)) URL.revokeObjectURL(url)
+  for (const key of Object.keys(photoObjectUrls)) delete photoObjectUrls[key]
+  photoLoading.clear()
+}
 const statusLabel = v => ({ PENDING: '待加工', PROCESSING: '加工中', COMPLETED: '已完成待取货', PICKED_UP: '已取货' }[String(v || '').toUpperCase()] || '未知')
 const statusClass = v => String(v || '').toLowerCase()
 const handlingLabel = v => ({ TAKE_AWAY: '客户带走', STORE_DEDUCT: '留店抵扣' }[String(v || '').toUpperCase()] || '—')
@@ -283,10 +319,7 @@ async function archiveOrder(order) {
 }
 function canArchive(order) {
   if (String(order.status).toUpperCase() !== 'PICKED_UP') return false
-  if (['ADMIN', 'MANAGER'].includes(String(auth.role || '').toUpperCase())) return true
-  const currentUserId = auth.user?.user_id ?? auth.user?.userId
-  const creatorId = order.created_by ?? order.createdBy
-  return String(auth.role || '').toUpperCase() === 'SALES' && currentUserId != null && creatorId != null && String(currentUserId) === String(creatorId)
+  return ['ADMIN', 'MANAGER'].includes(String(auth.role || '').toUpperCase())
 }
 async function advance(order) {
   if (!window.confirm(`确认将 ${order.order_no}「转交前台」？`)) return
@@ -309,6 +342,7 @@ async function load() {
   } catch (e) { error.value = e?.message || '加工订单加载失败' } finally { loading.value = false }
 }
 async function openDetail(order) {
+  releasePhotoObjectUrls()
   detail.value = order; detail.value.incoming_photos = parsePhotos(order.incoming_photos); detail.value.weigh_photos = parsePhotos(order.weigh_photos); detail.value.pickup_photos = parsePhotos(order.pickup_photos); detailLoading.value = true
   try {
     detail.value = await api.processingOrder(order.processing_order_id)
@@ -317,7 +351,7 @@ async function openDetail(order) {
     detail.value.pickup_photos = parsePhotos(detail.value.pickup_photos)
   } finally { detailLoading.value = false }
 }
-function closeDetail() { detail.value = null }
+function closeDetail() { detail.value = null; releasePhotoObjectUrls() }
 async function notify(order) {
   try { await api.processingNotify(order.processing_order_id); toast(`已记录通知 ${order.customer_name || '客户'} 取货`) } catch (e) { toast(e?.message || '通知失败') }
 }
@@ -418,7 +452,7 @@ async function addPhotos(event, type) {
   } catch (e) { toast(e?.message || '照片上传失败') } finally { photoBusy.value = false }
 }
 function parsePhotos(v) { let list = v; if (!Array.isArray(list)) { try { list = JSON.parse(v || '[]') } catch { list = [] } } return (Array.isArray(list) ? list : []).filter(Boolean).map(u => String(u).startsWith('/') ? http.defaults.baseURL + u : u) }
-function preview(url) { if (url) window.open(url) }
+function preview(url) { const resolved = photoUrl(url); if (resolved) window.open(resolved); else toast('照片加载中，请稍后再试') }
 function handleItemChange() {
   const base = new Date()
   base.setDate(base.getDate() + Number(selectedItem.value?.processing_days || 0))
@@ -516,6 +550,7 @@ watch(() => app.offline, value => { if (!value) flushPendingProcessing({ silent:
 // 全局心跳里补传成功后，回到本页要刷新横幅与列表
 watch(() => app.processingSyncVersion, () => { refreshPending(); load() })
 watch(()=>app.eventVersion,()=>{if(['PROCESSING_ORDER_CREATED','PROCESSING_ORDER_UPDATED','PROCESSING_CATALOG_UPDATED','STAFF_UPDATED'].includes(app.lastEventType)){if(app.lastEventType==='PROCESSING_CATALOG_UPDATED')items.value=[];if(app.lastEventType==='STAFF_UPDATED'){craftsmen.value=[];if(creating.value)loadCraftsmen()}load()}})
+onBeforeUnmount(releasePhotoObjectUrls)
 </script>
 <style scoped>
 .form-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:14px}

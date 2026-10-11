@@ -62,7 +62,7 @@ const rules = {
   ],
   password: [{ validator: (_rule, value, callback) => {
     if (!editingId.value && !value) return callback(new Error('请输入初始密码'))
-    if (value && !/^(?=.*[A-Za-z])(?=.*\d).{6,20}$/.test(value)) return callback(new Error('密码须为6-20位且同时包含字母和数字'))
+    if (value && !/^(?=.*[A-Za-z])(?=.*\d).{8,72}$/.test(value)) return callback(new Error('密码须为8-72位且同时包含字母和数字'))
     callback()
   }, trigger: 'blur' }],
   confirmPassword: [{ validator: (_rule, value, callback) => value !== form.password ? callback(new Error('两次输入的密码不一致')) : callback(), trigger: 'blur' }],
@@ -279,7 +279,7 @@ watch(()=>app.eventVersion,()=>{if(['STAFF_UPDATED','ROLE_UPDATED','USER_PERMISS
   <el-dialog v-model="dialog" :title="editingId ? '编辑员工' : '新增员工'" width="660px" @closed="resetForm">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="96px" status-icon><div class="staff-form-grid">
       <el-form-item label="姓名" prop="realName"><el-input v-model.trim="form.realName" maxlength="50" /></el-form-item><el-form-item label="账号" prop="username"><el-input v-model.trim="form.username" maxlength="20" @input="scheduleUsernameCheck"><template #suffix><span v-if="usernameState.checking" class="checking">校验中</span><span v-else-if="usernameState.available" class="available">可用</span></template></el-input></el-form-item>
-      <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="editingId ? '留空表示不修改' : '6-20位字母和数字'" /></el-form-item><el-form-item label="确认密码" prop="confirmPassword"><el-input v-model="form.confirmPassword" type="password" show-password /></el-form-item>
+      <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="editingId ? '留空表示不修改' : '8-72位字母和数字'" /></el-form-item><el-form-item label="确认密码" prop="confirmPassword"><el-input v-model="form.confirmPassword" type="password" show-password /></el-form-item>
       <el-form-item label="角色" prop="roleId"><el-select v-model="form.roleId" style="width:100%"><el-option v-for="role in visibleRoles" :key="role.role_id" :value="role.role_id" :label="staffRoleLabel(role)" /></el-select></el-form-item><el-form-item label="手机号" prop="phone"><el-input v-model.trim="form.phone" maxlength="11" /></el-form-item>
       <el-form-item label="所属门店" prop="storeId"><el-select v-model="form.storeId" style="width:100%"><el-option :value="auth.user?.store_id || auth.user?.storeId || 1" :label="auth.user?.store_name || auth.user?.storeName || '当前门店'" /></el-select></el-form-item><el-form-item label="入职日期" prop="entryDate"><el-date-picker v-model="form.entryDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
     </div><el-form-item label="账号状态"><el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="在职" inactive-text="禁用" /></el-form-item><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item></el-form>

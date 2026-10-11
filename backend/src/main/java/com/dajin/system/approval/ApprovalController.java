@@ -54,10 +54,20 @@ public class ApprovalController {
             result.put("order", db.one("select * from sales_order where order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
             result.put("payment", parsePaymentReason(approval.get("reason")));
         } else if ("PROCESSING_PAYMENT_DISCOUNT".equals(approval.get("type"))) {
-            result.put("processingOrder", db.one("select * from processing_order where processing_order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
+            Map<String, Object> processingOrder = optionalProcessingOrder(approval.get("biz_id"), db.store(r));
+            result.put("processingOrder", processingOrder);
+            if (processingOrder == null) {
+                result.put("processingOrderMissing", true);
+                result.put("processingOrderMessage", "关联加工单不存在");
+            }
             result.put("payment", parsePaymentReason(approval.get("reason")));
         } else if ("PROCESSING_REFUND".equals(approval.get("type"))) {
-            result.put("processingOrder", db.one("select * from processing_order where processing_order_id=:id and store_id=:s", Map.of("id", approval.get("biz_id"), "s", db.store(r))));
+            Map<String, Object> processingOrder = optionalProcessingOrder(approval.get("biz_id"), db.store(r));
+            result.put("processingOrder", processingOrder);
+            if (processingOrder == null) {
+                result.put("processingOrderMissing", true);
+                result.put("processingOrderMessage", "关联加工单不存在");
+            }
             result.put("refund", parsePaymentReason(approval.get("reason")));
         }
         if ("STOCK_CHECK".equals(approval.get("type"))) {
@@ -107,6 +117,10 @@ public class ApprovalController {
             Object permissions = r.getAttribute("permissions");
             if (!(permissions instanceof java.util.Set<?> set) || !(set.contains("*") || set.contains("stock:check:approve")))
                 throw new BusinessException(403213, "处理盘点审批需要审批盘点权限");
+        }
+        if ("PROCESSING_REFUND".equals(type) && status == 3
+                && optionalProcessingOrder(approval.get("biz_id"), db.store(r)) == null) {
+            throw new BusinessException(409727, "关联加工单不存在，审批通过条件不满足");
         }
         int changed = db.jdbc().update("update approval set status=:st,approver_id=:uid,approve_remark=:remark,approve_time=now() where approval_id=:id and store_id=:s and status=1", p);
         if (changed == 0) throw new BusinessException(409001, "审批单状态已变化");
@@ -197,8 +211,17 @@ public class ApprovalController {
 
     private void decideProcessingRefund(long orderId, int status, long approvalId, String remark, HttpServletRequest r) {
         long storeId = db.store(r);
-        Map<String,Object> order = db.one("select refund_amount,refund_paid_amount from processing_order where processing_order_id=:id and store_id=:s for update",
+        List<Map<String, Object>> orders = db.list("select refund_amount,refund_paid_amount from processing_order where processing_order_id=:id and store_id=:s for update",
                 Map.of("id", orderId, "s", storeId));
+        if (orders.isEmpty()) {
+            if (status == 3) throw new BusinessException(409727, "关联加工单不存在，审批通过条件不满足");
+            db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:u,'PROCESSING',:action,:content,'',now())",
+                    new MapSqlParameterSource().addValue("s", storeId).addValue("u", userId(r))
+                            .addValue("action", "REFUND_REJECT")
+                            .addValue("content", "加工返款审批=" + approvalId + (remark == null || remark.isBlank() ? "" : ",备注=" + remark)));
+            return;
+        }
+        Map<String,Object> order = orders.get(0);
         if (status == 3) {
             BigDecimal total = new BigDecimal(String.valueOf(order.getOrDefault("refund_amount", 0)));
             BigDecimal paid = new BigDecimal(String.valueOf(order.getOrDefault("refund_paid_amount", 0)));
@@ -210,6 +233,13 @@ public class ApprovalController {
                 new MapSqlParameterSource().addValue("s", storeId).addValue("u", userId(r))
                         .addValue("action", status == 3 ? "REFUND_APPROVE" : "REFUND_REJECT")
                         .addValue("content", "加工返款审批=" + approvalId + (remark == null || remark.isBlank() ? "" : ",备注=" + remark)));
+    }
+
+    private Map<String, Object> optionalProcessingOrder(Object orderId, long storeId) {
+        List<Map<String, Object>> rows = db.list(
+                "select * from processing_order where processing_order_id=:id and store_id=:s",
+                Map.of("id", orderId, "s", storeId));
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private Map<String,Object> parsePaymentReason(Object raw) {

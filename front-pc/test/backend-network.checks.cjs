@@ -49,6 +49,21 @@ test('upload sends multipart image and does not expose other destinations', asyn
   await assert.rejects(uploadPhoto(BASE, { bytes: Uint8Array.from([1]), type: 'text/plain' }), /图片/)
 })
 
+test('private photo transport preserves bytes for Bearer-authenticated object URLs', async () => {
+  const bytes = Uint8Array.from([0, 1, 2, 255])
+  const result = await backendRequest(BASE, {
+    path: '/api/file/processing/PROC-1/pickup/photo.jpg', responseType: 'arrayBuffer',
+    headers: { Authorization: 'Bearer photo-token' }
+  }, async (url, options) => {
+    assert.equal(url.toString(), `${BASE}/api/file/processing/PROC-1/pickup/photo.jpg`)
+    assert.equal(options.headers.authorization, 'Bearer photo-token')
+    return new Response(bytes, { status: 200, headers: { 'content-type': 'image/jpeg' } })
+  })
+  assert.equal(result.status, 200)
+  assert.equal(Buffer.from(result.bodyBase64, 'base64').toString('hex'), '000102ff')
+  assert.equal(result.contentType, 'image/jpeg')
+})
+
 test('rejects oversized responses, including upload responses without content-length', async () => {
   const oversized = () => new Response('x'.repeat(10 * 1024 * 1024 + 1), { status: 200 })
   await assert.rejects(backendRequest(BASE, { path: '/api/test' }, oversized), /响应内容过大/)

@@ -73,6 +73,10 @@ const shiftError = ref('')
 const confirming = ref(false)
 const done = ref(false)
 const result = ref({})
+const shiftRequestId = ref(makeShiftRequestId())
+function makeShiftRequestId() {
+  return `shift-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const LABELS = { CASH: '现金', WECHAT: '微信', ALIPAY: '支付宝', BALANCE: '储值', BANK_CARD: '银行卡', XIANJIN: '现金', WEIXIN: '微信', ZHIFEBAO: '支付宝', CHUZHI: '储值', SQBWX: '收钱吧微信', SQBZFB: '收钱吧支付宝', DOUYIN_GROUP: '抖音团购', MEITUAN_GROUP: '美团团购' }
 const methodLabel = (m, label) => label || LABELS[String(m || '').toUpperCase()] || m || '未指定'
@@ -100,9 +104,10 @@ async function confirmShift() {
     const d = await api.shiftConfirm({
       cashActual: Number(cashActual.value || 0),
       remark: remark.value || undefined,
-      clientRequestId: `shift-${Date.now()}`
+      clientRequestId: shiftRequestId.value
     })
     result.value = d
+    shiftRequestId.value = makeShiftRequestId()
     done.value = true
   } catch (e) { toast(e.message) }
   finally { confirming.value = false }

@@ -4,6 +4,8 @@ import com.dajin.system.common.*;
 import com.dajin.system.config.RequirePermission;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.pay.PaymentChannelPolicy;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -19,8 +21,10 @@ public class ShiftController {
     private final DbSupport db;
     private final ShiftService shifts;
     private final SyncWebSocketHandler ws;
+    private final ObjectMapper objectMapper;
 
-    public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws) { this.db = db; this.shifts = shifts; this.ws = ws; }
+    public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws) { this(db, shifts, ws, new ObjectMapper()); }
+    public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws, ObjectMapper objectMapper) { this.db = db; this.shifts = shifts; this.ws = ws; this.objectMapper = objectMapper; }
 
     @GetMapping("/info")
     @RequirePermission("shift:confirm")
@@ -102,17 +106,15 @@ public class ShiftController {
     public ApiResponse<?> confirm(@RequestBody Map<String,Object> q, HttpServletRequest r) {
         long storeId = db.store(r);
         String clientRequestId = q.get("clientRequestId") == null ? "" : String.valueOf(q.get("clientRequestId")).trim();
+        if (clientRequestId.isBlank() || clientRequestId.length() > 64)
+            throw new BusinessException(400507, "交班请求号必填，长度上限64个字符");
         // A cashier can submit the handover more than once while the response is in flight.
         // The unique operation-log key is the durable idempotency record; do not rotate again.
-        if (!clientRequestId.isBlank()) {
-            Integer previous = db.jdbc().queryForObject(
-                    "select count(*) from operation_log where store_id=:s and module='SHIFT' and action='CONFIRM' and client_request_id=:client",
-                    Map.of("s", storeId, "client", clientRequestId), Integer.class);
-            if (previous != null && previous > 0) {
-                String currentShift = shifts.current(storeId);
-                return ApiResponse.ok(Map.of("confirmed", true, "idempotentReplay", true,
-                        "nextShiftNo", currentShift, "currentShiftNo", currentShift));
-            }
+        List<Map<String, Object>> previous = db.jdbc().queryForList(
+                "select content from operation_log where store_id=:s and module='SHIFT' and action='CONFIRM' and client_request_id=:client limit 1",
+                Map.of("s", storeId, "client", clientRequestId));
+        if (!previous.isEmpty()) {
+            return replay(previous.get(0).get("content"), storeId);
         }
         String endedShiftNo = shifts.current(storeId);
         BigDecimal systemCash = cashTotal(storeId, endedShiftNo);
@@ -126,10 +128,9 @@ public class ShiftController {
         content.put("cashActual", cashActual);
         content.put("cashDifference", difference);
         content.put("remark", remark);
-        String idempotencyKey = clientRequestId.isBlank() ? "SHIFT-" + System.currentTimeMillis() : clientRequestId;
         // The unique key on operation_log makes concurrent double-clicks atomic.
         // INSERT IGNORE lets the losing request return the new current shift instead of rotating twice.
-        int claimed = db.jdbc().update("insert ignore into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'SHIFT','CONFIRM',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", storeId).addValue("uid", userId(r)).addValue("content", content.toString()).addValue("client", idempotencyKey));
+        int claimed = db.jdbc().update("insert ignore into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'SHIFT','CONFIRM',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", storeId).addValue("uid", userId(r)).addValue("content", content.toString()).addValue("client", clientRequestId));
         if (claimed == 0) {
             // 另一个并发请求已抢到换班权：等它提交事务并轮转班次后再读，避免返回换班前的旧班次号
             String currentShift = shifts.current(storeId);
@@ -137,14 +138,44 @@ public class ShiftController {
                 try { Thread.sleep(50); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
                 currentShift = shifts.current(storeId);
             }
-            return ApiResponse.ok(Map.of("confirmed", true, "idempotentReplay", true,
-                    "nextShiftNo", currentShift, "currentShiftNo", currentShift));
+            List<Map<String, Object>> replay = db.jdbc().queryForList(
+                    "select content from operation_log where store_id=:s and module='SHIFT' and action='CONFIRM' and client_request_id=:client limit 1",
+                    Map.of("s", storeId, "client", clientRequestId));
+            return replay.isEmpty() ? ApiResponse.ok(Map.of("confirmed", true, "idempotentReplay", true,
+                    "nextShiftNo", currentShift, "currentShiftNo", currentShift)) : replay(replay.get(0).get("content"), storeId);
         }
         String nextShiftNo = shifts.rotate(storeId);
         Map<String,Object> event = Map.of("storeId", storeId, "action", "CONFIRM", "previousShiftNo", endedShiftNo, "nextShiftNo", nextShiftNo);
         ws.broadcast("SHIFT_UPDATED", event);
         ws.broadcast("REPORT_UPDATED", event);
-        return ApiResponse.ok(Map.of("confirmed", true, "previousShiftNo", endedShiftNo, "nextShiftNo", nextShiftNo, "cashSystem", systemCash, "cashActual", cashActual, "cashDifference", difference, "shiftEndedAt", LocalDateTime.now().toString()));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("confirmed", true);
+        result.put("previousShiftNo", endedShiftNo);
+        result.put("nextShiftNo", nextShiftNo);
+        result.put("cashSystem", systemCash);
+        result.put("cashActual", cashActual);
+        result.put("cashDifference", difference);
+        result.put("shiftEndedAt", LocalDateTime.now().toString());
+        db.jdbc().update("update operation_log set content=:content where store_id=:s and module='SHIFT' and action='CONFIRM' and client_request_id=:client", Map.of("content", serialize(result), "s", storeId, "client", clientRequestId));
+        return ApiResponse.ok(result);
+    }
+
+    private ApiResponse<?> replay(Object raw, long storeId) {
+        try {
+            Map<String, Object> result = objectMapper.readValue(String.valueOf(raw), new TypeReference<Map<String, Object>>() {});
+            if (Boolean.TRUE.equals(result.get("confirmed"))) {
+                result.put("idempotentReplay", true);
+                return ApiResponse.ok(result);
+            }
+        } catch (Exception ignored) { }
+        String currentShift = shifts.current(storeId);
+        return ApiResponse.ok(Map.of("confirmed", true, "idempotentReplay", true,
+                "nextShiftNo", currentShift, "currentShiftNo", currentShift));
+    }
+
+    private String serialize(Map<String, Object> result) {
+        try { return objectMapper.writeValueAsString(result); }
+        catch (Exception ignored) { return result.toString(); }
     }
 
     private long userId(HttpServletRequest r) { io.jsonwebtoken.Claims c = (io.jsonwebtoken.Claims) r.getAttribute("claims"); return c == null ? 0L : Long.parseLong(c.getSubject()); }

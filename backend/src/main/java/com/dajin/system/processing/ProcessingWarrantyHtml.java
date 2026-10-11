@@ -10,6 +10,10 @@ final class ProcessingWarrantyHtml {
     private ProcessingWarrantyHtml() {}
 
     static String build(Map<String, Object> o, String storeName) {
+        return build(o, storeName, "", "");
+    }
+
+    static String build(Map<String, Object> o, String storeName, String storeAddress, String storePhone) {
         String billNo = esc(String.valueOf(o.get("order_no")));
         String date = LocalDate.now().toString().replace("-", "/");
         String salesName = o.get("sales_name") == null ? "无导购（散客）" : String.valueOf(o.get("sales_name"));
@@ -53,7 +57,7 @@ final class ProcessingWarrantyHtml {
                 + "<p class=\"rights\">客户权益：<span>☑ 终身免费清洗、焊接保养</span><span>□ 正品可复检 假赔十</span><span>△ 人为损坏维修收取工本费</span></p>"
                 + "<p class=\"note\">备注：来料加工货品当面验收，离店概不负责。</p>"
                 + "<div class=\"sign\"><span>客户签字：<span class=\"line\"></span></span><span>门店盖章：</span></div>"
-                + "<p class=\"addr\">地址：河南省郑州市中原区绿东村街道华山路155-3号阳光商务二楼鑫铖金匠</p></div>";
+                + "<p class=\"addr\">地址：" + esc(storeAddress) + (storePhone == null || storePhone.isBlank() ? "" : " · 电话：" + esc(storePhone)) + "</p></div>";
         return "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>加工质保单 " + billNo + "</title><style>"
                 + "@page{size:A4 landscape;margin:8mm}body{font:11px/1.5 'Microsoft YaHei',sans-serif;color:#222;margin:0;padding:10px;background:#fff}"
                 + ".pair{width:281mm;margin:0 auto;background:#fff;display:flex;box-sizing:border-box}.half{width:50%;padding:7mm 6mm;box-sizing:border-box;position:relative}"

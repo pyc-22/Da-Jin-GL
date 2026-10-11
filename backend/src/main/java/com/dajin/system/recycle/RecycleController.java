@@ -7,6 +7,8 @@ import com.dajin.system.gold.GoldMarketService;
 import com.dajin.system.pay.PaymentChannelPolicy;
 import com.dajin.system.shift.ShiftService;
 import com.dajin.system.stock.OldMaterialLedgerService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,16 +25,20 @@ public class RecycleController {
     private final ShiftService shifts;
     private final OldMaterialLedgerService oldMaterials;
     private final GoldMarketService market;
-    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials) { this(db, ws, shifts, oldMaterials, null); }
+    private final ObjectMapper objectMapper;
+    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials) { this(db, ws, shifts, oldMaterials, null, new ObjectMapper()); }
     @Autowired
-    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials, GoldMarketService market) { this.db = db; this.ws = ws; this.shifts = shifts; this.oldMaterials = oldMaterials; this.market = market; }
+    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials, GoldMarketService market) { this(db, ws, shifts, oldMaterials, market, new ObjectMapper()); }
+    public RecycleController(DbSupport db, SyncWebSocketHandler ws, ShiftService shifts, OldMaterialLedgerService oldMaterials, GoldMarketService market, ObjectMapper objectMapper) { this.db = db; this.ws = ws; this.shifts = shifts; this.oldMaterials = oldMaterials; this.market = market; this.objectMapper = objectMapper; }
     @PostMapping("/create") @RequirePermission("recycle:view") @Transactional
     public ApiResponse<?> create(@RequestBody Map<String,Object> q, HttpServletRequest r) {
         String clientRequestId = q.get("clientRequestId") == null ? "" : String.valueOf(q.get("clientRequestId")).trim();
-        if (!clientRequestId.isBlank()) {
-            Integer previous = db.jdbc().queryForObject("select count(*) from operation_log where store_id=:s and module='RECYCLE' and action='CREATE' and client_request_id=:client", Map.of("s", db.store(r), "client", clientRequestId), Integer.class);
-            if (previous != null && previous > 0) return ApiResponse.ok(Map.of("idempotentReplay", true));
-        }
+        if (clientRequestId.isBlank() || clientRequestId.length() > 64)
+            throw new BusinessException(400407, "回收请求号必填，长度上限64个字符");
+        List<Map<String, Object>> previous = db.jdbc().queryForList(
+                "select content from operation_log where store_id=:s and module='RECYCLE' and action='CREATE' and client_request_id=:client limit 1",
+                Map.of("s", db.store(r), "client", clientRequestId));
+        if (!previous.isEmpty()) return replay(previous.get(0).get("content"), r);
         BigDecimal weight = decimal(q, "weight"), purity = decimal(q, "purity");
         BigDecimal price = q.get("recyclePrice") == null ? currentPrice(r) : decimal(q, "recyclePrice");
         if (weight.signum() <= 0 || purity.signum() <= 0 || purity.compareTo(BigDecimal.ONE) > 0) throw new BusinessException(400401, "克重和成色参数不合法");
@@ -45,7 +51,17 @@ public class RecycleController {
         BigDecimal base = com.dajin.system.common.Fineness.weight(weight, purity).multiply(price), lossAmount = base.multiply(lossRate).setScale(2, RoundingMode.HALF_UP), amount = base.subtract(lossAmount).setScale(2, RoundingMode.HALF_UP);
         String payMethod = PaymentChannelPolicy.requireActiveExternal(db, db.store(r), q.getOrDefault("payMethod", "CASH"));
         int status = amount.compareTo(config(r, "recycle_approval_limit")) > 0 ? 3 : 1;
-        String billNo = "HS" + System.currentTimeMillis();
+        int claimed = db.jdbc().update("insert ignore into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'RECYCLE','CREATE','IN_PROGRESS',:client,'',now())",
+                new MapSqlParameterSource().addValue("s", db.store(r)).addValue("uid", userId(r)).addValue("client", clientRequestId));
+        if (claimed == 0) {
+            List<Map<String, Object>> replay = db.jdbc().queryForList(
+                    "select content from operation_log where store_id=:s and module='RECYCLE' and action='CREATE' and client_request_id=:client limit 1",
+                    Map.of("s", db.store(r), "client", clientRequestId));
+            if (!replay.isEmpty()) return replay(replay.get(0).get("content"), r);
+            throw new BusinessException(409408, "幂等回收单记录缺失");
+        }
+        String billNo = "HS" + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(java.util.Locale.ROOT);
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", db.store(r)).addValue("no", billNo).addValue("m", q.get("memberId")).addValue("type", q.getOrDefault("materialType", "足金旧料")).addValue("w", weight).addValue("purity", purity).addValue("instrument", snapshot.get("baseInstrument")).addValue("base", snapshot.get("basePrice")).addValue("coefficient", snapshot.get("purityCoefficient")).addValue("recyclePrice", price).addValue("quoteTime", snapshot.get("quoteTime")).addValue("source", snapshot.get("source")).addValue("marketStatus", snapshot.get("marketStatus")).addValue("loss", lossAmount).addValue("amount", amount).addValue("pay", payMethod).addValue("status", status).addValue("creator", userId(r));
         db.jdbc().update("insert into recycle_order(store_id,bill_no,created_by,member_id,material_type,weight,purity,gold_base_instrument,gold_base_price,gold_purity_coefficient,gold_recycle_price_snapshot,gold_quote_time,gold_quote_source,gold_market_status,deduct_loss,total_amount,pay_method,status,create_time,update_time) values(:s,:no,:creator,:m,:type,:w,:purity,:instrument,:base,:coefficient,:recyclePrice,:quoteTime,:source,:marketStatus,:loss,:amount,:pay,:status,now(),now())", p);
         long recycleId = db.jdbc().queryForObject("select recycle_order_id from recycle_order where store_id=:s and bill_no=:no", p, Long.class);
@@ -58,8 +74,10 @@ public class RecycleController {
             db.jdbc().update("update recycle_order set approver_id=:a where recycle_order_id=:id and store_id=:s", Map.of("a", approvalId, "id", recycleId, "s", db.store(r)));
             ws.broadcast("APPROVAL_CREATED", Map.of("storeId", db.store(r), "id", approvalId, "approvalId", approvalId, "type", "RECYCLE", "bizId", recycleId));
         } else finalizeFinance(recycleId, r);
-        if (!clientRequestId.isBlank()) db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,client_request_id,ip,create_time) values(:s,:uid,'RECYCLE','CREATE',:content,:client,'',now())", new MapSqlParameterSource().addValue("s", db.store(r)).addValue("uid", userId(r)).addValue("content", billNo).addValue("client", clientRequestId));
-        Map<String,Object> result = new LinkedHashMap<>(); result.put("recycleOrderId", recycleId); result.put("billNo", billNo); result.put("amount", amount); result.put("status", status); result.put("approvalRequired", status == 3); if (approvalId != null) result.put("approvalId", approvalId); return ApiResponse.ok(result);
+        Map<String,Object> result = new LinkedHashMap<>(); result.put("recycleOrderId", recycleId); result.put("billNo", billNo); result.put("amount", amount); result.put("status", status); result.put("approvalRequired", status == 3); if (approvalId != null) result.put("approvalId", approvalId);
+        db.jdbc().update("update operation_log set content=:content where store_id=:s and module='RECYCLE' and action='CREATE' and client_request_id=:client",
+                new MapSqlParameterSource().addValue("s", db.store(r)).addValue("content", serialize(result)).addValue("client", clientRequestId));
+        return ApiResponse.ok(result);
     }
     @GetMapping("/list") @RequirePermission("recycle:view")
     public ApiResponse<?> list(HttpServletRequest r) {
@@ -77,6 +95,29 @@ public class RecycleController {
         db.jdbc().update("insert into finance_record(store_id,type,category,amount,pay_method,related_bill_no,operator_id,remark,shift_no,create_time) values(:s,'EXPENSE','RECYCLE',:amount,:pay,:no,:uid,'旧料回收付款',:shift,now())", new MapSqlParameterSource().addValue("s", db.store(r)).addValue("amount", row.get("total_amount")).addValue("pay", row.get("pay_method")).addValue("no", row.get("bill_no")).addValue("uid", userId(r)).addValue("shift", shifts.current(db.store(r))));
         ws.broadcast("RECYCLE_COMPLETED", Map.of("storeId", db.store(r), "recycleOrderId", recycleId, "amount", row.get("total_amount")));
         ws.broadcast("OLD_MATERIAL_UPDATED", Map.of("storeId", db.store(r), "source", "RECYCLE:" + recycleId, "action", "ACTIVATE"));
+    }
+    private ApiResponse<?> replay(Object raw, HttpServletRequest r) {
+        try {
+            Map<String, Object> result = objectMapper.readValue(String.valueOf(raw), new TypeReference<Map<String, Object>>() {});
+            if (result.containsKey("recycleOrderId")) { result.put("idempotentReplay", true); return ApiResponse.ok(result); }
+        } catch (Exception ignored) { }
+        String billNo = String.valueOf(raw == null ? "" : raw).trim();
+        List<Map<String, Object>> rows = db.list("select recycle_order_id,bill_no,total_amount,status,approver_id from recycle_order where store_id=:s and bill_no=:no", Map.of("s", db.store(r), "no", billNo));
+        if (rows.isEmpty()) throw new BusinessException(409408, "幂等回收单记录缺失");
+        Map<String, Object> row = rows.get(0);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("recycleOrderId", row.get("recycle_order_id"));
+        result.put("billNo", row.get("bill_no"));
+        result.put("amount", row.get("total_amount"));
+        result.put("status", row.get("status"));
+        result.put("approvalRequired", Objects.equals(String.valueOf(row.get("status")), "3"));
+        if (row.get("approver_id") != null) result.put("approvalId", row.get("approver_id"));
+        result.put("idempotentReplay", true);
+        return ApiResponse.ok(result);
+    }
+    private String serialize(Map<String, Object> result) {
+        try { return objectMapper.writeValueAsString(result); }
+        catch (Exception ignored) { return result.toString(); }
     }
     private BigDecimal decimal(Map<String,Object> q,String key){Object value=q.get(key);if(value==null)throw new BusinessException(400403,key+"不能为空");return new BigDecimal(String.valueOf(value));}
     private BigDecimal currentPrice(HttpServletRequest r){return db.jdbc().queryForObject("select price from gold_price where store_id=:s and price_type='回收金价' order by date desc,price_id desc limit 1",Map.of("s",db.store(r)),BigDecimal.class);}

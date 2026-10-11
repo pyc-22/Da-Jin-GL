@@ -6,9 +6,9 @@
       <div v-if="scanned" class="goods-grid"><div class="list-card goods-search-card" style="border-color:var(--gold-deep)" @click="openGoods(scanned)"><div class="search-thumb"><img v-if="imageFor(scanned) && !failedImages.has(imageFor(scanned))" :src="imageFor(scanned)" :alt="`${scanned.name}照片`" @error="markImageFailed(imageFor(scanned))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ scanned.name }}</b><p>{{ scanned.category }} · 条码 {{ scanned.barcode }}</p><small>库存 {{ inventoryText(scanned) }} · {{ Number(scanned.price_type) === 1 ? '按克计价' : `${scanned.weight || '—'}g` }}</small></div><strong>{{ priceLabel(scanned) }}</strong></div></div>
       <p v-if="loading" class="muted" style="text-align:center;padding:20px">搜索中...</p>
       <p v-if="error" class="error" style="text-align:center;padding:20px">{{ error }} <button class="outline" style="min-height:var(--tap);margin-left:8px" @click="doSearch">重试</button></p>
-      <template v-if="!searched && recent.length">
+      <template v-if="!searched && recentGoods.length">
         <p class="muted small" style="margin:8px 0">最近搜索</p>
-        <div class="goods-grid recent-grid"><button v-for="t in recent" :key="t" class="list-card recent-card" @click="useRecent(t)"><span class="search-thumb">⌕</span><span class="goods-search-info"><b>{{ t }}</b><small>再次搜索</small></span></button></div>
+        <div class="goods-grid recent-grid"><div v-for="g in recentGoods" :key="g.goods_id" class="list-card goods-search-card" @click="openGoods(g)"><div class="search-thumb"><img v-if="imageFor(g) && !failedImages.has(imageFor(g))" :src="imageFor(g)" :alt="`${g.name}照片`" @error="markImageFailed(imageFor(g))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ g.name }}</b><p>{{ g.category || '—' }} · {{ g.barcode || '—' }}</p><small>库存 {{ inventoryText(g) }} · {{ Number(g.price_type) === 1 ? '按克计价' : `${g.weight || '—'}g` }}</small></div><strong>{{ priceLabel(g) }}</strong></div></div>
       </template>
       <div class="goods-grid"><div v-for="g in goods" :key="g.goods_id" class="list-card goods-search-card" @click="openGoods(g)"><div class="search-thumb"><img v-if="imageFor(g) && !failedImages.has(imageFor(g))" :src="imageFor(g)" :alt="`${g.name}照片`" @error="markImageFailed(imageFor(g))"/><span v-else>无图</span></div><div class="goods-search-info"><b>{{ g.name }}</b><p>{{ g.category }} · {{ g.barcode }}</p><small>库存 {{ inventoryText(g) }} · {{ Number(g.price_type) === 1 ? '按克计价' : `${g.weight || '—'}g` }}</small></div><strong>{{ priceLabel(g) }}</strong></div></div>
       <EmptyState v-if="!loading && !scanned && !goods.length && searched" title="">未找到匹配商品<button class="outline" @click="clearSearch">清空重新搜索</button></EmptyState>
@@ -43,6 +43,7 @@ const page = ref(1)
 const hasMore = ref(false)
 const inputRef = ref(null)
 const recent = ref((()=>{try{return JSON.parse(getStorage('dajin-goods-searches','[]'))}catch{return []}})())
+const recentGoods = ref((()=>{try{return JSON.parse(getStorage('dajin-goods-recent','[]'))}catch{return []}})())
 const failedImages = ref(new Set())
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const imageFor = goods => firstGoodsImage(goods, http.defaults.baseURL)
@@ -59,6 +60,12 @@ function openGoods(goods) { router.push(`/goods/${goods.goods_id}`) }
 function saveRecent(term){
   recent.value = [term, ...recent.value.filter(t=>t!==term)].slice(0,8)
   setStorage('dajin-goods-searches', JSON.stringify(recent.value))
+}
+function saveRecentGoods(rows) {
+  const incoming = (Array.isArray(rows) ? rows : []).filter(row => row?.goods_id != null)
+  const merged = [...incoming, ...recentGoods.value].filter((row, index, all) => all.findIndex(item => String(item.goods_id) === String(row.goods_id)) === index).slice(0, 12)
+  recentGoods.value = merged
+  setStorage('dajin-goods-recent', JSON.stringify(merged))
 }
 function useRecent(t){ keyword.value = t; doSearch() }
 function clearSearch(){ keyword.value=''; searched.value=false; goods.value=[]; scanned.value=null; error.value=''; inputRef.value?.focus() }
@@ -79,6 +86,7 @@ async function doSearch() {
     const d = await api.goods({ keyword: keyword.value, page: 1, size: 20, status: 1 })
     const rows = d.records || d || []
     goods.value = rows
+    saveRecentGoods(rows)
     hasMore.value = rows.length >= 20
   } catch (e) {
     error.value = e.message || '搜索失败'
@@ -129,6 +137,7 @@ async function scanBarcode(barcode) {
   try {
     const g = await api.scanGoods(barcode)
     scanned.value = g
+    saveRecentGoods([g])
   } catch (e) {
     if (e.message?.includes('不存在')) {
       error.value = '该条码未找到商品'

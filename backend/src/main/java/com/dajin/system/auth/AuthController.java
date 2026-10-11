@@ -3,7 +3,7 @@ package com.dajin.system.auth;
 import com.dajin.system.common.*; import com.dajin.system.config.JwtService; import com.dajin.system.config.PermissionService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate; import org.springframework.web.bind.annotation.*;
-import javax.servlet.http.HttpServletRequest; import javax.validation.Valid; import javax.validation.constraints.*; import java.util.*;
+import javax.servlet.http.HttpServletRequest; import javax.validation.Valid; import javax.validation.constraints.*; import java.nio.charset.StandardCharsets; import java.util.*;
 import io.jsonwebtoken.Claims;
 import com.dajin.system.config.RequirePermission;
 
@@ -12,7 +12,7 @@ public class AuthController {
     private final NamedParameterJdbcTemplate jdbc; private final JwtService jwt; private final PermissionService permissionService; private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     public AuthController(NamedParameterJdbcTemplate jdbc, JwtService jwt, PermissionService permissionService){this.jdbc=jdbc;this.jwt=jwt;this.permissionService=permissionService;}
     public record LoginReq(@NotBlank String username,@NotBlank String password, String clientType){}
-    public record ChangePasswordReq(@NotBlank String oldPassword,@NotBlank @Size(min=6,max=128) String newPassword){}
+    public record ChangePasswordReq(@NotBlank String oldPassword,@NotBlank @Size(min=8,max=72) String newPassword){}
     @PostMapping("/login") public ApiResponse<?> login(@Valid @RequestBody LoginReq req){
         List<Map<String,Object>> rows=jdbc.queryForList("select u.user_id,u.username,u.password,u.real_name,u.role_id,u.store_id,u.status,u.phone,u.entry_date,u.remark,r.role_code,r.role_name,s.store_name from sys_user u join sys_role r on r.role_id=u.role_id and r.store_id=u.store_id join sys_store s on s.store_id=u.store_id where u.username=:u and r.status=1 limit 1",Map.of("u",req.username()));
         if(rows.isEmpty()) throw new BusinessException(401001,"用户名或密码错误");
@@ -46,6 +46,9 @@ public class AuthController {
     @PostMapping("/logout") public ApiResponse<Void> logout(){return ApiResponse.ok();}
     @PostMapping("/change-password") @RequirePermission("dashboard:view")
     public ApiResponse<?> changePassword(@Valid @RequestBody ChangePasswordReq req,HttpServletRequest request){
+        if (!req.newPassword().matches("^(?=.*[A-Za-z])(?=.*\\d).{8,72}$")) throw new BusinessException(400427,"密码须为8-72位且同时包含字母和数字");
+        int passwordBytes = req.newPassword().getBytes(StandardCharsets.UTF_8).length;
+        if (passwordBytes < 8 || passwordBytes > 72) throw new BusinessException(400427,"密码按UTF-8编码须为8到72字节");
         Claims claims=(Claims)request.getAttribute("claims");
         if(claims==null) throw new BusinessException(401001,"登录状态已失效");
         long userId=Long.parseLong(claims.getSubject()); long storeId=((Number)claims.get("storeId")).longValue();

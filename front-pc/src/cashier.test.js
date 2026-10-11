@@ -19,6 +19,12 @@ describe('cashier old material and shift helpers', () => {
     expect(surplus.balance).toBe(-3)
     expect(surplus.topUp).toBe(0)
     expect(surplus.hint).toContain('没有补金')
+    // 0g 也是已登记的融后金重：成品有重量时必须按差额补金。
+    const noMelt = goldBalance({ melt: 0, finished: 1.25 })
+    expect(noMelt.balance).toBe(1.25)
+    expect(noMelt.topUp).toBe(1.25)
+    // 相等时无需补金，并且是已知状态。
+    expect(goldBalance({ melt: 40, finished: 40 })).toMatchObject({ balance: 0, topUp: 0 })
     // 缺融后或成品时不预填、不提示
     expect(goldBalance({ melt: null, finished: 12 })).toEqual({ balance: null, topUp: 0, hint: '' })
   })

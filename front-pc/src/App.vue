@@ -148,8 +148,12 @@ async function searchMembersRemote() {
 const billKeyword = ref('')
 const shiftCash = ref(0)
 const shiftRemark = ref('')
+const shiftSubmitting = ref(false)
+const shiftRequestId = ref(uuid())
 const shiftPrintModel = ref(null)
 const shiftPaper = ref('58')
+const recycleSubmitting = ref(false)
+const recycleRequestId = ref(uuid())
 const heldOrders = ref([])
 const HELD_ORDERS_KEY = 'dajin_held_orders'
 const processingItems = ref([])
@@ -335,12 +339,17 @@ async function confirmProcPay() {
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '收款失败') } finally { procPayBusy.value = false }
 }
-function openProcGold(row) { procManage.value = row; procGoldForm.weight = null; procGoldForm.fineness = 0.999; procGoldForm.price = 0; procGoldForm.downMaterial = Number(row?.down_material_weight) > 0 ? Number(row.down_material_weight) : null; const preview = goldBalance({ melt: row?.melt_weight, finished: row?.finished_weight }); procGoldForm.weight = preview.topUp > 0 ? preview.topUp : null; activeDialog.value = 'procGold' }
+function openProcGold(row) { procManage.value = row; procGoldForm.weight = null; procGoldForm.fineness = 0.999; procGoldForm.price = 0; procGoldForm.downMaterial = Number(row?.down_material_weight) > 0 ? Number(row.down_material_weight) : null; const preview = goldBalance({ melt: row?.melt_weight, finished: row?.finished_weight }); procGoldForm.weight = preview.balance !== null ? preview.topUp : null; activeDialog.value = 'procGold' }
 async function confirmProcGold() {
   const row = procManage.value; if (!row) return
-  if (!(Number(procGoldForm.weight) > 0)) return ElMessage.warning('请填写补金克重')
+  const preview = procGoldDialogBalance.value
+  const weight = Number(procGoldForm.weight)
+  if (!Number.isFinite(weight) || weight < 0) return ElMessage.warning('补金克重不能小于0')
+  if (preview.balance === null && !(weight > 0)) return ElMessage.warning('请先登记融后金重与成品实重，或填写补金克重')
+  if (preview.balance !== null && preview.balance > 0 && !(weight > 0)) return ElMessage.warning('融后金重小于成品实重，请填写补金克重')
+  if (preview.balance !== null && preview.balance <= 0 && weight > 0) return ElMessage.warning('融后金重不小于成品实重，本单无需补金')
   try {
-    await request(`/api/processing/orders/${row.processing_order_id}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procGoldForm.weight), fineness: Number(procGoldForm.fineness || 0.999), price: Number(procGoldForm.price || 0), downMaterialWeight: Number(procGoldForm.downMaterial || 0), clientRequestId: uuid() }) })
+    await request(`/api/processing/orders/${row.processing_order_id}/store-gold`, { method: 'POST', body: JSON.stringify({ weight, fineness: Number(procGoldForm.fineness || 0.999), price: Number(procGoldForm.price || 0), downMaterialWeight: Number(procGoldForm.downMaterial || 0), clientRequestId: uuid() }) })
     ElMessage.success(`加工单 ${row.order_no} 补金已登记，库存已扣减`)
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '补金登记失败') }
@@ -369,9 +378,47 @@ async function confirmProcWeigh() {
     activeDialog.value = ''; await loadFrontTodo()
   } catch (error) { ElMessage.error(error?.message || '损耗登记失败') }
 }
-function absFileUrl(u) { return String(u || '').startsWith('/') ? apiBase() + u : String(u || '') }
+// Private processing photos are fetched with a Bearer header rather than putting
+// the session JWT in an <img> query string. Object URLs are revoked when the
+// dialog is closed/unmounted so tokens and blobs do not linger in the DOM.
+const photoObjectUrls = reactive({})
+const photoLoading = new Set()
+function photoPath(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const url = new URL(raw, window.location.origin)
+    url.searchParams.delete('access_token')
+    return `${url.pathname}${url.search}`
+  } catch { return raw }
+}
+async function loadPhotoObjectUrl(value) {
+  const path = photoPath(value)
+  if (!path || !path.includes('/api/file/processing/') || photoObjectUrls[path] || photoLoading.has(path) || !getToken()) return
+  photoLoading.add(path)
+  try {
+    const response = await fetchBackend(path, { headers: { Authorization: `Bearer ${getToken()}` }, responseType: 'arrayBuffer' })
+    if (!response.ok) throw new Error(`照片加载失败 (${response.status})`)
+    photoObjectUrls[path] = URL.createObjectURL(await response.blob())
+  } catch (error) {
+    console.warn('[dajin-front] processing photo load failed:', error?.message || error)
+  } finally { photoLoading.delete(path) }
+}
+function absFileUrl(value) {
+  const raw = String(value || '').trim()
+  const path = photoPath(raw)
+  if (!path || !path.includes('/api/file/processing/')) return raw.startsWith('/') ? apiBase() + raw : raw
+  if (!photoObjectUrls[path]) void loadPhotoObjectUrl(path)
+  return photoObjectUrls[path] || ''
+}
+function releasePhotoObjectUrls() {
+  for (const url of Object.values(photoObjectUrls)) URL.revokeObjectURL(url)
+  for (const key of Object.keys(photoObjectUrls)) delete photoObjectUrls[key]
+  photoLoading.clear()
+}
 function parsePhotoList(v) { try { const l = typeof v === 'string' ? JSON.parse(v || '[]') : v; return Array.isArray(l) ? l.filter(Boolean) : [] } catch { return [] } }
 function openProcFinish(row) {
+  releasePhotoObjectUrls()
   procFinish.row = row
   request(`/api/processing/orders/${row.processing_order_id}`).then(detail => {
     procFinish.detail = detail
@@ -428,8 +475,16 @@ function dropFinishPhotos(kind, event) {
     uploadFinishPhoto(file).then(url => { if (url) procFinish[kind] = [...procFinish[kind], url] }).catch(e => ElMessage.error(e?.message || '照片上传失败'))
   }
 }
-function removeFinishPhoto(kind, index) { procFinish[kind] = procFinish[kind].filter((_, i) => i !== index) }
+function removeFinishPhoto(kind, index) {
+  const removed = procFinish[kind][index]
+  procFinish[kind] = procFinish[kind].filter((_, i) => i !== index)
+  const path = photoPath(removed)
+  if (path && !procFinish.incoming.some(item => photoPath(item) === path) && !procFinish.weighPhotos.some(item => photoPath(item) === path) && !procPickup.photos.some(item => photoPath(item) === path)) {
+    if (photoObjectUrls[path]) { URL.revokeObjectURL(photoObjectUrls[path]); delete photoObjectUrls[path] }
+  }
+}
 async function openProcPickup(row) {
+  releasePhotoObjectUrls()
   const detail = await request(`/api/processing/orders/${row.processing_order_id}`)
   const order = detail?.order || detail || row
   procPickup.row = row
@@ -474,9 +529,15 @@ async function submitProcFinish() {
   procFinish.busy = true
   try {
     const oid = row.processing_order_id
-    // 补金必须先于称重：损耗率与回收屑都依赖店供金登记；尾款在待取货环节收取
-    if (Number(procFinish.goldWeight) > 0 || Number(procFinish.downMaterialWeight) > 0) {
-      await request(`/api/processing/orders/${oid}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: Number(procFinish.goldWeight || 0), fineness: Number(procFinish.goldFineness || 0.999), price: Number(procFinish.goldPrice || 0), downMaterialWeight: Number(procFinish.downMaterialWeight || 0), clientRequestId: uuid() }) })
+    // 补金必须先于称重：损耗率与回收屑都依赖店供金登记；尾款在待取货环节收取。
+    // 融后金重 >= 成品实重时也提交一次 0，确保历史误登记的补金被清零。
+    const goldBalanceAtFinish = goldBalance({ melt: procFinish.meltWeight, finished: procFinish.finishedWeight })
+    const hasGoldComparison = goldBalanceAtFinish.balance !== null
+    const enteredGoldWeight = Number(procFinish.goldWeight || 0)
+    if (hasGoldComparison && goldBalanceAtFinish.balance > 0 && !(enteredGoldWeight > 0)) return ElMessage.warning('融后金重小于成品实重，请填写补金克重')
+    if (hasGoldComparison && goldBalanceAtFinish.balance <= 0 && enteredGoldWeight > 0) return ElMessage.warning('融后金重不小于成品实重，本单无需补金')
+    if (hasGoldComparison || enteredGoldWeight > 0 || Number(procFinish.downMaterialWeight) > 0) {
+      await request(`/api/processing/orders/${oid}/store-gold`, { method: 'POST', body: JSON.stringify({ weight: enteredGoldWeight, fineness: Number(procFinish.goldFineness || 0.999), price: Number(procFinish.goldPrice || 0), downMaterialWeight: Number(procFinish.downMaterialWeight || 0), finishedWeight: Number(procFinish.finishedWeight), meltedWeight: Number(procFinish.meltWeight), clientRequestId: uuid() }) })
     }
     if (Number(procFinish.finishedWeight) > 0) {
       // 来料随称重一起提交：后端先存来料再核算损耗，否则会拿旧的来料算账
@@ -867,7 +928,7 @@ const procFinishGold = computed(() => goldBalance({ melt: procFinish.meltWeight,
 watch(procFinishGold, value => {
   const current = procFinish.goldWeight
   const untouched = current === null || current === '' || Number(current) === 0
-  if (untouched) procFinish.goldWeight = value.topUp > 0 ? value.topUp : null
+  if (untouched) procFinish.goldWeight = value.balance !== null ? value.topUp : null
 })
 const procGoldDialogBalance = computed(() => goldBalance({ melt: procManage.value?.melt_weight, finished: procManage.value?.finished_weight }))
 // 按克项目：成品实重填完后自动带出「计费总克重」（未手改时），工费 = 项目单价 × 计费总克重
@@ -887,7 +948,7 @@ watch(() => procFinish.finishedWeight, value => {
 watch(procGoldDialogBalance, value => {
   const current = procGoldForm.weight
   const untouched = current === null || current === '' || Number(current) === 0
-  if (untouched && value.topUp > 0) procGoldForm.weight = value.topUp
+  if (untouched && value.balance !== null) procGoldForm.weight = value.topUp
 })
 // 回收屑 = 融后金重 − 成品实重，不足按 0（成品比融后金重还重时只有补金）；补金不参与，由后端最终结算
 const procFinishResidualWeight = computed(() => {
@@ -1706,10 +1767,18 @@ async function reprint(row) {
 }
 
 async function saveRecycle() {
+  if (recycleSubmitting.value) return
   if (Number(recycleForm.weight) <= 0) return ElMessage.warning('请输入旧料克重')
   if (!(recyclePurity.value > 0 && recyclePurity.value <= 1)) return ElMessage.warning('成色请输入 0 到 100% 之间的数值')
   if (!recycleForm.payMethod) return ElMessage.warning('当前没有可用的返款方式，请联系管理员启用')
-  try { const result = await requestOrQueue('/api/recycle/create', { ...recycleForm, purity: recyclePurity.value, recyclePrice: recycleForm.recyclePrice || recycleSpot.value, clientRequestId: uuid() }, { backendAvailable: online.value }); ElMessage.success(result?.approvalRequired ? '已提交大额回收审批' : `回收单已保存，应付 ${money(recycleAmount.value)}`); activeDialog.value = '' } catch (error) { ElMessage.error(error.message) }
+  recycleSubmitting.value = true
+  try {
+    const result = await requestOrQueue('/api/recycle/create', { ...recycleForm, purity: recyclePurity.value, recyclePrice: recycleForm.recyclePrice || recycleSpot.value, clientRequestId: recycleRequestId.value }, { backendAvailable: online.value })
+    recycleRequestId.value = uuid()
+    ElMessage.success(result?.approvalRequired ? '已提交大额回收审批' : `回收单已保存，应付 ${money(recycleAmount.value)}`)
+    activeDialog.value = ''
+  } catch (error) { ElMessage.error(error.message) }
+  finally { recycleSubmitting.value = false }
 }
 async function saveTradeIn() {
   if (orderDraft.value) return ElMessage.warning('请先完成或取消当前待收款订单')
@@ -1862,6 +1931,7 @@ async function submitStockCheck() {
   try { await requestOrQueue('/api/stock/check', { billNo: `PD${Date.now()}`, totalDiff: diff, rows: checkRows.value, clientRequestId: uuid() }, { backendAvailable: online.value }); ElMessage.success('盘点单已提交审批'); checkRows.value = [] } catch (error) { ElMessage.error(error.message) }
 }
 async function confirmShift() {
+  if (shiftSubmitting.value) return
   const difference = shiftCashDifference.value
   if (difference !== 0 && !shiftRemark.value.trim()) {
     try {
@@ -1883,10 +1953,11 @@ async function confirmShift() {
       })
     } catch { return }
   }
+  shiftSubmitting.value = true
   try {
     const previewSnapshot = currentShiftPrintModel()
-    const result = await requestOrQueue('/api/shift/confirm', { cashActual: shiftCash.value, remark: shiftRemark.value, clientRequestId: uuid() }, { backendAvailable: online.value })
-    if (result?.queued) return ElMessage.warning('当前离线，交班不能确认，请恢复网络后重试')
+    const result = await requestOrQueue('/api/shift/confirm', { cashActual: shiftCash.value, remark: shiftRemark.value, clientRequestId: shiftRequestId.value }, { backendAvailable: online.value })
+    if (result?.queued) return ElMessage.warning('当前离线，交班待网络恢复后重试')
     const confirmedSnapshot = currentShiftPrintModel({
       ...previewSnapshot,
       shiftNo: result?.previousShiftNo || previewSnapshot.shiftNo,
@@ -1897,10 +1968,12 @@ async function confirmShift() {
     })
     shiftCash.value = 0
     shiftRemark.value = ''
+    shiftRequestId.value = uuid()
     await loadPageData()
     ElMessage.success(`交班已确认，当前班次：${result?.nextShiftNo || shiftMeta.value.shiftNo || '-'}`)
     showShiftPreview(confirmedSnapshot)
   } catch (error) { ElMessage.error(error.message) }
+  finally { shiftSubmitting.value = false }
 }
 function checkUnit(row) { return Number(row?.price_type ?? row?.priceType) === 1 ? 'g' : '件' }
 function checkStep(row) { return checkUnit(row) === 'g' ? 0.001 : 1 }
@@ -1975,6 +2048,7 @@ async function cancelPendingSaleOrder() {
 }
 async function closeDialog() {
   if (paymentSubmitting.value) return
+  releasePhotoObjectUrls()
   if (activeDialog.value === 'payment' && (shouldReusePendingSale(orderDraft.value) || orderDraft.value?.queued)) {
     if (Number(orderDraft.value?.actualPaid ?? orderDraft.value?.actual_paid ?? orderDraft.value?.payAmount ?? 0) > 0) {
       activeDialog.value = ''
@@ -2037,7 +2111,7 @@ onMounted(async () => {
   await loadConflicts()
   if (!getToken() && activeDialog.value !== 'settings') activeDialog.value = 'login'
 })
-onBeforeUnmount(() => { clearInterval(clockTimer); clearInterval(syncTimer); clearInterval(healthTimer); clearInterval(configTimer); clearTimeout(wsRetryTimer); window.removeEventListener('online', networkChanged); window.removeEventListener('offline', networkChanged); window.removeEventListener('focus', windowFocused); window.removeEventListener('dajin:unauthorized', sessionExpired); ws.value?.close() })
+onBeforeUnmount(() => { releasePhotoObjectUrls(); clearInterval(clockTimer); clearInterval(syncTimer); clearInterval(healthTimer); clearInterval(configTimer); clearTimeout(wsRetryTimer); window.removeEventListener('online', networkChanged); window.removeEventListener('offline', networkChanged); window.removeEventListener('focus', windowFocused); window.removeEventListener('dajin:unauthorized', sessionExpired); ws.value?.close() })
 watch(activeMenu, loadPageData)
 watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
 </script>
@@ -2085,7 +2159,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <template v-else-if="activeMenu === 'stock'"><div class="page-heading"><div><div class="eyebrow">库存盘点</div><h1>扫码盘点与差异提交</h1></div><button class="primary-button" :disabled="!checkRows.length" @click="submitStockCheck"><ClipboardCheck :size="16" />提交盘点审批</button></div><div class="stock-grid"><section class="panel stock-scan"><div class="scan-heading"><div><b>扫码录入</b><small>扫码枪扫描后回车确认</small></div><Search :size="18" /></div><input class="scan-input" placeholder="扫描条码" @keyup.enter="e => { const p = products.find(x => x.barcode === e.target.value.trim()); if (p) { addCheckRow(p); e.target.value = '' } }" /><div class="scan-shortcuts"><button v-for="product in products.slice(0, 5)" :key="product.id" @click="addCheckRow(product)"><Plus :size="14" />{{ product.name }}</button></div></section><section class="panel table-panel"><div class="table-toolbar"><b>盘点明细</b><span :class="checkRows.some(x => Number(x.actual) !== Number(x.stock)) ? 'danger-text' : 'muted'">差异 {{ checkRows.reduce((s, x) => s + Number(x.actual || 0) - Number(x.stock || 0), 0) }}</span></div><table><thead><tr><th>商品</th><th>系统库存</th><th>实盘数量</th><th>差异</th></tr></thead><tbody><tr v-for="row in checkRows" :key="row.id"><td><b>{{ row.name }}</b><small class="block-muted">{{ row.barcode }}</small></td><td>{{ checkDisplay(row.stock, row) }}</td><td><input v-model.number="row.actual" class="number-input" type="number" min="0" :step="checkStep(row)" /></td><td :class="Number(row.actual) - Number(row.stock) === 0 ? 'muted' : 'danger-text'">{{ checkDisplay(Number(row.actual || 0) - Number(row.stock || 0), row) }}</td></tr><tr v-if="!checkRows.length"><td colspan="4" class="empty-table">扫描商品后会出现在这里</td></tr></tbody></table></section></div></template>
         <template v-else-if="activeMenu === 'bill'"><div class="page-heading"><div><div class="eyebrow">单据查询</div><h1>历史销售单据</h1></div><button class="secondary-button" @click="loadPageData"><RefreshCw :size="16" />刷新</button></div><div class="panel table-panel"><div class="table-toolbar"><label class="inline-search"><Search :size="16" /><input v-model="billKeyword" placeholder="订单号 / 会员" /></label><span class="muted">支持小票补打与质保单补打</span></div><table><thead><tr><th>单号</th><th>时间</th><th>商品金额</th><th>净实收</th><th>状态</th><th></th></tr></thead><tbody><tr v-for="row in billRows.filter(r => `${r.order_no}${r.member_id}`.includes(billKeyword))" :key="row.id"><td><b>{{ row.order_no }}</b></td><td>{{ row.create_time || '-' }}</td><td>{{ money(row.total_amount) }}</td><td>{{ money(row.actual_paid ?? row.pay_amount) }}</td><td><span class="status-tag" :class="row.status === 1 ? 'success' : 'warning'">{{ row.status === 1 ? '已完成' : row.status === 3 ? '待审批' : row.status === 5 ? '已退款' : '草稿' }}</span></td><td><div class="inline-actions"><button class="text-button" @click="reprint(row)"><Printer :size="14" />补打</button><button v-if="Number(row.status) === 0" class="text-button" @click="resumeSalesDraft(row)"><ArrowRight :size="14" />继续开单</button><button v-if="![4, 5].includes(Number(row.status))" class="text-button danger-text" @click="withdrawSalesOrder(row)"><ArrowRightLeft :size="14" />{{ Number(row.status) === 1 ? '撤回成品单' : '撤回草稿' }}</button></div></td></tr><tr v-if="!billRows.length"><td colspan="6" class="empty-table">登录后可加载云端历史单据，离线单据保存在本地队列</td></tr></tbody></table></div></template>
          <template v-else-if="activeMenu === 'todo'"><div class="page-heading"><div><div class="eyebrow">前台待办</div><h1>前台待办</h1></div><button class="secondary-button" @click="loadFrontTodo"><RefreshCw :size="16" />刷新</button></div><div class="print-tabs todo-tabs"><button v-for="t in todoTabs" :key="t.key" :class="{ active: todoTab === t.key }" @click="todoTab = t.key">{{ t.label }} {{ t.count() }}</button></div><template v-if="todoTab === 'print'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">移动端送来的加工工单和销售小票；预览确认后由本机打印。</span></div><table><thead><tr><th>单号</th><th>类型</th><th>客户</th><th>内容</th><th>申请时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in printJobs" :key="'j'+row.job_id"><td><b>{{ row.order_no }}</b></td><td><span class="status-tag" :class="row.job_type === 'PROCESSING' ? 'warning' : 'success'">{{ row.job_type === 'PROCESSING' ? '加工工单' : '销售小票' }}</span></td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.item_name_snapshot || (row.job_type === 'SALES' ? '销售单据' : '-') }}<small v-if="row.quantity" class="block-muted">数量 {{ row.quantity }}</small></td><td>{{ String(row.create_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button class="primary-button compact" @click="openPrintJob(row)"><Printer :size="14" />预览打印</button><button class="text-button danger-text" @click="ignorePrintJob(row)">忽略</button></div></td></tr><tr v-if="!printJobs.length"><td colspan="6" class="empty-table">暂无移动端待打印单据</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'handover'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">手机端转交的加工单：确认加工即开始加工（可不打印）；需要纸质工单时点「打印工单」。</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>师傅</th><th>整单应收</th><th>已收</th><th>尾款</th><th>转交时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in todoHandovers" :key="'h'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.craftsman_name || '未分配' }}</td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ (row.handover_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button v-if="processingOutstanding(row) > 0" class="secondary-button compact" @click="openProcPay(row, 'DEPOSIT')"><Receipt :size="14" />收定金</button><button class="secondary-button compact" @click="confirmProcessingHandover(row)"><Printer :size="14" />打印工单</button><button class="primary-button compact" @click="confirmProcessingStart(row)"><Check :size="14" />确认加工</button></div></td></tr><tr v-if="!todoHandovers.length"><td colspan="9" class="empty-table">暂无待确认加工单</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'pay'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">收银端和移动端的待收销售单，可按待收金额继续收款</span></div><table><thead><tr><th>单号</th><th>应收</th><th>已收</th><th>待收</th><th>开单时间</th><th></th></tr></thead><tbody><tr v-for="row in todoOrders" :key="'o'+row.order_id"><td><b>{{ row.order_no }}</b></td><td>{{ money(row.discounted_due ?? row.total_amount) }}</td><td>{{ money(row.actual_paid ?? row.pay_amount ?? 0) }}</td><td>{{ money(row.remaining_due ?? row.total_amount) }}</td><td>{{ (row.create_time || '-').replace('T', ' ').slice(0, 16) }}</td><td><div class="inline-actions"><button v-if="Number(row.status) === 0" class="text-button" @click="resumeSalesDraft(row)"><ArrowRight :size="14" />继续开单</button><button class="primary-button compact" @click="payHandoverOrder(row)"><Receipt :size="14" />收款</button><button class="text-button danger-text" @click="withdrawSalesOrder(row)"><ArrowRightLeft :size="14" />撤回草稿</button><button v-if="Number(row.actual_paid ?? row.pay_amount ?? 0) === 0" class="text-button danger-text" @click="cancelHandoverOrder(row)">取消</button></div></td></tr><tr v-if="!todoOrders.length"><td colspan="6" class="empty-table">暂无待收款单据</td></tr></tbody></table></div></template><template v-else-if="todoTab === 'processing'"><div class="panel table-panel"><div class="table-toolbar"><span class="muted">加工中的单子：补金登记、损耗登记，完成后点「完成加工」进入待取货（尾款在待取货收取）</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>师傅</th><th>整单应收</th><th>已收</th><th>尾款</th><th>成品克重</th><th>操作</th></tr></thead><tbody><tr v-for="row in todoProcessings" :key="'g'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ row.craftsman_name || '未分配' }}</td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ row.finished_weight ? row.finished_weight + 'g' : '未称重' }}</td><td><div class="inline-actions"><button class="secondary-button compact" @click="confirmProcessingHandover(row, { advanceStatus: false })"><Printer :size="14" />打印工单</button><button class="primary-button compact" @click="openProcFinish(row)"><Check :size="14" />完成加工</button></div></td></tr><tr v-if="!todoProcessings.length"><td colspan="9" class="empty-table">暂无加工中的单子</td></tr></tbody></table></div></template><template v-else><div class="panel table-panel"><div class="table-toolbar"><span class="muted">加工完成待取货的单子：先收尾款，再预览质保单确认无误打印给客户</span></div><table><thead><tr><th>工单号</th><th>项目</th><th>客户</th><th>整单应收</th><th>已收</th><th>尾款</th><th>待返款</th><th>成品克重</th><th></th></tr></thead><tbody><tr v-for="row in todoPickups" :key="'p'+row.processing_order_id"><td><b>{{ row.order_no }}</b></td><td>{{ row.item_name_snapshot || '-' }} × {{ row.item_count ?? row.quantity ?? 1 }}</td><td>{{ row.customer_name || '-' }}<small class="block-muted">{{ row.customer_phone || '' }}</small></td><td>{{ money(row.settlement_due_amount ?? row.due_amount) }}</td><td>{{ money(row.actual_paid_amount ?? row.paid_amount) }}</td><td>{{ money(row.tail_due_amount ?? processingOutstanding(row)) }}</td><td>{{ money(row.refund_outstanding ?? processingRefundOutstanding(row)) }}</td><td>{{ row.finished_weight ? row.finished_weight + 'g' : '未称重' }}</td><td><div class="inline-actions"><button class="secondary-button compact" @click="confirmProcessingHandover(row, { advanceStatus: false })"><Printer :size="14" />打印工单</button><button v-if="processingOutstanding(row) > 0" class="primary-button compact" @click="openProcPay(row)"><Receipt :size="14" />收尾款</button><button v-if="processingRefundOutstanding(row) > 0" class="primary-button compact" @click="openProcPay(row, 'REFUND')"><Receipt :size="14" />返款</button><button v-if="processingRefundOutstanding(row) > 0" class="secondary-button compact" @click="pickupWithWarranty(row)"><BookOpen :size="14" />查看质保单</button><button v-else :class="processingOutstanding(row) > 0 ? 'secondary-button compact' : 'primary-button compact'" @click="pickupWithWarranty(row)"><BookOpen :size="14" />预览并打质保单</button><button v-if="processingOutstanding(row) === 0 && processingRefundOutstanding(row) === 0" class="secondary-button compact" @click="confirmProcessingPickup(row)"><PackageCheck :size="14" />确认取货</button><button v-if="row.status === 'COMPLETED'" class="text-button danger-text" @click="withdrawProcessingOrder(row)"><ArrowRightLeft :size="14" />撤回加工单</button></div></td></tr><tr v-if="!todoPickups.length"><td colspan="9" class="empty-table">暂无待取货加工单</td></tr></tbody></table></div></template></template>
-                <template v-else-if="activeMenu === 'shift'"><div class="page-heading"><div><div class="eyebrow">交班对账</div><h1>本班收款核对</h1></div><button class="primary-button" @click="confirmShift"><Check :size="16" />确认交班</button></div><div class="shift-grid"><section class="panel shift-summary"><div class="summary-title"><b>按支付方式统计</b><span class="status-tag success">本班</span></div><div v-for="row in shiftRows" :key="row.pay_method" class="shift-row"><span>{{ paymentLabel(row.pay_method, row.channel_name || row.pay_method_name) }}</span><b>{{ money(row.amount) }}</b></div><div class="shift-total"><span>系统应收合计</span><strong>{{ money(shiftTotal) }}</strong></div></section><section class="panel cash-check"><div class="summary-title"><b>现金实点</b><Landmark :size="18" /></div><div class="cash-amount"><span>系统现金</span><strong>{{ money(shiftCashSystem) }}</strong></div><label>实点现金<input v-model.number="shiftCash" type="number" min="0" step="0.01" /></label><div class="cash-diff" :class="shiftCashDifference === 0 ? 'ok' : 'warn'"><span>差额</span><b>{{ money(shiftCashDifference) }}</b></div><label>交班备注<textarea v-model="shiftRemark" :placeholder="shiftCashDifference === 0 ? '交班备注（可选）' : '现金有差异时必须填写原因' "></textarea></label><button class="secondary-button full" @click="showShiftPreview"><Printer :size="16" />预览交班单</button></section></div></template>
+                <template v-else-if="activeMenu === 'shift'"><div class="page-heading"><div><div class="eyebrow">交班对账</div><h1>本班收款核对</h1></div><button class="primary-button" :disabled="shiftSubmitting" @click="confirmShift"><Check :size="16" />{{ shiftSubmitting ? '提交中...' : '确认交班' }}</button></div><div class="shift-grid"><section class="panel shift-summary"><div class="summary-title"><b>按支付方式统计</b><span class="status-tag success">本班</span></div><div v-for="row in shiftRows" :key="row.pay_method" class="shift-row"><span>{{ paymentLabel(row.pay_method, row.channel_name || row.pay_method_name) }}</span><b>{{ money(row.amount) }}</b></div><div class="shift-total"><span>系统应收合计</span><strong>{{ money(shiftTotal) }}</strong></div></section><section class="panel cash-check"><div class="summary-title"><b>现金实点</b><Landmark :size="18" /></div><div class="cash-amount"><span>系统现金</span><strong>{{ money(shiftCashSystem) }}</strong></div><label>实点现金<input v-model.number="shiftCash" type="number" min="0" step="0.01" /></label><div class="cash-diff" :class="shiftCashDifference === 0 ? 'ok' : 'warn'"><span>差额</span><b>{{ money(shiftCashDifference) }}</b></div><label>交班备注<textarea v-model="shiftRemark" :placeholder="shiftCashDifference === 0 ? '交班备注（可选）' : '现金有差异时必须填写原因' "></textarea></label><button class="secondary-button full" @click="showShiftPreview"><Printer :size="16" />预览交班单</button></section></div></template>
       </section>
     </main>
 
@@ -2160,7 +2234,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
           <div class="print-tabs"><button :class="{ active: printPreview.type === 'receipt' }" @click="printPreview.type = 'receipt'; printPreview.text = buildReceiptPreview(receiptModel())"><Receipt :size="16" />热敏小票</button><button :class="{ active: printPreview.type === 'warranty' }" @click="printPreview.type = 'warranty'"><BookOpen :size="16" />质保单（两联）</button></div><div v-if="printPreview.type === 'receipt'" class="receipt-preview"><pre>{{ printPreview.text || buildReceiptPreview(receiptModel()) }}</pre></div><div v-else class="warranty-frame-wrap"><iframe class="warranty-preview-frame" :srcdoc="warrantyHtml()" title="质保单预览"></iframe></div><div class="print-options"><label v-if="printPreview.type === 'receipt'">小票规格<select v-model.number="printSettings.paperWidth"><option :value="58">58mm</option><option :value="80">80mm</option></select></label><label v-else class="paper-hint">纸张：A4 横版（一张双联，沿虚线裁切）</label><label>打印机<select v-model="printSettings.deviceName"><option value="">系统默认打印机</option><option v-for="printer in printers" :key="printer.name || printer.deviceName" :value="printer.name || printer.deviceName">{{ printer.displayName || printer.name || printer.deviceName }}</option></select></label><label class="checkbox-label"><input v-model="printSettings.silent" type="checkbox" />静默打印</label></div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">稍后处理</button><button class="secondary-button" @click="printPreview.type === 'receipt' ? printReceipt() : printWarranty()"><Printer :size="16" />{{ printPreview.type === 'receipt' ? '打印小票' : '打印质保单' }}</button><button v-if="printPreview.type === 'receipt'" class="primary-button" @click="printPreview.type = 'warranty'"><BookOpen :size="16" />查看质保单</button></div>
         </template>
       </div>
-      <div v-else-if="activeDialog === 'recycle'" class="dialog-body"><div class="form-grid"><label>旧料类型<select v-model="recycleForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>克重 (g)<input v-model.number="recycleForm.weight" type="number" step="0.001" min="0" /></label><label>成色<select v-model="recycleForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="recycleForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="recycleForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label><label>扣损比例 (%)<input v-model.number="recycleForm.deductLossRate" type="number" min="0" max="99" step="0.01" /></label><label>回收金价<input v-model.number="recycleForm.recyclePrice" type="number" min="0" step="0.01" /></label><label>支付方式<select v-model="recycleForm.payMethod"><option v-if="!payoutMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label></div><div class="calculation-card"><span>回收金额</span><strong>{{ money(recycleAmount) }}</strong><small>{{ recycleForm.weight || 0 }}g × {{ purityText(recyclePurity) }} × {{ money(recycleForm.recyclePrice || recycleSpot) }} × (1 - {{ recycleForm.deductLossRate || 0 }}%)</small></div><div v-if="recycleAmount > config.recycleLimit" class="warning-note"><ShieldAlert :size="16" />超过 {{ money(config.recycleLimit) }}，提交后需店长审批</div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="saveRecycle"><Check :size="16" />保存回收单</button></div></div>
+      <div v-else-if="activeDialog === 'recycle'" class="dialog-body"><div class="form-grid"><label>旧料类型<select v-model="recycleForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>克重 (g)<input v-model.number="recycleForm.weight" type="number" step="0.001" min="0" /></label><label>成色<select v-model="recycleForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="recycleForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="recycleForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label><label>扣损比例 (%)<input v-model.number="recycleForm.deductLossRate" type="number" min="0" max="99" step="0.01" /></label><label>回收金价<input v-model.number="recycleForm.recyclePrice" type="number" min="0" step="0.01" /></label><label>支付方式<select v-model="recycleForm.payMethod"><option v-if="!payoutMethods.length" value="" disabled>暂无可用支付方式</option><option v-for="method in payoutMethods" :key="method.code" :value="method.code">{{ method.name }}</option></select></label></div><div class="calculation-card"><span>回收金额</span><strong>{{ money(recycleAmount) }}</strong><small>{{ recycleForm.weight || 0 }}g × {{ purityText(recyclePurity) }} × {{ money(recycleForm.recyclePrice || recycleSpot) }} × (1 - {{ recycleForm.deductLossRate || 0 }}%)</small></div><div v-if="recycleAmount > config.recycleLimit" class="warning-note"><ShieldAlert :size="16" />超过 {{ money(config.recycleLimit) }}，提交后需店长审批</div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" :disabled="recycleSubmitting" @click="saveRecycle"><Check :size="16" />{{ recycleSubmitting ? '提交中...' : '保存回收单' }}</button></div></div>
       <div v-else-if="activeDialog === 'tradein'" class="dialog-body"><div class="form-grid"><label>旧金信息<input v-model="tradeForm.oldMaterialInfo" placeholder="如：足金手镯 20g" /></label><label v-if="!tradeOldMetals.length">旧金估值<input v-model.number="tradeForm.oldValue" type="number" min="0" step="0.01" /></label><label>新商品信息<input v-model="tradeForm.newGoodsInfo" placeholder="商品名称 / 条码" /></label><label>新商品金额<input v-model.number="tradeForm.newValue" type="number" min="0" step="0.01" /></label></div><div class="subsection-title">旧料明细（可添加多件）</div><div class="form-grid"><label>旧料类型<select v-model="tradeOldForm.materialType"><option v-for="type in oldMaterialTypes" :key="type" :value="type">{{ type }}</option></select></label><label>克重 (g)<input v-model.number="tradeOldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<select v-model="tradeOldForm.purityChoice"><option v-for="option in PURITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><label v-if="tradeOldForm.purityChoice === 'other'">自定义成色 (%)<input v-model.number="tradeOldForm.customPurity" type="number" min="0.1" max="100" step="0.1" placeholder="例如 96.5" /></label></div><button class="secondary-button full" @click="addTradeOldMetal"><Plus :size="16" />加入旧料</button><div class="old-metal-list"><div v-for="metal in tradeOldMetals" :key="metal.id" class="old-metal-row"><div><b>{{ Number(metal.weight).toFixed(3) }}g · {{ purityText(metal.purity) }}</b><small>{{ metal.materialType }}</small></div><strong>{{ money(oldGoldDeduction(metal.weight, metal.purity, recycleSpot)) }}</strong><button class="icon-button quiet" @click="removeTradeOldMetal(metal)"><Trash2 :size="15" /></button></div><div v-if="!tradeOldMetals.length" class="empty-dialog">暂无旧料明细</div></div><div class="dialog-total"><span>旧金估值</span><strong>{{ money(tradeOldMetals.length ? tradeOldTotal : tradeForm.oldValue) }}</strong></div><div class="calculation-card" :class="(Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0))) < 0 ? 'negative' : ''"><span>{{ (Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0))) >= 0 ? '预计补差价' : '预计回收款' }}</span><strong>{{ money(Math.abs(Number(tradeForm.newValue) - (tradeOldMetals.length ? tradeOldTotal : Number(tradeForm.oldValue || 0)))) }}</strong><small>新商品金额 {{ money(tradeForm.newValue) }} - 旧金估值 {{ money(tradeOldMetals.length ? tradeOldTotal : tradeForm.oldValue) }}</small></div><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="saveTradeIn"><Check :size="16" />选择商品开单</button></div></div>
       <div v-else-if="activeDialog === 'approval'" class="dialog-body"><div class="approval-detail"><div class="approval-icon"><ShieldAlert :size="26" /></div><h3>优惠审批已提交</h3><p>{{ approval.message || `本单折扣低于配置阈值${Math.round(config.discountThreshold * 100)}折，店长/管理员通过审批后才能继续结算。` }}</p><div class="approval-state"><Clock3 :size="16" />{{ approval.status || '待审批' }}</div></div><div class="dialog-actions"><button class="secondary-button" @click="holdCurrentOrder"><Archive :size="16" />挂起并开新单</button><button class="text-button" @click="closeDialog">稍后处理</button><button class="primary-button" @click="refreshApproval"><RefreshCw :size="16" />刷新审批状态</button></div></div>
       <div v-else-if="activeDialog === 'notifications'" class="dialog-body"><div v-if="!notifications.length" class="empty-dialog">暂无通知，每天 8:30/12:30/16:30/19:30 自动生成超期与库存提醒</div><div v-for="n in notifications" :class="['old-metal-row', { 'danger-text': n.action === 'REMIND' }]" :key="n.notification_id"><div><b>{{ n.content }}</b><small>{{ String(n.create_time || '').replace('T', ' ').slice(0, 16) }} · {{ n.action === 'REMIND' ? '未读' : '已读' }}</small></div></div></div>
@@ -2172,7 +2246,7 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         <h2 class="finish-sec">① 来料（必填，可现场补录）</h2>
         <div class="form-grid"><label>来料克重 (g)<input v-model.number="procFinish.oldGoldWeight" type="number" min="0" step="0.001" /></label><label>来料成色（0~1）<input v-model.number="procFinish.oldGoldFineness" type="number" min="0" max="1" step="0.001" /></label><label>融后金重 (g)<input v-model.number="procFinish.meltWeight" type="number" min="0" step="0.001" /><small class="muted">选填：来料熔化后的金重</small></label><small class="muted">客户没有旧金请填 0；成色 0.995 及以上按整克计价，低于才按含金量折算。</small></div>
         <h2 class="finish-sec">② 补金登记（选填）</h2>
-        <div class="form-grid"><label>补金克重 (g)<input v-model.number="procFinish.goldWeight" type="number" min="0" step="0.001" /></label><label>成色<input v-model.number="procFinish.goldFineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日价）<input v-model.number="procFinish.goldPrice" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procFinish.downMaterialWeight" type="number" min="0" step="0.001" /><small class="muted">选填：为客户好做额外加的金料（不单独计费、不扣库存；已含在成品里，计入损耗率分母）</small></label></div>
+        <div class="form-grid"><label>补金克重 (g)<input v-model.number="procFinish.goldWeight" type="number" min="0" step="0.001" /><small class="muted">融后金重 ≥ 成品实重时填 0；融后金重 < 成品实重时必须补金</small></label><label>成色<input v-model.number="procFinish.goldFineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日价）<input v-model.number="procFinish.goldPrice" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procFinish.downMaterialWeight" type="number" min="0" step="0.001" /><small class="muted">选填：为客户好做额外加的金料（不单独计费、不扣库存；已含在成品里，计入损耗率分母）</small></label></div>
         <p v-if="procFinishGold.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procFinishGold.hint }}</p>
          <h2 class="finish-sec">③ 称重与损耗（选填）</h2>
          <div class="form-grid"><label>成品实重 (g)<input v-model.number="procFinish.finishedWeight" type="number" min="0" step="0.001" /></label><label>成品成色（可选 0~1）<input v-model.number="procFinish.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><label>损耗 (g)<input v-model.number="procFinish.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><template v-if="procFinish.itemWeights.length"><label v-for="line in procFinish.itemWeights" :key="line.orderItemId">{{ line.name }} · 计费克重 (g)<input v-model.number="line.billingWeight" type="number" min="0" step="0.001" /><small class="muted">逐件计费，合计不得超过成品实重</small></label></template><label v-else-if="procFinishBilling.byGram">计费总克重 (g)<input v-model.number="procFinish.billingWeight" type="number" min="0" step="0.001" /><small class="muted">单个按克项目默认带出成品实重</small></label><label>备注<input v-model.trim="procFinish.note" /></label></div>
@@ -2226,9 +2300,10 @@ watch(activeDialog, value => { if (value === 'conflict') loadConflicts() })
         </template>
         <div class="dialog-actions"><button class="secondary-button" :disabled="procPayBusy" @click="closeDialog">取消</button><button class="primary-button" :disabled="procPayBusy || !Number(procPayAmount) || (procPayType === 'REFUND' ? procPayAmount > processingRefundOutstanding(procManage) : procPayAmount > processingOutstanding(procManage))" @click="confirmProcPay"><Check :size="16" />{{ procPayBusy ? '处理中...' : procPayType === 'DEPOSIT' ? '确认收定金' : procPayType === 'REFUND' ? '确认返款' : '确认实收' }}</button></div>
       </div>
-      <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；可重复登记修正。下料只登记克重，不计费也不扣库存。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0.001" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procGoldForm.downMaterial" type="number" min="0" step="0.001" /><small class="muted">选填：额外加的金料（不单独计费、不扣库存）</small></label><p v-if="procGoldDialogBalance.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procGoldDialogBalance.hint }}</p><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>
-      <div v-else-if="activeDialog === 'procWeigh'" class="dialog-body"><h3 style="margin:0 0 6px">称重与损耗登记 · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">损耗指打磨/锉修收集的屑重，用于师傅考核（损耗率 = 损耗 ÷（融后金重 + 下料）），超约定值自动预警。</p><label>成品实重 (g)<input v-model.number="procWeighForm.finishedWeight" type="number" min="0.001" step="0.001" /></label><label>成品成色（可选，0~1）<input v-model.number="procWeighForm.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><template v-if="procWeighForm.itemWeights.length"><label v-for="line in procWeighForm.itemWeights" :key="line.orderItemId">{{ line.name }} · 计费克重 (g)<input v-model.number="line.billingWeight" type="number" min="0" step="0.001" /><small class="muted">逐件计费，合计不得超过成品实重</small></label></template><label v-else-if="procManage?.pricing_unit === '按克'">计费总克重 (g)<input v-model.number="procWeighForm.billingWeight" type="number" min="0.001" step="0.001" /><small class="muted">单个按克项目默认带出成品实重</small></label><label>损耗 (g)<input v-model.number="procWeighForm.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label>融后金重 (g)<input v-model.number="procWeighForm.meltedWeight" type="number" min="0" step="0.001" /><small class="muted">选填：来料熔化后的金重</small></label><label>备注<textarea v-model.trim="procWeighForm.note" rows="2" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcWeigh"><Check :size="16" />确认登记</button></div></div>
+      <div v-else-if="activeDialog === 'procGold'" class="dialog-body"><h3 style="margin:0 0 6px">补金登记（成品反推） · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">金额并入应收，「足金用料」库存按差额自动扣减；融后金重不小于成品实重时补金为 0。下料只登记克重，不计费也不扣库存。</p><label>补金克重 (g)<input v-model.number="procGoldForm.weight" type="number" min="0" step="0.001" /></label><label>成色<input v-model.number="procGoldForm.fineness" type="number" min="0" max="1" step="0.001" /></label><label>计价金价（留 0 取当日足金价）<input v-model.number="procGoldForm.price" type="number" min="0" step="0.01" /></label><label>下料 (g)<input v-model.number="procGoldForm.downMaterial" type="number" min="0" step="0.001" /><small class="muted">选填：额外加的金料（不单独计费、不扣库存）</small></label><p v-if="procGoldDialogBalance.hint" class="muted" style="margin:4px 0 0">补金参考（成品实重 − 融后金重）：{{ procGoldDialogBalance.hint }}</p><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcGold"><Check :size="16" />确认登记</button></div></div>
+      <div v-else-if="activeDialog === 'procWeigh'" class="dialog-body"><h3 style="margin:0 0 6px">称重与损耗登记 · {{ procManage?.order_no || '' }}</h3><p class="muted" style="margin:0 0 10px">损耗指打磨/锉修收集的屑重，用于师傅考核（损耗率 = 损耗 ÷（融后金重 + 店供补金），下料不计入分母），超约定值自动预警。</p><label>成品实重 (g)<input v-model.number="procWeighForm.finishedWeight" type="number" min="0.001" step="0.001" /></label><label>成品成色（可选，0~1）<input v-model.number="procWeighForm.finishedFineness" type="number" min="0" max="1" step="0.001" /></label><template v-if="procWeighForm.itemWeights.length"><label v-for="line in procWeighForm.itemWeights" :key="line.orderItemId">{{ line.name }} · 计费克重 (g)<input v-model.number="line.billingWeight" type="number" min="0" step="0.001" /><small class="muted">逐件计费，合计不得超过成品实重</small></label></template><label v-else-if="procManage?.pricing_unit === '按克'">计费总克重 (g)<input v-model.number="procWeighForm.billingWeight" type="number" min="0.001" step="0.001" /><small class="muted">单个按克项目默认带出成品实重</small></label><label>损耗 (g)<input v-model.number="procWeighForm.recoveredWeight" type="number" min="0" step="0.001" /><small class="muted">选填：打磨收集的屑重，用于师傅考核</small></label><label>融后金重 (g)<input v-model.number="procWeighForm.meltedWeight" type="number" min="0" step="0.001" /><small class="muted">选填：来料熔化后的金重</small></label><label>备注<textarea v-model.trim="procWeighForm.note" rows="2" /></label><div class="dialog-actions"><button class="secondary-button" @click="closeDialog">取消</button><button class="primary-button" @click="confirmProcWeigh"><Check :size="16" />确认登记</button></div></div>
     </el-dialog>
     </div>
   </el-config-provider>
 </template>
+

@@ -13,6 +13,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -53,5 +54,45 @@ class ApprovalPermissionTests {
         assertEquals(409001, assertThrows(BusinessException.class,
                 () -> controller.reject(8, Map.of("remark", "fixture"), request)).getCode());
         verify(jdbc, never()).update(anyString(), any(SqlParameterSource.class));
+    }
+
+    @Test void orphanProcessingRefundDetailIsStableAndReadable() {
+        setup(Set.of("approval:view"));
+        when(db.one(contains("from approval"), anyMap()))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.one(contains("from approval"), any(SqlParameterSource.class)))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.list(anyString(), anyMap())).thenReturn(List.of());
+
+        Map<String, Object> body = (Map<String, Object>) controller.detail(62, request).data();
+        assertNull(body.get("processingOrder"));
+        assertEquals(true, body.get("processingOrderMissing"));
+        assertEquals("关联加工单不存在", body.get("processingOrderMessage"));
+    }
+
+    @Test void orphanProcessingRefundCanBeRejected() {
+        setup(Set.of("approval:handle"));
+        when(db.one(contains("from approval"), anyMap()))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.one(contains("from approval"), any(SqlParameterSource.class)))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.list(anyString(), anyMap())).thenReturn(List.of());
+
+        assertEquals(200, controller.reject(62, Map.of("remark", "关联单据清理"), request).code());
+        verify(jdbc).update(contains("update approval"), any(SqlParameterSource.class));
+    }
+
+    @Test void orphanProcessingRefundApprovalIsRejectedBeforeDecisionWrite() {
+        setup(Set.of("approval:handle"));
+        when(db.one(contains("from approval"), anyMap()))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.one(contains("from approval"), any(SqlParameterSource.class)))
+                .thenReturn(Map.of("type", "PROCESSING_REFUND", "biz_id", 91L, "reason", "{}"));
+        when(db.list(anyString(), anyMap())).thenReturn(List.of());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> controller.approve(62, Map.of(), request));
+        assertEquals(409727, error.getCode());
+        verify(jdbc, never()).update(contains("update approval"), any(SqlParameterSource.class));
     }
 }

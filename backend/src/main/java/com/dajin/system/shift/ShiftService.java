@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class ShiftService {
@@ -31,5 +32,5 @@ public class ShiftService {
         return opened;
     }
 
-    private String next() { return "SHIFT-" + LocalDateTime.now().format(FORMAT); }
+    private String next() { return "SHIFT-" + LocalDateTime.now().format(FORMAT) + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(); }
 }

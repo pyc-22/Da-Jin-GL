@@ -496,7 +496,7 @@ public class ProcessingController {
      * 只置 mobile_archived 标记：不删数据、不影响管理端列表与账务/库存/提成记录。
      */
     @PostMapping("/orders/{id}/archive")
-    @RequireRoles({"ADMIN", "MANAGER", "SALES"})
+    @RequireRoles({"ADMIN", "MANAGER"})
     @Transactional
     public ApiResponse<?> archiveOnMobile(@PathVariable long id, @RequestBody(required = false) Map<String,Object> body, HttpServletRequest request) {
         long storeId = store(request);
@@ -504,9 +504,6 @@ public class ProcessingController {
         Map<String, Object> order = lockedOrder(id, storeId);
         if (!"PICKED_UP".equals(String.valueOf(order.get("status")))) {
             throw new BusinessException(409716, "只有已取货的加工单可以从手机端归档");
-        }
-        if (isSales(request) && !matchesUser(order.get("created_by"), userId(request))) {
-            throw new BusinessException(403403, "销售只能归档自己创建的加工订单");
         }
         if (!claimProcessingWrite(storeId, id, "ARCHIVE", requestId, request)) return ApiResponse.ok(Map.of("processingOrderId", id, "mobileArchived", true, "idempotentReplay", true));
         db.jdbc().update("update processing_order set mobile_archived=1,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s and status='PICKED_UP'",
@@ -546,24 +543,45 @@ public class ProcessingController {
         long storeId = store(request);
         String requestId = requiredClientRequestId(body);
         BigDecimal weight = optionalDecimal(body.get("weight"), 3);
-        if (weight == null || weight.signum() <= 0) throw new BusinessException(400724, "补金克重必须大于0");
+        if (weight == null) weight = BigDecimal.ZERO.setScale(3, RoundingMode.HALF_UP);
+        if (weight.signum() < 0) throw new BusinessException(400724, "补金克重不能小于0");
         BigDecimal fineness = optionalDecimal(body.get("fineness"), 4);
         if (fineness != null && (fineness.signum() < 0 || fineness.compareTo(BigDecimal.ONE) > 0)) throw new BusinessException(400710, "店供金料成色范围为0到1");
         Map<String, Object> order = lockedOrder(id, storeId);
         String status = String.valueOf(order.get("status"));
         if ("PICKED_UP".equals(status)) throw new BusinessException(409711, "已取货订单不能再登记补金");
         if ("PENDING".equals(status)) throw new BusinessException(409712, "订单尚未开始加工，请先确认加工再登记补金");
+        // 补金只由「成品实重 - 融后金重」决定：融后金重不少于成品实重时，
+        // 本次补金允许为 0（也用于把历史误登记的补金清零）；成品重于融后金重时仍必须填写正数。
+        // 完成加工弹窗会先登记补金、再提交称重，因此优先使用本次请求带来的称重值；
+        // 独立的补金登记则继续读取订单中已保存的称重值。
+        BigDecimal requestMeltWeight = optionalDecimal(body.get("meltedWeight"), 3);
+        BigDecimal requestFinishedWeight = optionalDecimal(body.get("finishedWeight"), 3);
+        BigDecimal requiredTopUp = requiredStoreGoldWeight(
+                requestMeltWeight != null ? requestMeltWeight : decimalValue(order.get("melt_weight")),
+                requestFinishedWeight != null ? requestFinishedWeight : decimalValue(order.get("finished_weight")));
+        if (requiredTopUp != null) {
+            if (requiredTopUp.signum() == 0 && weight.signum() > 0)
+                throw new BusinessException(400724, "融后金重不小于成品实重，本单无需补金");
+            if (requiredTopUp.signum() > 0 && weight.signum() <= 0)
+                throw new BusinessException(400724, "融后金重小于成品实重，请填写补金克重");
+        } else if (weight.signum() <= 0) {
+            // 尚未同时登记融后金重和成品实重时，保留原有人工登记规则。
+            throw new BusinessException(400724, "补金克重必须大于0，或先登记融后金重与成品实重");
+        }
         BigDecimal oldWeight = decimal(order.get("store_gold_weight"));
         BigDecimal oldAmount = decimal(order.get("store_gold_amount"));
-        // 下料：店里为保证做工额外加的金料，不计费、不扣库存，只计入损耗率分母
+        // 下料仍作为单独记录，不计费、不扣库存；损耗率分母只计融后金重与店供补金。
         BigDecimal downMaterial = optionalDecimal(body.get("downMaterialWeight"), 3);
         if (downMaterial != null && downMaterial.signum() < 0) throw new BusinessException(400736, "下料克重不能为负数");
         if (downMaterial == null) downMaterial = decimal(order.get("down_material_weight"));
         BigDecimal price = optionalDecimal(body.get("price"), 2);
         if (price == null || price.signum() <= 0) {
-            price = oldWeight.signum() > 0 && decimal(order.get("store_gold_price")).signum() > 0 ? decimal(order.get("store_gold_price")) : retailGoldPrice(storeId);
+            price = oldWeight.signum() > 0 && decimal(order.get("store_gold_price")).signum() > 0
+                    ? decimal(order.get("store_gold_price"))
+                    : (weight.signum() > 0 ? retailGoldPrice(storeId) : decimal(order.get("store_gold_price")));
         }
-        if (price == null || price.signum() <= 0) throw new BusinessException(400722, "未配置足金零售价，无法计价补金，请先在金价管理维护");
+        if (weight.signum() > 0 && (price == null || price.signum() <= 0)) throw new BusinessException(400722, "未配置足金零售价，无法计价补金，请先在金价管理维护");
         if (!claimProcessingWrite(storeId, id, "STORE_GOLD", requestId, request)) return ApiResponse.ok(orderDetail(id, storeId, request));
         Map<String, Object> goldSnapshot = market == null ? Map.of() : market.snapshot(storeId, "足金", price);
         BigDecimal amount = weight.multiply(price).setScale(2, RoundingMode.HALF_UP);
@@ -578,9 +596,9 @@ public class ProcessingController {
         db.jdbc().update("update processing_order set store_gold_weight=:w,down_material_weight=:dm,store_gold_fineness=:f,store_gold_price=:p,store_gold_amount=:a,gold_base_instrument=:goldInstrument,gold_base_price=:goldBase,gold_purity_coefficient=:goldPurity,gold_markup=:goldMarkup,gold_recycle_deduction=:goldDeduction,gold_price_snapshot=:goldSnapshot,gold_quote_time=:goldQuoteTime,gold_quote_source=:goldSource,gold_market_status=:goldMarketStatus,due_amount=:due,refund_amount=:refund,refund_paid_amount=least(refund_paid_amount,:refund),original_due_amount=case when promotion_discount>0 then coalesce(original_due_amount,:grossDue) else original_due_amount end,version=version+1,update_time=now() where processing_order_id=:id and store_id=:s",
                 new MapSqlParameterSource().addValue("w", weight).addValue("dm", downMaterial).addValue("f", fineness).addValue("p", price).addValue("a", amount).addValue("goldInstrument", goldSnapshot.get("baseInstrument")).addValue("goldBase", goldSnapshot.get("basePrice")).addValue("goldPurity", goldSnapshot.get("purityCoefficient")).addValue("goldMarkup", goldSnapshot.get("markup")).addValue("goldDeduction", goldSnapshot.get("recycleDeduction")).addValue("goldSnapshot", price).addValue("goldQuoteTime", goldSnapshot.get("quoteTime")).addValue("goldSource", goldSnapshot.get("source")).addValue("goldMarketStatus", goldSnapshot.get("marketStatus")).addValue("due", due)
                         .addValue("refund", refund).addValue("grossDue", grossDue).addValue("id", id).addValue("s", storeId));
-        // 补金或下料变动后，已称重的单按新分母（融后金重 + 下料）重算损耗率，避免考核口径过期
+        // 补金变动后，已称重的单按新分母（融后金重 + 店供补金）重算损耗率。
         if (order.get("finished_weight") != null) {
-            BigDecimal weightedBase = lossBase(decimal(order.get("melt_weight")), decimal(order.get("old_gold_weight")), decimalValue(order.get("old_gold_fineness")), downMaterial);
+            BigDecimal weightedBase = lossBase(decimal(order.get("melt_weight")), decimal(order.get("old_gold_weight")), decimalValue(order.get("old_gold_fineness")), weight);
             BigDecimal recomputed = dustPermille(decimal(order.get("recovered_weight")), weightedBase);
             boolean recomputedOver = recomputed != null && recomputed.compareTo(lossConfig(storeId)) > 0;
             db.jdbc().update("update processing_order set loss_permille=:lp,loss_over=:lo where processing_order_id=:id and store_id=:s",
@@ -594,7 +612,7 @@ public class ProcessingController {
         return ApiResponse.ok(result);
     }
 
-    /** 成品称重与损耗登记：损耗（打磨屑）计入师傅考核，损耗率 = 损耗 ÷ (融后金重 + 下料)‰，超约定值标预警。 */
+    /** 成品称重与损耗登记：损耗（打磨屑）计入师傅考核，损耗率 = 损耗 ÷ (融后金重 + 店供补金)‰，超约定值标预警。 */
     @PostMapping("/orders/{id}/weighing")
     @RequireRoles({"ADMIN", "MANAGER", "CASHIER"})
     @Transactional
@@ -694,14 +712,14 @@ public class ProcessingController {
             if (incomingWeight != null) order.put("old_gold_weight", incomingWeight);
             if (incomingFineness != null) order.put("old_gold_fineness", incomingFineness);
         }
-        // 损耗率分母：融后金重 + 下料（本次没填融后金重就用库里已有的，再没有才退回「来料克重 × 足金线折算」）
+        // 损耗率分母：融后金重 + 店供补金（融后金重优先使用本次值，再用库值，最后回退来料足金线折重）。
         java.math.BigDecimal meltForBase = melted != null && melted.signum() > 0 ? melted : decimal(order.get("melt_weight"));
-        java.math.BigDecimal base = lossBase(meltForBase, decimal(order.get("old_gold_weight")), decimalValue(order.get("old_gold_fineness")), decimal(order.get("down_material_weight")));
+        java.math.BigDecimal base = lossBase(meltForBase, decimal(order.get("old_gold_weight")), decimalValue(order.get("old_gold_fineness")), decimal(order.get("store_gold_weight")));
         java.math.BigDecimal finishedNet = finishedWeight.multiply(finenessFactor(finishedFineness));
         java.math.BigDecimal recoveredWeight = recovered == null ? BigDecimal.ZERO : recovered;
         // 只考核损耗（打磨屑）；成品比来料+补金重（含称重误差）不再拦截，仅提示核对补金登记
         boolean refillMissing = base.compareTo(finishedNet) < 0;
-        // 考核口径：损耗(打磨屑) ÷ (融后金重 + 下料)，见上方 base
+        // 考核口径：损耗(打磨屑) ÷ (融后金重 + 店供补金)，见上方 base
         java.math.BigDecimal permille = dustPermille(recoveredWeight, base);
         java.math.BigDecimal config = lossConfig(storeId);
         boolean over = permille != null && permille.compareTo(config) > 0;
@@ -764,15 +782,15 @@ public class ProcessingController {
     }
 
     /**
-     * 损耗率分母 = 融后金重 + 下料（甲方口径）。
+     * 损耗率分母 = 融后金重 + 店供补金（甲方口径）。
      * 融后金重是客户来料熔化后的实际金重；没登记时退回按「来料克重 × 足金线折算」兜底。
-     * 店供补金不算进分母：补金是卖给客户的，不是考核师傅的投料。
+     * 下料只作独立记录，不计入此分母。
      */
-    static BigDecimal lossBase(BigDecimal meltWeight, BigDecimal oldWeight, BigDecimal oldFineness, BigDecimal downMaterialWeight) {
+    static BigDecimal lossBase(BigDecimal meltWeight, BigDecimal oldWeight, BigDecimal oldFineness, BigDecimal storeGoldWeight) {
         BigDecimal incoming = meltWeight != null && meltWeight.signum() > 0
                 ? meltWeight
                 : (oldWeight == null ? BigDecimal.ZERO : oldWeight).multiply(finenessFactor(oldFineness));
-        return incoming.add(downMaterialWeight == null ? BigDecimal.ZERO : downMaterialWeight);
+        return incoming.add(storeGoldWeight == null ? BigDecimal.ZERO : storeGoldWeight);
     }
 
     /**
@@ -787,17 +805,26 @@ public class ProcessingController {
         return base.subtract(finished).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 补金参考值 = max(成品实重 - 融后金重, 0)，缺少任一称重值时返回 null。
+     * 该口径与管理端、收银端的 goldBalance 保持一致。
+     */
+    static BigDecimal requiredStoreGoldWeight(BigDecimal meltWeight, BigDecimal finishedWeight) {
+        if (meltWeight == null || finishedWeight == null || meltWeight.signum() < 0 || finishedWeight.signum() <= 0) return null;
+        return finishedWeight.subtract(meltWeight).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP);
+    }
+
     /** 回收屑抵扣 = 回收屑 × 足金回收金价。 */
     static BigDecimal residualDustDeduction(BigDecimal dustWeight, BigDecimal recyclePrice) {
         if (dustWeight == null || recyclePrice == null) return BigDecimal.ZERO;
         return dustWeight.multiply(recyclePrice).setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** 损耗率（千分比）= 损耗(打磨屑) ÷ (融后金重 + 下料)。 */
+    /** 损耗率（千分比）= 损耗(打磨屑) ÷ (融后金重 + 店供补金)。 */
     static BigDecimal dustPermille(BigDecimal recoveredWeight, BigDecimal base) {
         if (base == null || base.signum() <= 0) return null;
         BigDecimal recovered = recoveredWeight == null ? BigDecimal.ZERO : recoveredWeight;
-        return recovered.divide(base, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(1000)).setScale(2, RoundingMode.HALF_UP);
+        return recovered.multiply(BigDecimal.valueOf(1000)).divide(base, 2, RoundingMode.HALF_UP);
     }
 
     /** 来料、称重、取货照片：URL 合并保存（每类上限 6 张）。 */
@@ -926,8 +953,11 @@ public class ProcessingController {
         long storeId = store(request);
         Map<String, Object> o = orderDetail(id, storeId, request);
         assertSalesCanAccess(o, request);
-        String storeName = String.valueOf(db.one("select store_name from sys_store where store_id=:s", Map.of("s", storeId)).getOrDefault("store_name", "-"));
-        return ProcessingWarrantyHtml.build(o, storeName);
+        Map<String,Object> store = db.one("select store_name,address,phone from sys_store where store_id=:s", Map.of("s", storeId));
+        String storeName = store == null || store.get("store_name") == null ? "" : String.valueOf(store.get("store_name"));
+        String storeAddress = store == null || store.get("address") == null ? "" : String.valueOf(store.get("address"));
+        String storePhone = store == null || store.get("phone") == null ? "" : String.valueOf(store.get("phone"));
+        return ProcessingWarrantyHtml.build(o, storeName, storeAddress, storePhone);
     }
 
     /** 移动端送打印：生成待打印任务，收银端「待打印」确认。 */

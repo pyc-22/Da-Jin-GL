@@ -12,6 +12,11 @@ describe('gold balance prefill', () => {
     expect(surplus.balance).toBe(-3)
     expect(surplus.topUp).toBe(0)
     expect(surplus.hint).toContain('没有补金')
+
+    const noMelt = goldBalance({ melt: 0, finished: 1.25 })
+    expect(noMelt.balance).toBe(1.25)
+    expect(noMelt.topUp).toBe(1.25)
+    expect(goldBalance({ melt: 40, finished: 40 })).toMatchObject({ balance: 0, topUp: 0 })
   })
 
   it('stays silent until both melt and finished weights are known', () => {

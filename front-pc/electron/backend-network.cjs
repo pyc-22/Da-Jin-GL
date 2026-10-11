@@ -40,7 +40,29 @@ async function backendRequest(base, input, fetchImpl = fetch) {
     method, headers: requestHeaders(input?.headers), body: input?.body,
     redirect: 'manual', signal: AbortSignal.timeout(timeout)
   })
+  if (input?.responseType === 'arrayBuffer') {
+    const bytes = await limitedResponseBytes(response)
+    return { status: response.status, bodyBase64: bytes.toString('base64'), contentType: response.headers.get('content-type') || 'application/octet-stream' }
+  }
   return { status: response.status, body: await limitedResponseText(response) }
+}
+
+async function limitedResponseBytes(response) {
+  if (Number(response.headers.get('content-length') || 0) > MAX_RESPONSE_BYTES) throw new Error('响应内容过大')
+  if (!response.body) return Buffer.alloc(0)
+  const reader = response.body.getReader()
+  const chunks = []
+  let size = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > MAX_RESPONSE_BYTES) throw new Error('响应内容过大')
+      chunks.push(Buffer.from(value))
+    }
+  } finally { reader.releaseLock() }
+  return Buffer.concat(chunks, size)
 }
 
 async function limitedResponseText(response) {

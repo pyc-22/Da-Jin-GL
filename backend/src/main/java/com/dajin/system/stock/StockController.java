@@ -160,7 +160,7 @@ public class StockController {
             List<Map<String, Object>> existing = db.list("select inbound_id from stock_inbound where store_id=:s and client_request_id=:client limit 1", Map.of("s", storeId, "client", clientRequestId));
             if (!existing.isEmpty()) return ApiResponse.ok(inboundDetail(((Number) existing.get(0).get("inbound_id")).longValue(), storeId));
         }
-        String inboundNo = "RK" + System.currentTimeMillis() + String.format("%03d", new Random().nextInt(1000));
+        String inboundNo = uniqueBillNo("RK");
         BigDecimal totalQty = BigDecimal.ZERO, totalWeight = BigDecimal.ZERO, totalAmount = BigDecimal.ZERO;
         List<Map<String, Object>> normalized = new ArrayList<>();
         Set<String> requestPieceNos = new HashSet<>();
@@ -518,7 +518,7 @@ public class StockController {
         if (q.get("goodsId") == null) throw new BusinessException(400200, "请选择商品");
         String remark = String.valueOf(q.getOrDefault("remark", q.getOrDefault("reason", ""))).trim();
         if (type.equals("IN") && remark.isBlank()) throw new BusinessException(400203, "手动入库备注不能为空");
-        long storeId = db.store(r); long operatorId = userId(r); String billNo = String.valueOf(q.getOrDefault("billNo", type + System.currentTimeMillis()));
+        long storeId = db.store(r); long operatorId = userId(r); String billNo = String.valueOf(q.getOrDefault("billNo", uniqueBillNo(type)));
         String pieceNo = inboundText(q.get("pieceNo"));
         if (!pieceNo.isBlank() && (pieceNo.length() > 80 || qty.compareTo(BigDecimal.ONE) != 0)) throw new BusinessException(400233, "指定单件码时数量必须为1，且单件码不超过80个字符");
         Object rawCost = q.containsKey("cost") ? q.get("cost") : q.get("costPrice");
@@ -630,7 +630,7 @@ public class StockController {
         try { detail = objectMapper.writeValueAsString(snapshot); }
         catch (JsonProcessingException e) { throw new BusinessException(400204, "盘点明细格式错误"); }
         String billNo = nullableText(q.get("billNo"), 32, "盘点单号不能超过32个字符");
-        if (billNo == null) billNo = "PD" + System.currentTimeMillis() + String.format("%03d", new Random().nextInt(1000));
+        if (billNo == null) billNo = uniqueBillNo("PD");
         String remark = nullableText(q.get("remark"), 500, "盘点备注不能超过500个字符");
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("no", billNo)
                 .addValue("scope", scopeType).addValue("scopeId", scopeId).addValue("remark", remark)
@@ -830,7 +830,7 @@ public class StockController {
     @RequirePermission("stock:transfer")
     public ApiResponse<?> manualOldIn(@RequestBody Map<String,Object> q, HttpServletRequest r) {
         OldMaterialValues values = oldMaterialValues(q); long storeId = db.store(r); long operatorId = userId(r);
-        String source = "MANUAL:OLD:" + UUID.randomUUID(); String billNo = String.valueOf(q.getOrDefault("billNo", "OMI-OLD-" + System.currentTimeMillis()));
+        String source = "MANUAL:OLD:" + UUID.randomUUID(); String billNo = String.valueOf(q.getOrDefault("billNo", uniqueBillNo("OMI-OLD-")));
         MapSqlParameterSource p = materialParameters(storeId, values).addValue("source", source).addValue("billNo", billNo).addValue("operator", operatorId);
         db.jdbc().update("insert into old_material(store_id,material_type,weight,purity,source,value,status,direction,create_time,update_time) values(:s,:type,:weight,:purity,:source,:value,1,1,now(),now())", p);
         long id = db.jdbc().queryForObject("select material_id from old_material where store_id=:s and source=:source order by material_id desc limit 1", p, Long.class);
@@ -862,7 +862,7 @@ public class StockController {
         BigDecimal effective = OldMaterialLedgerService.effectiveWeight(weight, purity);
         if (available.compareTo(effective) < 0) throw new BusinessException(409203, "旧料库存不足");
         BigDecimal outboundValue = available.signum() == 0 ? BigDecimal.ZERO : currentValue.multiply(effective).divide(available, 2, RoundingMode.HALF_UP);
-        String source = "MANUAL:OLD_OUT:" + UUID.randomUUID(); String billNo = String.valueOf(q.getOrDefault("billNo", "OMO-OLD-" + System.currentTimeMillis()));
+        String source = "MANUAL:OLD_OUT:" + UUID.randomUUID(); String billNo = String.valueOf(q.getOrDefault("billNo", uniqueBillNo("OMO-OLD-")));
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("s", storeId).addValue("type", materialType).addValue("weight", weight).addValue("purity", purity).addValue("source", source).addValue("value", outboundValue).addValue("billNo", billNo).addValue("qty", effective).addValue("operator", operatorId);
         db.jdbc().update("insert into old_material(store_id,material_type,weight,purity,source,value,status,direction,create_time,update_time) values(:s,:type,:weight,:purity,:source,:value,1,-1,now(),now())", p);
         db.jdbc().update("insert into stock_out(store_id,bill_no,type,goods_id,qty,reason,operator_id,create_time) values(:s,:billNo,'OLD_MATERIAL_OUT',null,:qty,:reason,:operator,now())", p.addValue("reason", String.valueOf(q.getOrDefault("reason", "其他"))));
@@ -1115,4 +1115,9 @@ public class StockController {
     private long userId(HttpServletRequest r) { io.jsonwebtoken.Claims c = (io.jsonwebtoken.Claims) r.getAttribute("claims"); return c == null ? 0L : Long.parseLong(c.getSubject()); }
     private BigDecimal configNumber(long storeId, String key, BigDecimal fallback) { try { Map<String,Object> row = db.one("select config_value from sys_config where store_id=:s and config_key=:k and enabled=1", Map.of("s", storeId, "k", key)); return new BigDecimal(String.valueOf(row.get("config_value"))); } catch (Exception e) { return fallback; } }
     private void logOperation(long storeId, long operatorId, String action, String content) { db.jdbc().update("insert into operation_log(store_id,user_id,module,action,content,ip,create_time) values(:s,:u,'STOCK',:a,:c,'',now())", Map.of("s", storeId, "u", operatorId, "a", action, "c", content)); }
+    private String uniqueBillNo(String prefix) {
+        String safe = prefix == null ? "" : prefix;
+        return safe + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
+    }
 }

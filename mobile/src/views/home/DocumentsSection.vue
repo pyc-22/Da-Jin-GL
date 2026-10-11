@@ -42,7 +42,7 @@ function canReport(permission){return auth.can('report:view')&&(auth.role!=='MAN
 // 已取货的加工单可以在手机端归档（管理端保留完整记录）
 const swipeOffset=ref(0),swipeKey=ref('')
 let startX=0,startY=0,horizontal=false,swiping=false
-const canArchive=row=>row.type==='processing'&&row.raw?.status==='PICKED_UP'&&Number(row.raw?.mobile_archived)!==1
+const canArchive=row=>row.type==='processing'&&row.raw?.status==='PICKED_UP'&&Number(row.raw?.mobile_archived)!==1&&['ADMIN','MANAGER'].includes(String(auth.role||'').toUpperCase())
 function onTouchStart(row){if(!canArchive(row)){swiping=false;return}swiping=true;horizontal=false;startX=0;startY=0;swipeOffset.value=0;swipeKey.value=''}
 function onTouchMove(event){
   if(!swiping)return

@@ -5,6 +5,7 @@ import com.dajin.system.config.SyncWebSocketHandler;
 import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.*;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.mock.web.MockHttpServletRequest;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,5 +25,39 @@ class LegacyStaffAccessTests {
         var controller = new AdminController(db, mock(SyncWebSocketHandler.class), mock(BackupService.class));
         assertThrows(BusinessException.class, () -> controller.createUser(Map.of("username", "admin2", "realName", "Test", "roleId", 1), request));
         verify(jdbc, never()).update(contains("insert into sys_user"), any(SqlParameterSource.class));
+    }
+
+    @Test void legacyCreateRouteRequiresAnInitialPassword() {
+        DbSupport db = mock(DbSupport.class);
+        var jdbc = mock(NamedParameterJdbcTemplate.class);
+        var request = new MockHttpServletRequest();
+        request.setAttribute("claims", Jwts.claims(Map.of("role", "ADMIN")).setSubject("1"));
+        when(db.store(request)).thenReturn(1L);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.one(contains("sys_role"), anyMap())).thenReturn(Map.of("role_code", "SALES"));
+        var controller = new AdminController(db, mock(SyncWebSocketHandler.class), mock(BackupService.class));
+
+        assertThrows(BusinessException.class, () -> controller.createUser(Map.of("username", "sales2", "realName", "Sales", "roleId", 7), request));
+        verify(jdbc, never()).update(contains("insert into sys_user"), any(SqlParameterSource.class));
+    }
+
+    @Test void legacyCreateRouteStoresOnlyBcryptPassword() {
+        DbSupport db = mock(DbSupport.class);
+        var jdbc = mock(NamedParameterJdbcTemplate.class);
+        var request = new MockHttpServletRequest();
+        request.setAttribute("claims", Jwts.claims(Map.of("role", "ADMIN")).setSubject("1"));
+        when(db.store(request)).thenReturn(1L);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(jdbc.queryForObject(anyString(), anyMap(), eq(Integer.class))).thenReturn(0);
+        when(db.one(contains("sys_role"), anyMap())).thenReturn(Map.of("role_code", "SALES"));
+        var controller = new AdminController(db, mock(SyncWebSocketHandler.class), mock(BackupService.class));
+
+        controller.createUser(Map.of("username", "sales2", "realName", "Sales", "roleId", 7, "password", "StrongPass8"), request);
+
+        var passwordEncoder = new BCryptPasswordEncoder();
+        verify(jdbc).update(contains("insert into sys_user"), argThat((SqlParameterSource params) -> {
+            Object encoded = params.getValue("pwd");
+            return encoded instanceof String value && !value.equals("StrongPass8") && passwordEncoder.matches("StrongPass8", value);
+        }));
     }
 }

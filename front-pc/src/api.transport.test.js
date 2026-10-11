@@ -44,6 +44,15 @@ describe('cashier packaged transport', () => {
     }))
   })
 
+  it('decodes native photo bytes into a browser Blob without a token query', async () => {
+    api.setToken('session')
+    network.request.mockResolvedValueOnce({ status: 200, bodyBase64: 'AAEC/w==', contentType: 'image/jpeg' })
+    const response = await api.fetchBackend('/api/file/processing/PROC-1/pickup/photo.jpg', { headers: { Authorization: 'Bearer session' }, responseType: 'arrayBuffer' })
+    expect(response.headers.get('content-type')).toBe('image/jpeg')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.from([0, 1, 2, 255]))
+    expect(network.request).toHaveBeenCalledWith(expect.objectContaining({ path: '/api/file/processing/PROC-1/pickup/photo.jpg', responseType: 'arrayBuffer', headers: { Authorization: 'Bearer session' } }))
+  })
+
   it('keeps normal browser requests on fetch', async () => {
     delete window.dajin
     const browserFetch = vi.fn(async () => new Response('{"code":200,"data":42}', { status: 200 }))

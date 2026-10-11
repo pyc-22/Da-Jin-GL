@@ -93,6 +93,14 @@ public class SchemaCompatibilityMigration implements CommandLineRunner {
         addIndex("stock_check", "idx_stock_check_scope", "store_id,status,scope_type,scope_id");
         addIndex("stock_check", "idx_stock_check_operator_time", "store_id,operator_id,create_time");
         addIndex("trade_in", "idx_tradein_operator_time", "store_id,operator_id,create_time");
+        ensureNoDuplicateKeys("recycle_order", "store_id,bill_no", "bill_no is not null and trim(bill_no)<>''", "回收单号存在历史重复，迁移已停止");
+        ensureNoDuplicateKeys("stock_in", "store_id,bill_no", "bill_no is not null and trim(bill_no)<>''", "入库单号存在历史重复，迁移已停止");
+        ensureNoDuplicateKeys("stock_out", "store_id,bill_no", "bill_no is not null and trim(bill_no)<>''", "出库单号存在历史重复，迁移已停止");
+        ensureNoDuplicateKeys("trade_in", "store_id,bill_no", "bill_no is not null and trim(bill_no)<>''", "以旧换新单号存在历史重复，迁移已停止");
+        addIndex("recycle_order", "uk_recycle_store_bill", "store_id,bill_no", true);
+        addIndex("stock_in", "uk_stockin_store_bill", "store_id,bill_no", true);
+        addIndex("stock_out", "uk_stockout_store_bill", "store_id,bill_no", true);
+        addIndex("trade_in", "uk_tradein_store_bill", "store_id,bill_no", true);
         createProcessingTables();
         // Older local databases may already have processing_payment without
         // the request column/index.  Repair it additively and stop on

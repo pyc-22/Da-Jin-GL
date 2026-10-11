@@ -38,31 +38,10 @@ class ProcessingArchiveTests {
     }
 
     @Test
-    void salesCanArchiveTheirOwnPickedUpOrder() {
-        DbSupport db = mock(DbSupport.class);
-        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
-        when(db.store(any())).thenReturn(1L);
-        when(db.jdbc()).thenReturn(jdbc);
-        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
-        when(db.list(anyString(), anyMap())).thenReturn(List.of(order("PICKED_UP", 27L)));
-
-        controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-own"), salesRequest(27L));
-
-        verify(jdbc).update(contains("set mobile_archived=1"), anyMap());
-    }
-
-    @Test
-    void salesMayArchiveOnlyTheirOwnPickedUpOrder() {
-        DbSupport db = mock(DbSupport.class);
-        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
-        when(db.store(any())).thenReturn(1L);
-        when(db.jdbc()).thenReturn(jdbc);
-        when(jdbc.update(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource.class))).thenReturn(1);
-        when(db.list(anyString(), anyMap())).thenReturn(List.of(order("PICKED_UP", 99L)));
-
-        var ex = assertThrows(BusinessException.class, () -> controller(db).archiveOnMobile(12L, Map.of("clientRequestId", "archive-other"), salesRequest(27L)));
-        assertEquals(403403, ex.getCode());
-        verify(jdbc, never()).update(startsWith("update processing_order set mobile_archived"), anyMap());
+    void archiveEndpointIsRestrictedToManagerRoles() throws Exception {
+        var method = ProcessingController.class.getDeclaredMethod("archiveOnMobile", long.class, Map.class, javax.servlet.http.HttpServletRequest.class);
+        var roles = method.getAnnotation(com.dajin.system.config.RequireRoles.class);
+        assertEquals(java.util.Set.of("ADMIN", "MANAGER"), java.util.Set.of(roles.value()));
     }
 
     @Test

@@ -25,17 +25,20 @@ export async function fetchBackend(path, options = {}) {
   if (window.dajin?.network?.request) {
     const result = await window.dajin.network.request({
       path, method: options.method || 'GET', headers: options.headers || {},
-      body: options.body, timeoutMs: options.timeoutMs
+      body: options.body, timeoutMs: options.timeoutMs, responseType: options.responseType
     })
     // Native bridges may return the decoded response object instead of the
     // wire JSON string. Preserve it so ApiResponse business codes/messages are
     // available to the cashier rather than collapsing into a generic error.
-    const body = result.status === 204 || result.body == null
+    const body = result.status === 204 ? null
+      : result.bodyBase64 != null
+        ? new Blob([Uint8Array.from(atob(result.bodyBase64), char => char.charCodeAt(0))], { type: result.contentType || 'application/octet-stream' })
+        : result.body == null
       ? null
       : (typeof result.body === 'string' || result.body instanceof Blob
         ? result.body
         : JSON.stringify(result.body))
-    return new Response(body, { status: result.status })
+    return new Response(body, { status: result.status, headers: result.contentType ? { 'Content-Type': result.contentType } : undefined })
   }
   return fetch(`${API_BASE}${path}`, options)
 }

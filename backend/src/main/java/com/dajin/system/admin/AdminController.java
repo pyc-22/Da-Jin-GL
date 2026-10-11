@@ -8,6 +8,7 @@ import com.dajin.system.config.RequireRoles;
 import com.dajin.system.config.SyncWebSocketHandler;
 import com.dajin.system.order.SalesAmounts;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -24,6 +25,7 @@ import java.util.*;
 public class AdminController {
     private final DbSupport db; private final SyncWebSocketHandler ws;
     private final BackupService backupService;
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     public AdminController(DbSupport db, SyncWebSocketHandler ws, BackupService backupService) { this.db = db; this.ws = ws; this.backupService = backupService; }
     private long store(HttpServletRequest r) { return db.store(r); }
     private MapSqlParameterSource p(HttpServletRequest r) { return new MapSqlParameterSource("s", store(r)); }
@@ -217,8 +219,10 @@ public class AdminController {
         assertAssignableRole(q.get("roleId"), r);
         String username = q.get("username") == null ? "" : String.valueOf(q.get("username")).trim(); String realName = q.get("realName") == null ? "" : String.valueOf(q.get("realName")).trim();
         if (username.isBlank() || realName.isBlank()) throw new BusinessException(400420, "账号和姓名不能为空");
+        String password = q.get("password") == null ? "" : String.valueOf(q.get("password"));
+        if (!password.matches("^(?=.*[A-Za-z])(?=.*\\d).{8,72}$")) throw new BusinessException(400427, "请设置8-72位且同时包含字母和数字的初始密码");
         long storeId=store(r); int exists=db.jdbc().queryForObject("select count(*) from sys_user where store_id=:s and username=:u",Map.of("s",storeId,"u",username),Integer.class); if(exists>0)throw new BusinessException(409420,"登录账号已存在");
-         db.jdbc().update("insert into sys_user(store_id,username,password,real_name,role_id,phone,entry_date,status) values(:s,:u,:pwd,:name,:role,:phone,:entry,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("u",username).addValue("pwd",q.getOrDefault("password","admin")).addValue("name",realName).addValue("role",q.get("roleId")).addValue("phone",q.get("phone")).addValue("entry",q.get("entryDate"))); logOperation(storeId,userId(r),"USER","CREATE","账号="+username);ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action","CREATE","username",username)); return ApiResponse.ok();}
+         db.jdbc().update("insert into sys_user(store_id,username,password,real_name,role_id,phone,entry_date,status) values(:s,:u,:pwd,:name,:role,:phone,:entry,1)",new MapSqlParameterSource().addValue("s",storeId).addValue("u",username).addValue("pwd",passwordEncoder.encode(password)).addValue("name",realName).addValue("role",q.get("roleId")).addValue("phone",q.get("phone")).addValue("entry",q.get("entryDate"))); logOperation(storeId,userId(r),"USER","CREATE","账号="+username);ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action","CREATE","username",username)); return ApiResponse.ok();}
     @PutMapping("/users/{id}") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> updateUser(@PathVariable long id,@RequestBody Map<String,Object> q,HttpServletRequest r){assertManageableUser(id,r);if(q.get("roleId")!=null)assertAssignableRole(q.get("roleId"),r);long storeId=store(r);db.jdbc().update("update sys_user set real_name=coalesce(:name,real_name),role_id=coalesce(:role,role_id),phone=coalesce(:phone,phone),entry_date=coalesce(:entry,entry_date),status=coalesce(:status,status),update_time=now() where user_id=:id and store_id=:s",new MapSqlParameterSource().addValue("s",storeId).addValue("id",id).addValue("name",q.get("realName")).addValue("role",q.get("roleId")).addValue("phone",q.get("phone")).addValue("entry",q.get("entryDate")).addValue("status",q.get("status")));ws.broadcast("STAFF_UPDATED",Map.of("storeId",storeId,"action","UPDATE","userId",id));return ApiResponse.ok();}
     @PatchMapping("/users/{id}/status") @RequireRoles({"ADMIN","MANAGER"}) @RequirePermission("staff:manage") public ApiResponse<?> userStatus(@PathVariable long id,@RequestParam int status,HttpServletRequest r){
         assertManageableUser(id,r);

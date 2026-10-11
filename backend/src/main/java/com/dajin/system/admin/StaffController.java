@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 @RequirePermission("staff:manage")
 public class StaffController {
     private static final Pattern USERNAME = Pattern.compile("^[A-Za-z0-9]{4,20}$");
-    private static final Pattern PASSWORD = Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{6,20}$");
+    private static final Pattern PASSWORD = Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{8,72}$");
     private static final Pattern PHONE = Pattern.compile("^1\\d{10}$");
     private final DbSupport db;
     private final SyncWebSocketHandler ws;
@@ -134,7 +134,7 @@ public class StaffController {
         int exists = db.jdbc().queryForObject("select count(*) from sys_user where username=:username and (:exclude is null or user_id<>:exclude)", new MapSqlParameterSource().addValue("username", username).addValue("exclude", excludeId), Integer.class);
         if (exists > 0) throw new BusinessException(409420, "登录账号已存在");
         if (creating && password.isBlank()) throw new BusinessException(400426, "请输入初始密码");
-        if (!password.isBlank() && !PASSWORD.matcher(password).matches()) throw new BusinessException(400427, "密码须为6-20位且同时包含字母和数字");
+        if (!password.isBlank() && !PASSWORD.matcher(password).matches()) throw new BusinessException(400427, "密码须为8-72位且同时包含字母和数字");
         if (!password.isBlank() && !confirm.isBlank() && !password.equals(confirm)) throw new BusinessException(400428, "两次输入的密码不一致");
         if (!phone.isBlank() && !PHONE.matcher(phone).matches()) throw new BusinessException(400429, "请输入正确的11位手机号");
         if (entryDate.isBlank()) entryDate = LocalDate.now().toString();
