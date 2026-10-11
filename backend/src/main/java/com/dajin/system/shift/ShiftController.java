@@ -24,6 +24,7 @@ public class ShiftController {
     private final ObjectMapper objectMapper;
 
     public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws) { this(db, shifts, ws, new ObjectMapper()); }
+    @org.springframework.beans.factory.annotation.Autowired
     public ShiftController(DbSupport db, ShiftService shifts, SyncWebSocketHandler ws, ObjectMapper objectMapper) { this.db = db; this.shifts = shifts; this.ws = ws; this.objectMapper = objectMapper; }
 
     @GetMapping("/info")
