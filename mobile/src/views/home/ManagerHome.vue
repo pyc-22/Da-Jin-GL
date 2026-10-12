@@ -4,7 +4,7 @@
     <p v-if="dashboardError" class="error dashboard-error" role="alert">{{ dashboardError }} <button class="outline" @click="loadManager">重试</button></p>
     <div v-else class="kpi-grid home-kpis">
       <Kpi v-if="auth.can('report:store-performance')" label="今日营业额（实收）" :value="'¥' + money(dashboard?.amount)" @click="openKpiDetail('orders')" />
-      <Kpi v-if="auth.can('report:store-performance')" label="今日订单数" :value="dashboard?.order_count ?? 0" @click="openKpiDetail('orders')" />
+      <Kpi v-if="auth.can('report:store-performance')" label="今日订单（销售 + 加工）" :value="dashboard?.order_count ?? 0" @click="openKpiDetail('orders')" />
       <Kpi v-if="auth.can('report:store-performance')" label="销售克重（含加工补金）" :value="(dashboard?.weight ?? 0) + 'g'" @click="openKpiDetail('weight')" />
       <Kpi v-if="auth.can('report:recycle')" label="回收克重（含加工剩余金）" :value="(recycleData?.weight ?? 0) + 'g'" @click="openKpiDetail('recycle')" />
       <Kpi v-if="auth.can('report:store-performance')" label="客单价" :value="'¥' + money(dashboard?.avg_order)" @click="openKpiDetail('avg')" />

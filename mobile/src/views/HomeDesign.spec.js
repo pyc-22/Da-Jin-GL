@@ -32,6 +32,38 @@ describe('phase two home behavior',()=>{
   expect(wrapper.text()).not.toContain('7日营业额趋势')
   expect(wrapper.findAll('.tabbar button').map(b=>b.text())).toEqual(['首页','单据','加工开单','消息','我的'])
  })
+ it('shows processing orders in the today order detail using the dashboard count and scope',async()=>{
+  state.dashboard.mockResolvedValue({amount:0,order_count:1,salesOrderCount:0,processingOrderCount:1,todayOrderDetails:[{
+   order_type:'PROCESSING',order_no:'JG20261011103925795A7F6',customer_name:'李女士',item_name:'银手镯加工',
+   status:'PENDING',create_time:'2026-10-11 10:39',labor_fee:0,due_amount:0
+  }],trend:[],ranking:[]})
+  await start()
+  const orderKpi=wrapper.findAll('.kpi').find(node=>node.text().includes('今日订单（销售 + 加工）'))
+  expect(orderKpi).toBeTruthy()
+  state.route.path='/manager/kpidetail'
+  await orderKpi.trigger('click');await flushPromises()
+  expect(wrapper.text()).toContain('今日 1 单 · 销售 0 单 + 加工 1 单')
+  expect(wrapper.text()).toContain('加工 · 银手镯加工')
+  expect(wrapper.text()).toContain('JG20261011103925795A7F6 · 李女士 · 10-11 10:39')
+  expect(wrapper.text()).toContain('待完工称重')
+  expect(wrapper.text()).toContain('待确认加工')
+  expect(wrapper.text()).not.toContain('今日暂无明细')
+ })
+ it('labels sales and completed processing rows with their settlement amounts and statuses',async()=>{
+  state.dashboard.mockResolvedValue({amount:1050,order_count:2,salesOrderCount:1,processingOrderCount:1,todayOrderDetails:[
+   {order_type:'SALES',order_no:'XS001',customer_name:'王女士',status:'1',create_time:'2026-10-11 11:00',amount:150},
+   {order_type:'PROCESSING',order_no:'JG002',customer_name:'赵先生',item_name:'戒指改圈',status:'COMPLETED',create_time:'2026-10-11 10:00',labor_fee:900,due_amount:900}
+  ],trend:[],ranking:[]})
+  await start()
+  const orderKpi=wrapper.findAll('.kpi').find(node=>node.text().includes('今日订单（销售 + 加工）'))
+  state.route.path='/manager/kpidetail'
+  await orderKpi.trigger('click');await flushPromises()
+  expect(wrapper.text()).toContain('今日 2 单 · 销售 1 单 + 加工 1 单')
+  expect(wrapper.text()).toContain('实收 ¥150.00')
+  expect(wrapper.text()).toContain('已完成')
+  expect(wrapper.text()).toContain('工费 ¥900.00 · 应收 ¥900.00')
+  expect(wrapper.text()).toContain('待取货')
+ })
  it('uses actual sales performance and only final gold prices',async()=>{
   state.auth.role='SALES';state.route.params={role:'sales',section:'home'}
   await start()

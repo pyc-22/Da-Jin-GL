@@ -71,6 +71,49 @@ class AdminDashboardTests {
         verify(db, never()).one(anyString(), any(SqlParameterSource.class));
     }
 
+    @Test
+    void dashboardReturnsTheSameTodaySalesAndProcessingRowsUsedByItsOrderCount() {
+        DbSupport db = mock(DbSupport.class);
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        when(db.jdbc()).thenReturn(jdbc);
+        when(db.store(any())).thenReturn(1L);
+        when(db.one(anyString(), any(SqlParameterSource.class))).thenReturn(
+                new HashMap<>(Map.of("revenue", BigDecimal.ZERO, "sales_order_count", 0, "sales_weight", BigDecimal.ZERO)));
+        when(db.list(anyString(), any(SqlParameterSource.class))).thenReturn(List.of());
+        when(db.list(contains("today_orders"), any(SqlParameterSource.class))).thenReturn(List.of(Map.of(
+                "order_type", "PROCESSING", "order_no", "JG-TODAY-1", "customer_name", "李女士",
+                "status", "PENDING", "create_time", "2026-10-11 10:39", "labor_fee", BigDecimal.ZERO,
+                "due_amount", BigDecimal.ZERO, "item_name", "银手镯加工")));
+        when(jdbc.queryForObject(anyString(), any(SqlParameterSource.class), any(Class.class))).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Class<?> type = invocation.getArgument(2);
+            if (sql.contains("count(*) from processing_order")) return 1;
+            return type == Integer.class ? 0 : BigDecimal.ZERO;
+        });
+
+        Map<?, ?> data = (Map<?, ?>) new AdminController(db, mock(SyncWebSocketHandler.class), mock(BackupService.class))
+                .dashboard(managerRequest(Set.of("report:store-performance", "report:processing"))).data();
+
+        assertEquals(1, new BigDecimal(String.valueOf(data.get("orderCount"))).intValueExact());
+        assertEquals(0, new BigDecimal(String.valueOf(data.get("salesOrderCount"))).intValueExact());
+        assertEquals(1, new BigDecimal(String.valueOf(data.get("processingOrderCount"))).intValueExact());
+        List<?> details = (List<?>) data.get("todayOrderDetails");
+        assertEquals(1, details.size());
+        assertEquals("PROCESSING", ((Map<?, ?>) details.get(0)).get("order_type"));
+        assertEquals("JG-TODAY-1", ((Map<?, ?>) details.get(0)).get("order_no"));
+
+        var sql = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(db, atLeastOnce()).list(sql.capture(), any(SqlParameterSource.class));
+        String detailsSql = sql.getAllValues().stream().filter(value -> value.contains("today_orders")).findFirst().orElseThrow();
+        assertTrue(detailsSql.contains("'SALES'"));
+        assertTrue(detailsSql.contains("'PROCESSING'"));
+        assertTrue(detailsSql.contains("o.create_time>=:todayStart") && detailsSql.contains("o.create_time<:tomorrow"));
+        assertTrue(detailsSql.contains("w.create_time>=:todayStart") && detailsSql.contains("w.create_time<:tomorrow"));
+        assertTrue(detailsSql.contains("o.status=1 or (o.status=0 and o.pay_amount>0)"));
+        assertTrue(detailsSql.contains("w.status<>'WITHDRAWN'"));
+        assertTrue(detailsSql.contains("m.deleted=0") && detailsSql.contains("wm.deleted=0"));
+    }
+
     private MockHttpServletRequest managerRequest(Set<String> permissions) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute("storeId", 1L);
