@@ -128,6 +128,36 @@ class RepairMysqlTests {
         assertFalse(later.contains("report:monthly"));
     }
 
+    @Test void managerDashboardHandlesDifferentCollationsAcrossSalesAndProcessingOrders() {
+        Map<String, String> originalCollations = new LinkedHashMap<>();
+        for (String column : List.of("customer_name", "item_name_snapshot", "status")) {
+            originalCollations.put(column, jdbc.queryForObject(
+                    "select collation_name from information_schema.columns where table_schema=database() and table_name='processing_order' and column_name=?",
+                    String.class, column));
+        }
+        try {
+            jdbc.execute("alter table processing_order modify customer_name varchar(64) character set utf8mb4 collate utf8mb4_general_ci not null");
+            jdbc.execute("alter table processing_order modify item_name_snapshot varchar(100) character set utf8mb4 collate utf8mb4_general_ci not null");
+            jdbc.execute("alter table processing_order modify status varchar(30) character set utf8mb4 collate utf8mb4_general_ci not null");
+
+            Map<?, ?> data = (Map<?, ?>) new com.dajin.system.admin.AdminController(db, ws, null).dashboard(request).data();
+
+            assertTrue(data.containsKey("todayOrderDetails"));
+            assertNotNull(data.get("todayOrderDetails"));
+        } finally {
+            for (Map.Entry<String, String> entry : originalCollations.entrySet()) {
+                String definition = switch (entry.getKey()) {
+                    case "customer_name" -> "varchar(64)";
+                    case "item_name_snapshot" -> "varchar(100)";
+                    case "status" -> "varchar(30)";
+                    default -> throw new IllegalStateException("Unexpected column " + entry.getKey());
+                };
+                jdbc.execute("alter table processing_order modify " + entry.getKey() + " " + definition
+                        + " character set utf8mb4 collate " + entry.getValue() + " not null");
+            }
+        }
+    }
+
     @Test void approvalPaymentDoesNotChangeRecycleSalesOwnership() {
         jdbc.update("insert into sys_user(user_id,store_id,username,password,real_name,role_id) values(2,1,'sales-a','test','Sales A',7),(3,1,'sales-b','test','Sales B',7)");
         jdbc.update("insert into sys_config(store_id,config_key,config_value) values(1,'recycle_approval_limit','1')");
